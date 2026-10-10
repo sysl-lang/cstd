@@ -1,0 +1,28 @@
+// cstd's Linux half: the C runtime a program written against Linux's aarch64 system-call ABI links
+// — `_start`, the system calls as POSIX functions, `exit` and `atexit`, and `malloc` over `brk`. keel
+// speaks that ABI, so a C program for keel links this; so will a static Linux program.
+//
+// It is a project of its own beside the portable package rather than a module of it, because
+// everything here is a claim about the machine underneath that the portable half must not make: a
+// board has no `svc` to make, and a hosted test links the host's own `write` and `malloc`, which
+// these would replace. The portable half is the one dependency, so one archive holds both:
+//
+//     sysl build-c linux --target aarch64-freestanding -o libcstd.a
+//
+// and a C program is linked against it with the archive's `_start` as its entry.
+
+package {
+  name    = "cstd_linux"
+  version = "0.1.0"
+}
+
+dependencies {
+  cstd { path = ".." }
+}
+
+// The archive is a C runtime: it starts at `_start`, and calls the C program's `main` from there.
+targets {
+  aarch64-freestanding {
+    entry = "_start"
+  }
+}

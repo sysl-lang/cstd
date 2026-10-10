@@ -1,0 +1,41 @@
+module sh.sysl.cstd_linux
+
+// Where a C program starts. Linux hands a new program its stack pointer at the argument block —
+// the count, the argument pointers and a null, the environment pointers and a null, then the
+// auxiliary vector — with every other register undefined. `_start` is the few instructions sysl
+// cannot be: no frame exists yet to save a link register into. It clears the frame chain, hands the
+// block's address to `cstd_start`, and never comes back.
+
+@section(".text._start")
+asm
+    [aarch64]
+        ".globl _start"
+        ".type _start, %function"
+        "_start:"
+        "mov x29, #0"
+        "mov x30, #0"
+        "mov x0, sp"
+        "bl cstd_start"
+        "brk #0"
+    [x86_64, thumb, riscv64, riscv32, craft, wasm32] unavailable "Linux's aarch64 system-call ABI is an aarch64 one"
+
+// The C program's `main`, which this archive calls rather than defines.
+extern "main" program_main(argc: int, argv: **u8, envp: **u8) -> int
+
+// Fills the module storage this archive computes at run time, before anything reads it.
+extern "sysl_init_modules" init_modules()
+
+// The environment, as C keeps it: the zero-ended vector of `NAME=value` strings the kernel laid on
+// the stack. It is null until `cstd_start` points it there.
+@export("environ")
+var environ: **u8 = null
+
+// The argument block read, the storage filled, the program run, and what it answered handed to
+// `exit`, which runs the `atexit` handlers before the process ends.
+@export("cstd_start")
+cstd_start(block: *u64) -> never
+    init_modules()
+    val argc = int(block[0])
+    val argv: **u8 = ptr_cast(&block[1])
+    environ = ptr_cast(&block[usize(argc) + 2])
+    exit(program_main(argc, argv, environ))

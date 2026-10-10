@@ -20,7 +20,7 @@ require, exported under its C name with `@export`.
 | `string.h` | `strlen` `strnlen` `strcmp` `strncmp` `strcpy` `strncpy` `strcat` `strncat` `strchr` `strrchr` `strstr` `strspn` `strcspn` `strpbrk` `strtok` `strtok_r` `strerror` `memcpy` `memmove` `memset` `memcmp` `memchr` |
 | `ctype.h` | `isalnum` `isalpha` `isblank` `iscntrl` `isdigit` `isgraph` `islower` `isprint` `ispunct` `isspace` `isupper` `isxdigit` `tolower` `toupper`, for the C locale |
 | `stdlib.h` | `atoi` `atol` `atof` `strtol` `strtoul` `strtoll` `strtoull` `strtod` `strtof` `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch` |
-| `errno.h` | `errno` (one global, defined by the library), `EINVAL`, `ERANGE` |
+| `errno.h` | `errno` (one global, defined by the library), Linux's codes from `EPERM` to `ETIMEDOUT` |
 | `stdio.h` | `printf` `dprintf` `sprintf` `snprintf` `vprintf` `vdprintf` `vsprintf` `vsnprintf` |
 
 - The printf family takes C99's `%d %i %u %o %x %X %c %s %p %n %%` and `%f %F %e %E %g %G %a %A`,
@@ -52,11 +52,45 @@ require, exported under its C name with `@export`.
 - The `strto*` functions take base 0 or 2–36, skip leading white space, read one sign and an
   optional `0x`, set `endptr`, and saturate with `ERANGE`.
 - `qsort` is a heapsort: O(n log n) on every input, constant stack, any element size, not stable.
-- `strerror` knows `0`, `EINVAL` and `ERANGE`; any other code answers the fixed text
-  `Unknown error`, because formatting the number in would need a formatter.
+- `strerror` knows `0` and every code `errno.h` defines, in glibc's words; any other code answers
+  the fixed text `Unknown error`, because formatting the number in would need a formatter.
 - `strtok` keeps one save pointer for the whole program, as C does; `strtok_r` keeps it in the caller's hands.
 - Text with no number in it, or a base C does not define, sets `EINVAL`, as the BSD libcs do. C
   leaves that case unspecified.
+
+## The Linux half (`linux/`)
+
+A C program for keel, or a static Linux aarch64 program, needs a runtime under it as well:
+`linux/` is a second project (`cstd_linux`, module `sh.sysl.cstd_linux`) depending on this one by
+path, so its archive holds both halves. It is a project of its own because everything in it is a
+claim about the machine underneath — a board has no `svc` to make, and a hosted test links the host's
+own `write` and `malloc`, which these would replace.
+
+| header | functions |
+|---|---|
+| (crt0) | `_start`: reads Linux's initial stack, sets `environ`, calls `sysl_init_modules` and `main(argc, argv, envp)`, then `exit` |
+| `unistd.h` | `read` `write` `close` `lseek` `_exit` `getpid` `getppid` `brk` `sbrk` `dup` `dup2` `pipe` `unlink` `rmdir` `chdir` `getcwd`, `environ` |
+| `fcntl.h` | `open` (variadic, the mode read only under `O_CREAT`/`O_TMPFILE`) `openat`, arm64's flag values |
+| `sys/stat.h` | `stat` `fstat` `mkdir`, the 128-byte asm-generic `struct stat` |
+| `time.h` / `signal.h` | `nanosleep` `clock_gettime` / `kill` |
+| `stdlib.h` | `malloc` `calloc` `realloc` `free` `exit` `_Exit` `atexit` (32 handlers, last first) `abort` (SIGABRT) |
+
+Each call is one `svc #0` (x8 the number, x0–x5 the arguments); an answer from -4095 to -1 sets
+`errno` and answers -1. `errno`'s numbers are Linux's.
+
+`malloc` is `sh.sysl.cstd`'s `Heap` (`heap.sysl`, tested on the host with an array standing in for
+the break) over `brk`: first fit from an address-ordered free list, freed neighbours merged at once,
+16-byte aligned payloads, `realloc` in place where the block can be cut, can take its free
+neighbour, or is the last before the break. **It is not thread-safe**: one heap, no lock, until
+pthreads arrive. A program that moves the break itself after its first `malloc` gets `ENOMEM` from
+a `malloc` that needs to grow.
+
+```
+sysl build-c linux --target aarch64-freestanding -o libcstd.a
+clang --target=aarch64-linux-gnu -ffreestanding -nostdinc -isystem "$(clang -print-resource-dir)/include" \
+      -I <cstd>/include -static -fno-pic -O2 -c prog.c
+ld.lld -static -e _start -o prog prog.o libcstd.a
+```
 
 ## Using it from C
 
@@ -117,10 +151,9 @@ sysl build-lib . --target aarch64-freestanding
 
 ## What is deliberately absent, and why
 
-- **Anything that allocates** (`malloc` and friends, `strdup`). Where the memory comes from is the
-  platform's decision: keel's heap, or a board's static arena. That half arrives with a design for it.
-- **`FILE` and the rest of stdio, `exit`, `setjmp`.** These need a platform underneath (a process, a
-  crt0, buffered streams), so they belong with keel's port layer rather than this portable core.
+- **Allocation and `exit` in the portable half.** Where memory comes from and how a process ends are
+  the platform's: `linux/` answers both for Linux's ABI; a board's arena is still to come.
+- **`FILE` and the rest of stdio, `setjmp`.** Buffered streams are not written yet.
 - **`long double`, `strtold` and `%Lf`.** cstd's floats are `double` and `float` only.
 - **Locales.** Only the C locale exists: every byte from 0x80 up is in no class.
 - **A per-thread `errno`.** Nothing this library serves has threads yet.

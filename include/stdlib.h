@@ -1,5 +1,6 @@
-/* <stdlib.h> from sh.sysl.cstd: the number conversions, abs and div, qsort and bsearch. Nothing
- * that allocates or exits is here yet; see the README for what is deliberately absent. */
+/* <stdlib.h> from sh.sysl.cstd: the number conversions, abs and div, qsort and bsearch everywhere;
+ * the allocator and the exits only in cstd's Linux half (linux/), the runtime a C program for keel
+ * or a static Linux program links. */
 #ifndef CSTD_STDLIB_H
 #define CSTD_STDLIB_H
 
@@ -33,6 +34,18 @@ lldiv_t lldiv(long long n, long long d);
 void qsort(void *base, size_t n, size_t size, int (*cmp)(const void *, const void *));
 void *bsearch(const void *key, const void *base, size_t n, size_t size,
               int (*cmp)(const void *, const void *));
+
+#define EXIT_SUCCESS 0
+#define EXIT_FAILURE 1
+
+void *malloc(size_t n);
+void *calloc(size_t count, size_t size);
+void *realloc(void *p, size_t n);
+void free(void *p);
+_Noreturn void exit(int status);
+_Noreturn void _Exit(int status);
+_Noreturn void abort(void);
+int atexit(void (*fn)(void));
 
 #ifdef __cplusplus
 }

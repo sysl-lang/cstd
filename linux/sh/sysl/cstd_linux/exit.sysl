@@ -1,0 +1,43 @@
+module sh.sysl.cstd_linux
+
+// How a process ends: `exit` runs what `atexit` registered, last first, and then ends every thread
+// with `exit_group`; `_exit` and `_Exit` skip the handlers; `abort` sends the process SIGABRT.
+
+// How many handlers `atexit` keeps. C requires room for at least 32.
+const ATEXIT_MAX: usize = 32
+
+private var handlers: [ATEXIT_MAX]*extern() -> unit
+private var registered: usize = 0
+
+@export("atexit")
+atexit(f: *extern() -> unit) -> i32
+    if registered == ATEXIT_MAX then return -1
+    handlers[registered] = f
+    registered += 1
+    0
+
+// Each handler runs once, even one that calls `exit` again: it is taken off the list before it is
+// called.
+@export("exit")
+exit(status: i32) -> never
+    while registered > 0
+        registered -= 1
+        handlers[registered]()
+    _exit(status)
+
+@export("_exit")
+_exit(status: i32) -> never
+    loop
+        svc(SYS_EXIT_GROUP, u64(i64(status)), 0, 0, 0, 0, 0)
+
+@export("_Exit")
+c_Exit(status: i32) -> never = _exit(status)
+
+// SIGABRT ends the process unless it is caught or blocked; if it comes back, the process ends
+// anyway, with the status a shell reports for SIGABRT.
+const SIGABRT: u64 = 6
+
+@export("abort")
+abort() -> never
+    call(SYS_KILL, u64(call(SYS_GETPID)), SIGABRT)
+    _exit(128 + 6)

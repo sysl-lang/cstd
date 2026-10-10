@@ -1,0 +1,99 @@
+module sh.sysl.cstd_linux
+
+// `<unistd.h>`, `<fcntl.h>`, `<sys/stat.h>`, `<signal.h>` and `<time.h>`'s calls, each one Linux
+// system call with C's convention over it (`checked`): an error sets `errno` and answers -1. The
+// path calls are the `*at` forms against the working directory, aarch64 having no others.
+
+@export("read")
+read(fd: i32, buf: *u8, n: usize) -> isize = isize(checked(call(SYS_READ, u64(i64(fd)), addr(buf), u64(n))))
+
+@export("write")
+write(fd: i32, buf: *u8, n: usize) -> isize = isize(checked(call(SYS_WRITE, u64(i64(fd)), addr(buf), u64(n))))
+
+@export("close")
+close(fd: i32) -> i32 = i32(checked(call(SYS_CLOSE, u64(i64(fd)))))
+
+@export("lseek")
+lseek(fd: i32, offset: i64, whence: i32) -> i64 = checked(call(SYS_LSEEK, u64(i64(fd)), u64(offset), u64(i64(whence))))
+
+// The flags that create a file, and so the only ones under which `open` reads a mode: a caller
+// creating nothing passes no third argument, and C does not let `open` read one it was not given.
+const O_CREAT: i32 = 0x40
+const O_TMPFILE: i32 = 0x410000
+
+private open_mode(flags: i32, ap: *va_list) -> u64
+    if (flags & O_CREAT) == 0 && (flags & O_TMPFILE) != O_TMPFILE then return 0
+    u64(va_arg[u32](*ap))
+
+@export("openat")
+openat(dirfd: i32, path: *u8, flags: i32, ...) -> i32
+    var ap: va_list
+    va_start(ap)
+    val mode = open_mode(flags, &ap)
+    va_end(ap)
+    i32(checked(call(SYS_OPENAT, u64(i64(dirfd)), addr(path), u64(i64(flags)), mode)))
+
+@export("open")
+open(path: *u8, flags: i32, ...) -> i32
+    var ap: va_list
+    va_start(ap)
+    val mode = open_mode(flags, &ap)
+    va_end(ap)
+    i32(checked(call(SYS_OPENAT, u64(AT_FDCWD), addr(path), u64(i64(flags)), mode)))
+
+@export("getpid")
+getpid() -> i32 = i32(call(SYS_GETPID))
+
+@export("getppid")
+getppid() -> i32 = i32(call(SYS_GETPPID))
+
+@export("dup")
+dup(fd: i32) -> i32 = i32(checked(call(SYS_DUP, u64(i64(fd)))))
+
+// aarch64 has `dup3` and no `dup2`, and `dup3` refuses the two descriptors being one, where `dup2`
+// answers the descriptor if it is open. Whether it is open is what `fstat` says.
+@export("dup2")
+dup2(fd: i32, to: i32) -> i32
+    if fd == to
+        var st: [16]u64
+        if checked(call(SYS_FSTAT, u64(i64(fd)), u64(usize(&st[0])))) < 0 then return -1
+        return to
+    i32(checked(call(SYS_DUP3, u64(i64(fd)), u64(i64(to)), 0)))
+
+@export("pipe")
+pipe(fds: *i32) -> i32 = i32(checked(call(SYS_PIPE2, u64(usize(fds)), 0)))
+
+@export("unlink")
+unlink(path: *u8) -> i32 = i32(checked(call(SYS_UNLINKAT, u64(AT_FDCWD), addr(path), 0)))
+
+@export("rmdir")
+rmdir(path: *u8) -> i32 = i32(checked(call(SYS_UNLINKAT, u64(AT_FDCWD), addr(path), AT_REMOVEDIR)))
+
+@export("mkdir")
+mkdir(path: *u8, mode: u32) -> i32 = i32(checked(call(SYS_MKDIRAT, u64(AT_FDCWD), addr(path), u64(mode))))
+
+@export("chdir")
+chdir(path: *u8) -> i32 = i32(checked(call(SYS_CHDIR, addr(path))))
+
+// The kernel answers the length it wrote; C answers the buffer.
+@export("getcwd")
+getcwd(buf: *u8, size: usize) -> *u8
+    if checked(call(SYS_GETCWD, addr(buf), u64(size))) < 0 then return null
+    buf
+
+// `struct stat` is the 128-byte asm-generic one, laid out in `<sys/stat.h>`; the kernel fills it.
+@export("fstat")
+fstat(fd: i32, st: *u8) -> i32 = i32(checked(call(SYS_FSTAT, u64(i64(fd)), addr(st))))
+
+@export("stat")
+stat(path: *u8, st: *u8) -> i32 = i32(checked(call(SYS_NEWFSTATAT, u64(AT_FDCWD), addr(path), addr(st))))
+
+@export("kill")
+kill(pid: i32, sig: i32) -> i32 = i32(checked(call(SYS_KILL, u64(i64(pid)), u64(i64(sig)))))
+
+// `struct timespec` is two 64-bit words, seconds and nanoseconds.
+@export("nanosleep")
+nanosleep(req: *u8, rem: *u8) -> i32 = i32(checked(call(SYS_NANOSLEEP, addr(req), addr(rem))))
+
+@export("clock_gettime")
+clock_gettime(clock: i32, ts: *u8) -> i32 = i32(checked(call(SYS_CLOCK_GETTIME, u64(i64(clock)), addr(ts))))

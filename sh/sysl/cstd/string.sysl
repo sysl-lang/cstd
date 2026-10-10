@@ -196,12 +196,60 @@ private var strtok_save: *u8 = null
 @export("strtok")
 strtok(s: *u8, delim: *u8) -> *u8 = strtok_r(s, delim, &strtok_save)
 
-// The message for an errno value: `Success` for 0 and one line for each code `errno.sysl` defines.
-// Any other number gets the fixed text `Unknown error`, without the number — a C library would
-// format it in, and nothing here may depend on a formatter.
+// The message for an errno value: `Success` for 0 and one line for each code `errno.sysl` defines,
+// in glibc's words. Any other number gets the fixed text `Unknown error`, without the number — a C
+// library would format it in, and nothing here may depend on a formatter. Every message is a
+// literal, so the pointer is to text that ends in a NUL and lives as long as the program.
 @export("strerror")
-strerror(code: i32) -> *u8
-    if code == 0 then return as_ptr("Success".bytes)
-    if code == EINVAL then return as_ptr("Invalid argument".bytes)
-    if code == ERANGE then return as_ptr("Numerical result out of range".bytes)
-    as_ptr("Unknown error".bytes)
+strerror(code: i32) -> *u8 = as_ptr(message(code).bytes)
+
+private message(code: i32) -> string = code match
+    0 -> "Success"
+    EPERM -> "Operation not permitted"
+    ENOENT -> "No such file or directory"
+    ESRCH -> "No such process"
+    EINTR -> "Interrupted system call"
+    EIO -> "Input/output error"
+    ENXIO -> "No such device or address"
+    E2BIG -> "Argument list too long"
+    ENOEXEC -> "Exec format error"
+    EBADF -> "Bad file descriptor"
+    ECHILD -> "No child processes"
+    EAGAIN -> "Resource temporarily unavailable"
+    ENOMEM -> "Cannot allocate memory"
+    EACCES -> "Permission denied"
+    EFAULT -> "Bad address"
+    ENOTBLK -> "Block device required"
+    EBUSY -> "Device or resource busy"
+    EEXIST -> "File exists"
+    EXDEV -> "Invalid cross-device link"
+    ENODEV -> "No such device"
+    ENOTDIR -> "Not a directory"
+    EISDIR -> "Is a directory"
+    EINVAL -> "Invalid argument"
+    ENFILE -> "Too many open files in system"
+    EMFILE -> "Too many open files"
+    ENOTTY -> "Inappropriate ioctl for device"
+    ETXTBSY -> "Text file busy"
+    EFBIG -> "File too large"
+    ENOSPC -> "No space left on device"
+    ESPIPE -> "Illegal seek"
+    EROFS -> "Read-only file system"
+    EMLINK -> "Too many links"
+    EPIPE -> "Broken pipe"
+    EDOM -> "Numerical argument out of domain"
+    ERANGE -> "Numerical result out of range"
+    EDEADLK -> "Resource deadlock avoided"
+    ENAMETOOLONG -> "File name too long"
+    ENOLCK -> "No locks available"
+    ENOSYS -> "Function not implemented"
+    ENOTEMPTY -> "Directory not empty"
+    ELOOP -> "Too many levels of symbolic links"
+    EOVERFLOW -> "Value too large for defined data type"
+    EILSEQ -> "Invalid or incomplete multibyte or wide character"
+    ENOTSOCK -> "Socket operation on non-socket"
+    EDESTADDRREQ -> "Destination address required"
+    EOPNOTSUPP -> "Operation not supported"
+    EAFNOSUPPORT -> "Address family not supported by protocol"
+    ETIMEDOUT -> "Connection timed out"
+    _ -> "Unknown error"

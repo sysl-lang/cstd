@@ -1,0 +1,66 @@
+module sh.sysl.cstd_linux
+
+// The one way into the kernel: Linux's aarch64 convention, `svc #0` with the call's number in x8,
+// up to six arguments in x0–x5, and the answer in x0. An answer from -4095 to -1 is an error, the
+// negated errno; anything else is the call's result. Every other register is preserved.
+
+import sh.sysl.cstd.errno
+
+// The numbers, from `include/uapi/asm-generic/unistd.h` (arm64 has no table of its own).
+const SYS_GETCWD: u64 = 17
+const SYS_DUP: u64 = 23
+const SYS_DUP3: u64 = 24
+const SYS_MKDIRAT: u64 = 34
+const SYS_UNLINKAT: u64 = 35
+const SYS_CHDIR: u64 = 49
+const SYS_OPENAT: u64 = 56
+const SYS_CLOSE: u64 = 57
+const SYS_PIPE2: u64 = 59
+const SYS_LSEEK: u64 = 62
+const SYS_READ: u64 = 63
+const SYS_WRITE: u64 = 64
+const SYS_NEWFSTATAT: u64 = 79
+const SYS_FSTAT: u64 = 80
+const SYS_EXIT: u64 = 93
+const SYS_EXIT_GROUP: u64 = 94
+const SYS_NANOSLEEP: u64 = 101
+const SYS_CLOCK_GETTIME: u64 = 113
+const SYS_KILL: u64 = 129
+const SYS_GETPID: u64 = 172
+const SYS_GETPPID: u64 = 173
+const SYS_BRK: u64 = 214
+
+// The directory a relative path is read against, for the `*at` calls.
+const AT_FDCWD: i64 = -100
+const AT_REMOVEDIR: u64 = 0x200
+
+// The raw call: the kernel's answer exactly as it came back.
+svc(nr: u64, a0: u64, a1: u64, a2: u64, a3: u64, a4: u64, a5: u64) -> i64
+    var r: i64 = 0
+    asm
+        [aarch64]
+            "svc #0"
+            in nr : "x8"
+            in a0 : "x0"
+            in a1 : "x1"
+            in a2 : "x2"
+            in a3 : "x3"
+            in a4 : "x4"
+            in a5 : "x5"
+            out r : "x0"
+        [x86_64, thumb, riscv64, riscv32, craft, wasm32] unavailable "Linux's aarch64 system-call ABI is an aarch64 one"
+    r
+
+// The calls of up to four arguments, which is every one cstd makes; a left-out argument is 0.
+call(nr: u64, a0: u64 = 0, a1: u64 = 0, a2: u64 = 0, a3: u64 = 0) -> i64 = svc(nr, a0, a1, a2, a3, 0, 0)
+
+// C's convention over the kernel's: an error answer sets `errno` to its number and answers -1;
+// anything else is answered as it is.
+checked(r: i64) -> i64
+    if r < 0 && r > -4096
+        errno = i32(-r)
+        return -1
+    r
+
+// A pointer, as the kernel takes one.
+addr(p: *u8) -> u64 = u64(usize(p))

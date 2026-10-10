@@ -1,15 +1,62 @@
 module sh.sysl.cstd
 
-// `<errno.h>`: the one `errno` and the codes this library sets.
+// `<errno.h>`: the one `errno` and the codes.
 //
 // `errno` is module storage exported as C data, so a C program's `errno` and the one `strtol`
 // writes are a single object. It is one global rather than one per thread, because nothing this
 // library serves yet has threads; a kernel that grows them will move it.
+//
+// The numbers are Linux's (`asm-generic/errno-base.h` and `asm-generic/errno.h`), because the system
+// calls cstd makes are Linux's and a call's negated answer is one of these. EINVAL and ERANGE, the
+// two the target-independent half sets, are the BSDs' numbers too, so a hosted test reads the same.
 
 @export("errno")
 var errno: i32 = 0
 
-// The numbers are Linux's and the BSDs' alike for these two, so a ported program that prints one
-// prints what it would have printed at home.
+const EPERM: i32 = 1
+const ENOENT: i32 = 2
+const ESRCH: i32 = 3
+const EINTR: i32 = 4
+const EIO: i32 = 5
+const ENXIO: i32 = 6
+const E2BIG: i32 = 7
+const ENOEXEC: i32 = 8
+const EBADF: i32 = 9
+const ECHILD: i32 = 10
+const EAGAIN: i32 = 11
+const ENOMEM: i32 = 12
+const EACCES: i32 = 13
+const EFAULT: i32 = 14
+const ENOTBLK: i32 = 15
+const EBUSY: i32 = 16
+const EEXIST: i32 = 17
+const EXDEV: i32 = 18
+const ENODEV: i32 = 19
+const ENOTDIR: i32 = 20
+const EISDIR: i32 = 21
 const EINVAL: i32 = 22
+const ENFILE: i32 = 23
+const EMFILE: i32 = 24
+const ENOTTY: i32 = 25
+const ETXTBSY: i32 = 26
+const EFBIG: i32 = 27
+const ENOSPC: i32 = 28
+const ESPIPE: i32 = 29
+const EROFS: i32 = 30
+const EMLINK: i32 = 31
+const EPIPE: i32 = 32
+const EDOM: i32 = 33
 const ERANGE: i32 = 34
+const EDEADLK: i32 = 35
+const ENAMETOOLONG: i32 = 36
+const ENOLCK: i32 = 37
+const ENOSYS: i32 = 38
+const ENOTEMPTY: i32 = 39
+const ELOOP: i32 = 40
+const EOVERFLOW: i32 = 75
+const EILSEQ: i32 = 84
+const ENOTSOCK: i32 = 88
+const EDESTADDRREQ: i32 = 89
+const EOPNOTSUPP: i32 = 95
+const EAFNOSUPPORT: i32 = 97
+const ETIMEDOUT: i32 = 110

@@ -581,6 +581,11 @@ strerror_messages()
         say_str(strerror(0));
         say_str(strerror(EINVAL));
         say_str(strerror(ERANGE));
+        say_str(strerror(ENOENT));
+        say_str(strerror(EBADF));
+        say_str(strerror(ENOMEM));
+        say_str(strerror(ETIMEDOUT));
+        say_str(strerror(41));
         say_str(strerror(9999));
         say_str(strerror(-1));
         say_str(strerror(1000000));
@@ -593,6 +598,11 @@ strerror_messages()
         Success
         Invalid argument
         Numerical result out of range
+        No such file or directory
+        Bad file descriptor
+        Cannot allocate memory
+        Connection timed out
+        Unknown error
         Unknown error
         Unknown error
         Unknown error

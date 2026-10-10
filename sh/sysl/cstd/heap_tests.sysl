@@ -1,0 +1,175 @@
+module sh.sysl.cstd
+
+@tests
+
+// The allocator behind `malloc`, driven on the host with an array standing in for `brk`: `Arena`
+// hands the heap more of the array exactly as a break moving up would, and counts how often it was
+// asked, so a test can say that a request was met without the heap growing.
+
+private const ARENA_WORDS: usize = 16384
+
+private struct Arena
+    words: [ARENA_WORDS]u64
+    base: usize
+    end: usize
+    grows: usize
+
+private arena() -> Arena
+    var a: Arena
+    a
+
+// Where the arena's usable memory begins: its first 16-byte boundary.
+private open(a: *Arena)
+    a.base = (usize(&a.words[0]) + 15) & ~15
+    a.end = usize(&a.words[0]) + ARENA_WORDS * 8
+
+// `malloc`'s loop, with the arena as the break: try, and when nothing fits, move `top` by the
+// shortfall rounded to 16 bytes and try again. Null when the arena is spent.
+private take(h: *Heap, a: *Arena, n: usize) -> *u8
+    loop
+        val p = h.alloc(n)
+        if p != null then return p
+        val more = h.shortfall(n)
+        if more == 0 then return null
+        val from = if h.top == 0 then a.base else h.top
+        val to = from + ((more + 15) & ~15)
+        if to > a.end then return null
+        h.grow(from, to)
+        a.grows += 1
+
+private fill(p: *u8, n: usize, seed: u8)
+    for i in 0..<n do p[i] = seed + u8(i % 251)
+
+private holds(p: *u8, n: usize, seed: u8) -> bool
+    for i in 0..<n
+        if p[i] != seed + u8(i % 251) then return false
+    true
+
+@test("every payload is 16-byte aligned and holds what was asked, the empty request included")
+heap_aligns()
+    var a = arena()
+    open(&a)
+    var h = Heap(0, 0, 0)
+    for n in [0usize, 1, 7, 15, 16, 17, 31, 33, 100, 1000]
+        val p = take(&h, &a, n)
+        assert(p != null)
+        assert_eq(usize(p) % 16, 0)
+        assert(h.usable(p) >= n)
+        fill(p, n, 3)
+        assert(holds(p, n, 3))
+
+@test("a freed block is reused for the next request of its size, with no growth")
+heap_reuses()
+    var a = arena()
+    open(&a)
+    var h = Heap(0, 0, 0)
+    val p = take(&h, &a, 100)
+    val q = take(&h, &a, 100)
+    h.release(p)
+    val grows = a.grows
+    val r = take(&h, &a, 100)
+    assert_eq(usize(r), usize(p))
+    assert_eq(a.grows, grows)
+    h.release(q)
+    h.release(r)
+
+// The coalescing the allocator promises: three neighbours freed in an order that needs both merges
+// (the middle last, so it joins the block before it and the one after it at once) leave one block,
+// and a request for all three together is met from it without moving the break.
+@test("adjacent free blocks are merged both ways, so their sum is allocatable without growth")
+heap_coalesces()
+    var a = arena()
+    open(&a)
+    var h = Heap(0, 0, 0)
+    val p = take(&h, &a, 240)
+    val q = take(&h, &a, 240)
+    val r = take(&h, &a, 240)
+    val guard = take(&h, &a, 16)
+    h.release(p)
+    h.release(r)
+    assert_eq(h.free_blocks(), 2)
+    h.release(q)
+    assert_eq(h.free_blocks(), 1)
+    assert_eq(h.free_bytes(), 3 * 256)
+    val grows = a.grows
+    val big = take(&h, &a, 3 * 256 - 16)
+    assert_eq(usize(big), usize(p))
+    assert_eq(a.grows, grows)
+    h.release(big)
+    h.release(guard)
+    assert_eq(h.free_blocks(), 1)
+    assert_eq(h.free_bytes(), h.top - h.start)
+
+@test("resize shrinks in place and frees the tail, and grows in place into a free neighbour")
+heap_resizes_in_place()
+    var a = arena()
+    open(&a)
+    var h = Heap(0, 0, 0)
+    val p = take(&h, &a, 400)
+    val q = take(&h, &a, 400)
+    val guard = take(&h, &a, 16)
+    fill(p, 400, 9)
+    assert(h.resize(p, 100))
+    assert(holds(p, 100, 9))
+    assert(h.usable(p) < 400)
+    h.release(q)
+    assert(h.resize(p, 700))
+    assert(holds(p, 100, 9))
+    assert(h.usable(p) >= 700)
+    assert(!h.resize(p, 2000))
+    assert_eq(h.resize_shortfall(p, 2000), 0)
+    h.release(p)
+    h.release(guard)
+    assert_eq(h.free_blocks(), 1)
+
+@test("the last block grows in place once the break moves by the resize's shortfall")
+heap_resizes_at_the_top()
+    var a = arena()
+    open(&a)
+    var h = Heap(0, 0, 0)
+    val p = take(&h, &a, 64)
+    fill(p, 64, 1)
+    val more = h.resize_shortfall(p, 4000)
+    assert(more > 0)
+    h.grow(h.top, h.top + ((more + 15) & ~15))
+    assert(h.resize(p, 4000))
+    assert(holds(p, 64, 1))
+    assert(h.usable(p) >= 4000)
+
+@test("a request too large to be a block answers null and asks for no memory")
+heap_refuses_the_impossible()
+    var h = Heap(0, 0, 0)
+    assert(h.alloc(usize::Max) == null)
+    assert_eq(h.shortfall(usize::Max), 0)
+    assert_eq(h.shortfall(usize::Max - 8), 0)
+
+// Many blocks of many sizes, freed and resized in a scrambled order: each keeps its own bytes, and
+// once all are freed the heap is one free block again.
+@test("three thousand blocks of mixed sizes keep their bytes and coalesce back to one")
+heap_survives_churn()
+    var a = arena()
+    open(&a)
+    var h = Heap(0, 0, 0)
+    var ptrs: [3000]*u8
+    var sizes: [3000]usize
+    var seed: u64 = 12345
+    for i in 0..<3000
+        seed = seed * 6364136223846793005 + 1442695040888963407
+        val n = usize((seed >> 33) % 40)
+        val p = take(&h, &a, n)
+        assert(p != null)
+        fill(p, n, u8(i % 200))
+        ptrs[i] = p
+        sizes[i] = n
+        if i % 3 == 2
+            val k = i - 1
+            h.release(ptrs[k])
+            ptrs[k] = null
+    for i in 0..<3000
+        if ptrs[i] != null
+            assert(holds(ptrs[i], sizes[i], u8(i % 200)))
+            if i % 2 == 0 then h.release(ptrs[i])
+    for i in 0..<3000
+        if ptrs[i] != null && i % 2 == 1 then h.release(ptrs[i])
+    assert_eq(h.free_blocks(), 1)
+    assert_eq(h.free_bytes(), h.top - h.start)
