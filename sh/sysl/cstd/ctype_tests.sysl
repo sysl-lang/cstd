@@ -1,0 +1,61 @@
+module sh.sysl.cstd
+
+@tests
+
+// `<ctype.h>`, called from C, over every argument C allows: `EOF` (-1) and 0 to 255.
+//
+// `say_class` prints the arguments a classifier says yes to as ranges, so each case states the
+// whole table — EOF and every byte from 0x80 up being in no class is checked by their absence.
+// A yes that is anything but 1 would print with a `!`, as this library promises 1.
+
+@test("the digit and letter classes")
+ctype_letters_and_digits()
+    c_case(raw"""
+        say_class(isdigit);
+        say_class(isxdigit);
+        say_class(isupper);
+        say_class(islower);
+        say_class(isalpha);
+        say_class(isalnum);
+        """, raw"""
+        48-57
+        48-57,65-70,97-102
+        65-90
+        97-122
+        65-90,97-122
+        48-57,65-90,97-122
+        """)
+
+@test("the white space, control, printing and punctuation classes")
+ctype_the_rest()
+    c_case(raw"""
+        say_class(isspace);
+        say_class(isblank);
+        say_class(iscntrl);
+        say_class(isprint);
+        say_class(isgraph);
+        say_class(ispunct);
+        """, raw"""
+        9-13,32
+        9,32
+        0-31,127
+        32-126
+        33-126
+        33-47,58-64,91-96,123-126
+        """)
+
+@test("tolower and toupper move only the ASCII letters, and leave EOF and 0x80 up alone")
+ctype_case_mapping()
+    c_case(raw"""
+        say_mapping(tolower);
+        say_mapping(toupper);
+        say_int(tolower(-1));
+        say_int(toupper(-1));
+        say_int(toupper(0xe0));
+        """, raw"""
+        65-90:+32
+        97-122:-32
+        -1
+        -1
+        224
+        """)

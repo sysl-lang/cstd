@@ -5,6 +5,9 @@ never worked around here.
 
 ## 1. On a hosted target, a function exported under a C runtime name compiles into a call to itself (bug)
 
+**Fixed in sysl 0.1.0-alpha.7.** On a hosted target, `_strlen` now compiles to a byte loop and
+`_memset` to a store loop. The first two cases in `string_tests.sysl` are the regression tests.
+
     module mylib
 
     @export("strlen")

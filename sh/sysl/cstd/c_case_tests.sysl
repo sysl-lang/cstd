@@ -14,10 +14,18 @@ module sh.sysl.cstd
 // which reach the host for nothing but `write`. It is compiled `-fno-builtin -O0`: clang folds
 // `strlen("hello")` to 5 otherwise, and the call that was meant to be tested is never made.
 
+// **The same cases run under AddressSanitizer** with the command the org runs every package under,
+// `SYSL_EXTRA_CFLAGS="-fsanitize=address -g" sysl test .`: the variable reaches the `sysl build-c`
+// below through the environment, and `c_case` hands the same flags to the clang that builds each
+// case, so the archive and every program linked against it are instrumented together.
+
+import sysl.buf.{Buf, buf}
+import sysl.env.get_or
 import sysl.fs.{make_dir, make_dir_all, read_text, remove_dir, remove_file, write_text}
 import sysl.posix.time.sleep
-import sysl.process.capture
-import sysl.text.Search
+import sysl.process.{Output, capture}
+import sysl.testing.skip
+import sysl.text.{Search, split}
 import sysl.time.millis
 
 private extern "getppid" c_ppid() -> i32
@@ -68,14 +76,14 @@ private[cstd] archive() -> string
     lib
 end archive
 
-/** Compile `snippet` as the body of `int main(void)`, run it, and check that it printed exactly
- * `expected`.
+/** Compile `snippet` as the body of `int main(void)`, run it, and answer what it printed and how it
+ * ended.
  *
  * The program is built the way the README tells a consumer to build one — `-nostdinc`, clang's own
  * freestanding headers, then `include/` — so a case cannot reach a host header by accident, and a
  * declaration cstd's headers get wrong is a compile error here.
  */
-private[cstd] c_case(snippet: string, expected: string)
+private[cstd] c_run(snippet: string) -> Output
     val lib = archive()
     val res = read_text(f"$work/resource-dir").unwrap()
     cases += 1
@@ -83,14 +91,58 @@ private[cstd] c_case(snippet: string, expected: string)
     val source = f"#include \"say.h\"\n\nint main(void) {\n$snippet\n    return 0;\n}\n"
     write_text(f"$name.c", source).unwrap()
 
-    val compiled = capture("clang", ["-std=c11", "-O0", "-fno-builtin", "-nostdinc",
-                                     "-isystem", f"$res/include", "-I", "include", "-I", "tests",
-                                     f"$name.c", lib, "-o", name], stderr = true).unwrap()
+    var args: Buf[string] = buf()
+    for a in ["-std=c11", "-O0", "-fno-builtin", "-nostdinc", "-isystem", f"$res/include",
+              "-I", "include", "-I", "tests", f"$name.c", lib, "-o", name]
+        args.push(a)
+    for flag in extra_cflags() do args.push(flag)
+
+    val compiled = capture("clang", args.view(), stderr = true).unwrap()
     if !compiled.status.ok() then fail_with(f"clang refused the case:\n$source", compiled.err.unwrap_or(""))
 
     val ran = capture(name, timeout = 10000, stderr = true).unwrap()
     remove_file(f"$name.c")
     remove_file(name)
-    if !ran.status.ok() then fail_with(f"the case did not exit 0 (${ran.status})", ran.text)
+    ran
+end c_run
+
+// `c_run`, and the check that the program exited 0 having printed exactly `expected`.
+private[cstd] c_case(snippet: string, expected: string)
+    val ran = c_run(snippet)
+    if !ran.status.ok()
+        val err = ran.err.unwrap_or("")
+        fail_with(f"the case did not exit 0 (${ran.status})", f"${ran.text}$err")
     assert_eq(ran.text, expected)
-end c_case
+
+// The words of `SYSL_EXTRA_CFLAGS`, which is what the compiler splices into every clang it drives.
+private extra_cflags() -> Buf[string]
+    var flags: Buf[string] = buf()
+    for word in split(get_or("SYSL_EXTRA_CFLAGS", ""), " ")
+        if word != "" then flags.push(word)
+    flags
+
+// A green run under ASan means nothing unless cstd's own functions were instrumented: the runtime
+// alone brings `__asan_init`, and only an instrumented function calls a `__asan_report_*`.
+@test("under -fsanitize=address, the archive's functions are instrumented")
+asan_instruments_the_archive()
+    if !get_or("SYSL_EXTRA_CFLAGS", "").contains("-fsanitize=address")
+        skip("SYSL_EXTRA_CFLAGS does not ask for AddressSanitizer")
+    val undefined = capture("nm", ["-u", archive()]).unwrap()
+    assert(undefined.status.ok())
+    assert(undefined.text.contains("___asan_report_load1"))
+    assert(undefined.text.contains("___asan_report_store1"))
+
+// And the instrumentation has to be able to say no: `strlen` over a buffer with no NUL in it reads
+// past the end inside cstd, and ASan names the function.
+@test("under -fsanitize=address, an over-read inside cstd's strlen is reported")
+asan_reports_an_over_read()
+    if !get_or("SYSL_EXTRA_CFLAGS", "").contains("-fsanitize=address")
+        skip("SYSL_EXTRA_CFLAGS does not ask for AddressSanitizer")
+    val ran = c_run(raw"""
+        char b[3] = {1, 2, 3};
+        say_uint(strlen(b));
+        """)
+    val report = ran.err.unwrap_or("")
+    assert(!ran.status.ok())
+    assert(report.contains("AddressSanitizer: stack-buffer-overflow"))
+    assert(report.contains(" in strlen"))

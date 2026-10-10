@@ -6,7 +6,8 @@ module sh.sysl.cstd
 //
 // **A function that writes memory is checked on the bytes it wrote, not on its return value alone.**
 // Each such case prints the whole buffer, with a guard byte either side of the span the call was
-// given, so a write one past the end — or one short of it — shows up as a changed guard.
+// given, so a write one past the end — or one short of it — shows up as a changed guard. `say_bytes`
+// prints a byte that is not printable as its hex in brackets, so `[00]` is a NUL.
 
 // FINDINGS §1: on a hosted target, sysl 0.1.0-alpha.6 compiled the exported `strlen` into a bare
 // `ret` and `memset` into a call to itself. These two are the cases that saw it.
@@ -23,3 +24,431 @@ memset_returns()
         say_ptr_eq(memset(b, 'z', 3), b);
         say_bytes(b, 4);
         """, "1\nzzz[00]\n")
+
+@test("strlen stops at the first NUL and counts bytes from 0x80 up")
+strlen_edges()
+    c_case(raw"""
+        say_uint(strlen(""));
+        say_uint(strlen("a\0bc"));
+        say_uint(strlen("\xff\x80x"));
+        """, raw"""
+        0
+        1
+        3
+        """)
+
+@test("strcmp orders by unsigned byte, and a prefix sorts first")
+strcmp_orders()
+    c_case(raw"""
+        say_sign(strcmp("", ""));
+        say_sign(strcmp("abc", "abc"));
+        say_sign(strcmp("abc", "abd"));
+        say_sign(strcmp("abd", "abc"));
+        say_sign(strcmp("ab", "abc"));
+        say_sign(strcmp("abc", "ab"));
+        say_sign(strcmp("", "a"));
+        say_sign(strcmp("\x80", "\x7f"));
+        say_sign(strcmp("a\x01", "a\xff"));
+        """, raw"""
+        0
+        0
+        -1
+        1
+        -1
+        1
+        -1
+        1
+        -1
+        """)
+
+@test("strncmp compares at most n bytes and stops at a NUL")
+strncmp_bounds()
+    c_case(raw"""
+        say_sign(strncmp("abc", "abd", 2));
+        say_sign(strncmp("abc", "abd", 3));
+        say_sign(strncmp("abc", "xyz", 0));
+        say_sign(strncmp("ab", "abc", 3));
+        say_sign(strncmp("abc\0x", "abc\0y", 5));
+        say_sign(strncmp("\x80", "\x7f", 1));
+        say_sign(strncmp("\x7f", "\x80", 9));
+        """, raw"""
+        0
+        -1
+        0
+        -1
+        0
+        1
+        -1
+        """)
+
+@test("memcmp reads past NULs, by unsigned byte, and n = 0 is equal")
+memcmp_bytes()
+    c_case(raw"""
+        say_sign(memcmp("a\0b", "a\0c", 3));
+        say_sign(memcmp("abc", "abc", 3));
+        say_sign(memcmp("abd", "abc", 3));
+        say_sign(memcmp("abc", "xyz", 0));
+        say_sign(memcmp("\x80", "\x7f", 1));
+        say_sign(memcmp("\x01", "\xff", 1));
+        """, raw"""
+        -1
+        0
+        1
+        0
+        1
+        -1
+        """)
+
+@test("memset writes exactly n bytes of (unsigned char)c and returns dst")
+memset_bytes()
+    c_case(raw"""
+        char b[] = "abcdefgh";
+        say_ptr_eq(memset(b + 1, 'x', 3), b + 1);
+        say_bytes(b, sizeof b);
+        char c[] = "<....>";
+        memset(c + 1, 0x141, 4);
+        say_bytes(c, sizeof c);
+        say_ptr_eq(memset(c + 1, 'z', 0), c + 1);
+        say_bytes(c, sizeof c);
+        memset(c + 1, 0xff, 4);
+        say_bytes(c, sizeof c);
+        memset(c + 2, -1, 1);
+        say_bytes(c, sizeof c);
+        memset(c + 1, 0, 4);
+        say_bytes(c, sizeof c);
+        """, raw"""
+        1
+        axxxefgh[00]
+        <AAAA>[00]
+        1
+        <AAAA>[00]
+        <[ff][ff][ff][ff]>[00]
+        <[ff][ff][ff][ff]>[00]
+        <[00][00][00][00]>[00]
+        """)
+
+@test("memcpy copies n bytes, NULs and 0xff included, and n = 0 copies nothing")
+memcpy_bytes()
+    c_case(raw"""
+        char d[] = "<.....>";
+        say_ptr_eq(memcpy(d + 1, "ab\0\xff" "c", 5), d + 1);
+        say_bytes(d, sizeof d);
+        say_ptr_eq(memcpy(d + 1, "zz", 0), d + 1);
+        say_bytes(d, sizeof d);
+        """, raw"""
+        1
+        <ab[00][ff]c>[00]
+        1
+        <ab[00][ff]c>[00]
+        """)
+
+@test("memmove copies overlapping spans correctly in both directions")
+memmove_overlap()
+    c_case(raw"""
+        char m[] = "<abcdefgh>";
+        say_ptr_eq(memmove(m + 3, m + 1, 5), m + 3);
+        say_bytes(m, sizeof m);
+        char n[] = "<abcdefgh>";
+        say_ptr_eq(memmove(n + 1, n + 3, 5), n + 1);
+        say_bytes(n, sizeof n);
+        char o[] = "<abcdefgh>";
+        say_ptr_eq(memmove(o + 2, o + 2, 3), o + 2);
+        memmove(o + 1, o + 5, 0);
+        say_bytes(o, sizeof o);
+        char p[] = "<ab....yz>";
+        memmove(p + 3, p + 7, 2);
+        memmove(p + 5, p + 1, 2);
+        say_bytes(p, sizeof p);
+        char q[] = "<abcdefgh>";
+        memmove(q + 2, q + 1, 7);
+        say_bytes(q, sizeof q);
+        """, raw"""
+        1
+        <ababcdeh>[00]
+        1
+        <cdefgfgh>[00]
+        1
+        <abcdefgh>[00]
+        <abyzabyz>[00]
+        <aabcdefg>[00]
+        """)
+
+@test("strcpy copies through the NUL and no further, and returns dst")
+strcpy_bytes()
+    c_case(raw"""
+        char s[] = "<......>";
+        say_ptr_eq(strcpy(s + 1, "abc"), s + 1);
+        say_bytes(s, sizeof s);
+        say_ptr_eq(strcpy(s + 1, ""), s + 1);
+        say_bytes(s, sizeof s);
+        strcpy(s + 1, "\xff\x80");
+        say_bytes(s, sizeof s);
+        """, raw"""
+        1
+        <abc[00]..>[00]
+        1
+        <[00]bc[00]..>[00]
+        <[ff][80][00][00]..>[00]
+        """)
+
+@test("strncpy pads a short source with NULs and leaves a long one unterminated")
+strncpy_bytes()
+    c_case(raw"""
+        char t[] = "<......>";
+        say_ptr_eq(strncpy(t + 1, "ab", 5), t + 1);
+        say_bytes(t, sizeof t);
+        char u[] = "<......>";
+        say_ptr_eq(strncpy(u + 1, "abcdefgh", 4), u + 1);
+        say_bytes(u, sizeof u);
+        strncpy(u + 1, "wxyz", 4);
+        say_bytes(u, sizeof u);
+        say_ptr_eq(strncpy(u + 1, "q", 0), u + 1);
+        say_bytes(u, sizeof u);
+        char v[] = "<....>";
+        strncpy(v + 1, "", 3);
+        say_bytes(v, sizeof v);
+        """, raw"""
+        1
+        <ab[00][00][00].>[00]
+        1
+        <abcd..>[00]
+        <wxyz..>[00]
+        1
+        <wxyz..>[00]
+        <[00][00][00].>[00]
+        """)
+
+@test("strcat appends at the NUL and terminates, and an empty source changes nothing")
+strcat_bytes()
+    c_case(raw"""
+        char a[] = "<ab\0....>";
+        say_ptr_eq(strcat(a + 1, "cd"), a + 1);
+        say_bytes(a, sizeof a);
+        say_ptr_eq(strcat(a + 1, ""), a + 1);
+        say_bytes(a, sizeof a);
+        char e[] = "<\0...>";
+        strcat(e + 1, "xy");
+        say_bytes(e, sizeof e);
+        """, raw"""
+        1
+        <abcd[00]..>[00]
+        1
+        <abcd[00]..>[00]
+        <xy[00].>[00]
+        """)
+
+@test("strncat appends at most n bytes, always terminates, and does not pad")
+strncat_bytes()
+    c_case(raw"""
+        char a[] = "<ab\0....>";
+        say_ptr_eq(strncat(a + 1, "cdef", 2), a + 1);
+        say_bytes(a, sizeof a);
+        char b[] = "<ab\0....>";
+        strncat(b + 1, "c", 5);
+        say_bytes(b, sizeof b);
+        say_ptr_eq(strncat(b + 1, "xyz", 0), b + 1);
+        say_bytes(b, sizeof b);
+        """, raw"""
+        1
+        <abcd[00]..>[00]
+        <abc[00]...>[00]
+        1
+        <abc[00]...>[00]
+        """)
+
+@test("strchr finds the first match, the terminator for 0, and NULL when absent")
+strchr_finds()
+    c_case(raw"""
+        const char *s = "hello";
+        say_off(strchr(s, 'l'), s);
+        say_off(strchr(s, 'z'), s);
+        say_off(strchr(s, '\0'), s);
+        say_off(strchr(s, 'h' + 256), s);
+        const char *e = "";
+        say_off(strchr(e, 'a'), e);
+        say_off(strchr(e, 0), e);
+        const char *h = "a\xff";
+        say_off(strchr(h, 0xff), h);
+        say_off(strchr(h, -1), h);
+        """, raw"""
+        2
+        NULL
+        5
+        0
+        NULL
+        0
+        1
+        1
+        """)
+
+@test("strrchr finds the last match, the terminator for 0, and NULL when absent")
+strrchr_finds()
+    c_case(raw"""
+        const char *s = "hello";
+        say_off(strrchr(s, 'l'), s);
+        say_off(strrchr(s, 'h'), s);
+        say_off(strrchr(s, 'z'), s);
+        say_off(strrchr(s, 0), s);
+        const char *e = "";
+        say_off(strrchr(e, 'a'), e);
+        say_off(strrchr(e, 0), e);
+        const char *h = "\xff" "a\xff";
+        say_off(strrchr(h, 0xff), h);
+        """, raw"""
+        3
+        0
+        NULL
+        5
+        NULL
+        0
+        2
+        """)
+
+@test("strstr finds a needle, an empty needle at the start, and NULL when absent")
+strstr_finds()
+    c_case(raw"""
+        const char *s = "abcabcd";
+        say_off(strstr(s, "abcd"), s);
+        say_off(strstr(s, "abc"), s);
+        say_off(strstr(s, ""), s);
+        say_off(strstr(s, "d"), s);
+        say_off(strstr(s, "abce"), s);
+        say_off(strstr(s, "abcabcdx"), s);
+        const char *e = "";
+        say_off(strstr(e, ""), e);
+        say_off(strstr(e, "a"), e);
+        const char *r = "aaab";
+        say_off(strstr(r, "aab"), r);
+        const char *x = "a\xff\x80";
+        say_off(strstr(x, "\x80"), x);
+        """, raw"""
+        3
+        0
+        0
+        6
+        NULL
+        NULL
+        0
+        NULL
+        1
+        2
+        """)
+
+@test("strspn and strcspn measure the run in and out of a set, empty strings included")
+strspn_strcspn()
+    c_case(raw"""
+        say_uint(strspn("aabbc", "ab"));
+        say_uint(strspn("abc", "cba"));
+        say_uint(strspn("", "ab"));
+        say_uint(strspn("abc", ""));
+        say_uint(strspn("\xff\xfe" "a", "\xfe\xff"));
+        say_uint(strcspn("abcde", "dx"));
+        say_uint(strcspn("abc", "xyz"));
+        say_uint(strcspn("abc", ""));
+        say_uint(strcspn("", "a"));
+        say_uint(strcspn("ab\x80", "\x80"));
+        """, raw"""
+        4
+        3
+        0
+        0
+        2
+        3
+        3
+        3
+        0
+        2
+        """)
+
+@test("strpbrk finds the first byte of a set, and NULL for no match or an empty set")
+strpbrk_finds()
+    c_case(raw"""
+        const char *p = "hello world";
+        say_off(strpbrk(p, "ow"), p);
+        say_off(strpbrk(p, "xyz"), p);
+        say_off(strpbrk(p, ""), p);
+        const char *e = "";
+        say_off(strpbrk(e, "a"), e);
+        """, raw"""
+        4
+        NULL
+        NULL
+        NULL
+        """)
+
+@test("strtok_r splits in place, skips delimiter runs, and keeps answering NULL at the end")
+strtok_r_splits()
+    c_case(raw"""
+        char b[] = ",,ab,,c,";
+        char *save;
+        char *t = strtok_r(b, ",", &save);
+        say_off(t, b);
+        say_str(t);
+        t = strtok_r(NULL, ",", &save);
+        say_off(t, b);
+        say_str(t);
+        say_off(strtok_r(NULL, ",", &save), b);
+        say_off(strtok_r(NULL, ",", &save), b);
+        say_bytes(b, sizeof b);
+        """, raw"""
+        2
+        ab
+        6
+        c
+        NULL
+        NULL
+        ,,ab[00],c[00][00]
+        """)
+
+@test("strtok_r takes a different delimiter set on each call, and empty input has no tokens")
+strtok_r_edges()
+    c_case(raw"""
+        char d[] = "a b;c";
+        char *s;
+        say_str(strtok_r(d, " ", &s));
+        say_str(strtok_r(NULL, ";", &s));
+        say_str(strtok_r(NULL, ";", &s));
+        say_str(strtok_r(NULL, ";", &s));
+        char x[] = ",,,";
+        say_str(strtok_r(x, ",", &s));
+        say_str(strtok_r(NULL, ",", &s));
+        char y[] = "";
+        say_str(strtok_r(y, ",", &s));
+        char z[] = "abc";
+        say_off(strtok_r(z, ",", &s), z);
+        say_str(strtok_r(NULL, ",", &s));
+        say_bytes(z, sizeof z);
+        """, raw"""
+        a
+        b
+        c
+        NULL
+        NULL
+        NULL
+        NULL
+        0
+        NULL
+        abc[00]
+        """)
+
+@test("memchr searches exactly n bytes, past NULs, as unsigned char")
+memchr_finds()
+    c_case(raw"""
+        const char *m = "ab\0cd";
+        say_off(memchr(m, 'c', 5), m);
+        say_off(memchr(m, 0, 5), m);
+        say_off(memchr(m, 'z', 5), m);
+        say_off(memchr(m, 'c', 3), m);
+        say_off(memchr(m, 'a', 0), m);
+        const char *f = "x\xff";
+        say_off(memchr(f, -1, 2), f);
+        say_off(memchr(f, 0x178, 2), f);
+        """, raw"""
+        3
+        2
+        NULL
+        NULL
+        NULL
+        1
+        0
+        """)

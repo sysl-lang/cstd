@@ -145,4 +145,34 @@ static void say_mapping(int (*f)(int)) {
     say_end();
 }
 
+/* One reading by a strto* function, on one line: the value, where endptr was left (as an offset
+ * into the text), and errno, which is cleared first — "-42 3 0". */
+static void say_strtol(const char *s, int base) {
+    char *end = (char *)"unset";
+    errno = 0;
+    long v = strtol(s, &end, base);
+    put_i(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+}
+
+static void say_strtoll(const char *s, int base) {
+    char *end = (char *)"unset";
+    errno = 0;
+    long long v = strtoll(s, &end, base);
+    put_i(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+}
+
+static void say_strtoul(const char *s, int base) {
+    char *end = (char *)"unset";
+    errno = 0;
+    unsigned long v = strtoul(s, &end, base);
+    put_u(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+}
+
+static void say_strtoull(const char *s, int base) {
+    char *end = (char *)"unset";
+    errno = 0;
+    unsigned long long v = strtoull(s, &end, base);
+    put_u(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+}
+
 #endif

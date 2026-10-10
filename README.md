@@ -46,15 +46,40 @@ clang --target=aarch64-none-elf -ffreestanding -nostdinc \
 sysl test .
 ```
 
-The tests are C programs. Each case is a C snippet with its expected output. It is compiled against
-`include/`, linked with the archive `sysl build-c` writes, run, and its output compared. The cases
-cover the empty string, overlapping `memmove`, bytes ≥ 0x80, every base, overflow in each `strto*`
-with `errno`, and `endptr` positions.
+The tests are C programs. Each case is a C snippet passed to `c_case(snippet, expected_stdout)`
+(`sh/sysl/cstd/c_case_tests.sysl`). The snippet becomes the body of `main`, compiled
+`-nostdinc -fno-builtin -O0` against `include/` and linked with the archive `sysl build-c` writes
+(built once per run, in `.sysl/c-tests/`). The program is run and its standard output compared
+exactly. A case prints through the `say_*` helpers in `tests/say.h`, which use nothing from the
+host's libc except `write`. Expected values are written in the test, never taken from the host's
+libc.
 
-**The suite is not in the tree yet.** On a hosted target, sysl 0.1.0-alpha.6 compiles the exported
-`strlen` into a bare `ret` and `memset` into a call to itself (LLVM's loop-idiom recognition, which
-the compiler suppresses only on freestanding targets). The suite lands once that compiler fix ships.
-The freestanding builds are correct, and are checked with:
+A function that writes memory is checked on the bytes it wrote. The whole buffer is printed, with a
+guard byte on each side, NULs included. The cases cover:
+
+- the empty string, and bytes ≥ 0x80 (compared as `unsigned char`)
+- not-found answers
+- overlapping `memmove` in both directions
+- `strncpy`'s padding and its missing terminator
+- every `<ctype.h>` function over EOF and 0–255
+- every base from 2 to 36
+- `EINVAL` for a bad base or no digits
+- overflow in each `strto*` with `ERANGE`
+- `endptr` positions
+
+Under AddressSanitizer:
+
+```
+SYSL_EXTRA_CFLAGS="-fsanitize=address -g" sysl test .
+```
+
+The variable reaches the `sysl build-c` the suite runs, and `c_case` hands the same flags to each
+case's clang, so the archive and every program are instrumented together. Two tests run only in
+this mode:
+- `nm -u` of the archive must show `__asan_report_load1` and `__asan_report_store1`.
+- `strlen` over a buffer with no NUL must be reported as a `stack-buffer-overflow` in `strlen`.
+
+The freestanding builds are checked with:
 
 ```
 sysl build-lib . --target thumb-freestanding-softfp
