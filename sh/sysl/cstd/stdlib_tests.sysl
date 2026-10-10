@@ -248,3 +248,504 @@ abs_labs()
         9223372036854775807
         -9223372036854775808
         """)
+
+// `qsort`, `bsearch` and the `div` family.
+//
+// **`qsort` is checked on every byte it may touch**: each case sorts the middle of a larger array and
+// prints the whole thing, so a guard element either side that changed, or an element torn by a swap
+// of the wrong length, shows up in the output. The comparators and printers below are the C every
+// case is compiled with; `calls` counts how often a comparator ran.
+
+private val sort_prelude: string = raw"""
+    static int calls;
+
+    static int cmp_i32(const void *a, const void *b) {
+        calls++;
+        int x = *(const int *)a, y = *(const int *)b;
+        return x < y ? -1 : x > y;
+    }
+    static int cmp_desc(const void *a, const void *b) { return cmp_i32(b, a); }
+    static int cmp_u8(const void *a, const void *b) {
+        calls++;
+        unsigned char x = *(const unsigned char *)a, y = *(const unsigned char *)b;
+        return x < y ? -1 : x > y;
+    }
+    static int cmp_u64(const void *a, const void *b) {
+        calls++;
+        unsigned long long x = *(const unsigned long long *)a, y = *(const unsigned long long *)b;
+        return x < y ? -1 : x > y;
+    }
+
+    typedef struct { int key; char tag[8]; } Rec;
+    static int cmp_rec(const void *a, const void *b) {
+        calls++;
+        int x = ((const Rec *)a)->key, y = ((const Rec *)b)->key;
+        return x < y ? -1 : x > y;
+    }
+
+    typedef struct { unsigned char b[3]; } Tri;
+    static int cmp_tri(const void *a, const void *b) {
+        calls++;
+        const unsigned char *x = ((const Tri *)a)->b, *y = ((const Tri *)b)->b;
+        for (int i = 0; i < 3; i++) {
+            if (x[i] != y[i]) return x[i] < y[i] ? -1 : 1;
+        }
+        return 0;
+    }
+
+    static void say_ints(const int *a, int n) {
+        for (int i = 0; i < n; i++) {
+            if (i > 0) say_ch(' ');
+            put_i(a[i]);
+        }
+        say_end();
+    }
+    static void say_u8s(const unsigned char *a, int n) {
+        for (int i = 0; i < n; i++) {
+            if (i > 0) say_ch(' ');
+            put_u(a[i]);
+        }
+        say_end();
+    }
+    static void say_recs(const Rec *r, int n) {
+        for (int i = 0; i < n; i++) {
+            if (i > 0) say_ch(' ');
+            put_i(r[i].key);
+            say_ch('=');
+            for (int j = 0; j < 8 && r[i].tag[j] != 0; j++) say_ch(r[i].tag[j]);
+        }
+        say_end();
+    }
+    static void say_tris(const Tri *t, int n) {
+        for (int i = 0; i < n; i++) {
+            if (i > 0) say_ch(' ');
+            put_u(t[i].b[0]); say_ch(':'); put_u(t[i].b[1]); say_ch(':'); put_u(t[i].b[2]);
+        }
+        say_end();
+    }
+
+    static int is_sorted(const int *a, int n) {
+        for (int i = 1; i < n; i++) {
+            if (a[i - 1] > a[i]) return 0;
+        }
+        return 1;
+    }
+    """
+
+@test("qsort sorts four-byte elements and leaves the guards either side alone")
+qsort_ints()
+    c_case(raw"""
+        int a[9] = {111, 9, 3, 7, 1, 8, 2, 5, 999};
+        qsort(a + 1, 7, sizeof(int), cmp_i32);
+        say_ints(a, 9);
+        int d[5] = {-3, 40, -50, 7, 0};
+        qsort(d, 5, sizeof(int), cmp_i32);
+        say_ints(d, 5);
+        int e[6] = {100, 1, 4, 2, 3, 200};
+        qsort(e + 1, 4, sizeof(int), cmp_desc);
+        say_ints(e, 6);
+        """, raw"""
+        111 1 2 3 5 7 8 9 999
+        -50 -3 0 7 40
+        100 4 3 2 1 200
+        """, prelude = sort_prelude)
+
+@test("qsort sorts one-byte elements, comparing them unsigned")
+qsort_bytes()
+    c_case(raw"""
+        unsigned char u[7] = {250, 9, 200, 3, 100, 1, 251};
+        qsort(u + 1, 5, 1, cmp_u8);
+        say_u8s(u, 7);
+        """, raw"""
+        250 1 3 9 100 200 251
+        """, prelude = sort_prelude)
+
+@test("qsort sorts eight-byte elements, including ones with the top bit set")
+qsort_eight_bytes()
+    c_case(raw"""
+        unsigned long long v[7] = {42, 18446744073709551615ULL, 5, 9223372036854775808ULL, 1, 0, 43};
+        qsort(v + 1, 5, sizeof(unsigned long long), cmp_u64);
+        for (int i = 0; i < 7; i++) say_uint(v[i]);
+        """, raw"""
+        42
+        0
+        1
+        5
+        9223372036854775808
+        18446744073709551615
+        43
+        """, prelude = sort_prelude)
+
+@test("qsort moves twelve-byte records whole, tags and all, and duplicate keys stay together")
+qsort_records()
+    c_case(raw"""
+        Rec r[8] = {{0, "head"}, {5, "five"}, {2, "two"}, {9, "nine"}, {1, "one"}, {2, "two"},
+                    {7, "seven"}, {99, "tail"}};
+        say_int(sizeof(Rec));
+        qsort(r + 1, 6, sizeof(Rec), cmp_rec);
+        say_recs(r, 8);
+        """, raw"""
+        12
+        0=head 1=one 2=two 2=two 5=five 7=seven 9=nine 99=tail
+        """, prelude = sort_prelude)
+
+@test("qsort sorts three-byte elements, a size that is no multiple of anything")
+qsort_three_bytes()
+    c_case(raw"""
+        Tri t[7] = {{{200, 200, 200}}, {{3, 2, 1}}, {{1, 9, 9}}, {{3, 1, 5}}, {{2, 0, 0}},
+                    {{1, 9, 8}}, {{7, 7, 7}}};
+        say_int(sizeof(Tri));
+        qsort(t + 1, 5, sizeof(Tri), cmp_tri);
+        say_tris(t, 7);
+        """, raw"""
+        3
+        200:200:200 1:9:8 1:9:9 2:0:0 3:1:5 3:2:1 7:7:7
+        """, prelude = sort_prelude)
+
+@test("qsort of nothing or one element, or of zero-size elements, writes nothing and never compares")
+qsort_trivial()
+    c_case(raw"""
+        int a[3] = {5, 4, 3};
+        qsort(a + 1, 0, sizeof(int), cmp_i32);
+        say_int(calls);
+        say_ints(a, 3);
+        qsort(a + 1, 1, sizeof(int), cmp_i32);
+        say_int(calls);
+        say_ints(a, 3);
+        qsort(NULL, 0, sizeof(int), cmp_i32);
+        say_int(calls);
+        qsort(a, 3, 0, cmp_i32);
+        say_int(calls);
+        say_ints(a, 3);
+        qsort(a, 2, sizeof(int), cmp_i32);
+        say_int(calls);
+        say_ints(a, 3);
+        """, raw"""
+        0
+        5 4 3
+        0
+        5 4 3
+        0
+        0
+        5 4 3
+        1
+        4 5 3
+        """, prelude = sort_prelude)
+
+@test("qsort handles sorted, reversed, duplicated and all-equal input")
+qsort_shapes()
+    c_case(raw"""
+        int s[6] = {1, 2, 3, 4, 5, 6};
+        qsort(s, 6, sizeof(int), cmp_i32);
+        say_ints(s, 6);
+        int r[6] = {6, 5, 4, 3, 2, 1};
+        qsort(r, 6, sizeof(int), cmp_i32);
+        say_ints(r, 6);
+        int d[7] = {3, 1, 3, 2, 1, 3, 2};
+        qsort(d, 7, sizeof(int), cmp_i32);
+        say_ints(d, 7);
+        int q[5] = {4, 4, 4, 4, 4};
+        qsort(q, 5, sizeof(int), cmp_i32);
+        say_ints(q, 5);
+        int two[2] = {2, 1};
+        qsort(two, 2, sizeof(int), cmp_i32);
+        say_ints(two, 2);
+        int three[3] = {2, 3, 1};
+        qsort(three, 3, sizeof(int), cmp_i32);
+        say_ints(three, 3);
+        """, raw"""
+        1 2 3 4 5 6
+        1 2 3 4 5 6
+        1 1 2 2 3 3 3
+        4 4 4 4 4
+        1 2
+        1 2 3
+        """, prelude = sort_prelude)
+
+@test("qsort sorts 10000 pseudo-random elements into a permutation of the input")
+qsort_large()
+    c_case(raw"""
+        static int big[10000];
+        unsigned seed = 12345;
+        long long before = 0;
+        for (int i = 0; i < 10000; i++) {
+            seed = seed * 1103515245u + 12345u;
+            big[i] = (int)((seed >> 8) & 0xffff) - 30000;
+            before += big[i];
+        }
+        qsort(big, 10000, sizeof(int), cmp_i32);
+        long long after = 0;
+        for (int i = 0; i < 10000; i++) after += big[i];
+        say_int(is_sorted(big, 10000));
+        say_int(before == after);
+        say_int(calls < 10000 * 30);
+        """, raw"""
+        1
+        1
+        1
+        """, prelude = sort_prelude)
+
+@test("qsort of 100000 sorted, reversed or equal elements neither overflows the stack nor goes quadratic")
+qsort_large_degenerate()
+    c_case(raw"""
+        static int big[100000];
+        for (int i = 0; i < 100000; i++) big[i] = i;
+        qsort(big, 100000, sizeof(int), cmp_i32);
+        say_int(is_sorted(big, 100000));
+        say_int(big[0]);
+        say_int(big[99999]);
+        say_int(calls < 8000000);
+        calls = 0;
+        for (int i = 0; i < 100000; i++) big[i] = 100000 - i;
+        qsort(big, 100000, sizeof(int), cmp_i32);
+        say_int(is_sorted(big, 100000));
+        say_int(big[0]);
+        say_int(big[99999]);
+        say_int(calls < 8000000);
+        calls = 0;
+        for (int i = 0; i < 100000; i++) big[i] = 7;
+        qsort(big, 100000, sizeof(int), cmp_i32);
+        say_int(is_sorted(big, 100000));
+        say_int(calls < 8000000);
+        """, raw"""
+        1
+        0
+        99999
+        1
+        1
+        1
+        100000
+        1
+        1
+        1
+        """, prelude = sort_prelude)
+
+private val search_prelude: string = raw"""
+    static int calls;
+    static int bad_order;
+    static const void *the_key;
+
+    static int cmp_i32(const void *a, const void *b) {
+        calls++;
+        if (a != the_key) bad_order++;
+        int x = *(const int *)a, y = *(const int *)b;
+        return x < y ? -1 : x > y;
+    }
+    typedef struct { int key; char tag[8]; } Rec;
+    static int cmp_rec(const void *a, const void *b) {
+        int x = ((const Rec *)a)->key, y = ((const Rec *)b)->key;
+        return x < y ? -1 : x > y;
+    }
+    static int *find(int *a, int n, int k) {
+        the_key = &k;
+        return bsearch(&k, a, n, sizeof(int), cmp_i32);
+    }
+    """
+
+@test("bsearch finds the first, a middle and the last element, answering a pointer into the array")
+bsearch_found()
+    c_case(raw"""
+        int a[7] = {10, 20, 30, 40, 50, 60, 70};
+        int *p = find(a, 7, 10);
+        say_off(p, a);
+        say_ptr_eq(p, &a[0]);
+        p = find(a, 7, 40);
+        say_off(p, a);
+        say_ptr_eq(p, &a[3]);
+        p = find(a, 7, 70);
+        say_off(p, a);
+        say_ptr_eq(p, &a[6]);
+        p = find(a, 7, 20);
+        say_int(p - a);
+        p = find(a, 7, 60);
+        say_int(p - a);
+        say_int(bad_order);
+        """, raw"""
+        0
+        1
+        12
+        1
+        24
+        1
+        1
+        5
+        0
+        """, prelude = search_prelude)
+
+@test("bsearch answers NULL below, between and above the elements, and for none or one")
+bsearch_missing()
+    c_case(raw"""
+        int a[7] = {10, 20, 30, 40, 50, 60, 70};
+        say_off(find(a, 7, 5), a);
+        say_off(find(a, 7, 35), a);
+        say_off(find(a, 7, 99), a);
+        say_off(find(a, 7, 11), a);
+        say_off(find(a, 7, 69), a);
+        calls = 0;
+        say_off(find(a, 0, 10), a);
+        say_int(calls);
+        say_off(find(a, 1, 10), a);
+        say_off(find(a, 1, 11), a);
+        say_off(find(a, 1, 9), a);
+        say_off(bsearch(&a[0], NULL, 0, sizeof(int), cmp_i32), a);
+        """, raw"""
+        NULL
+        NULL
+        NULL
+        NULL
+        NULL
+        NULL
+        0
+        0
+        NULL
+        NULL
+        NULL
+        """, prelude = search_prelude)
+
+@test("bsearch finds every element of every size from 0 to 33, and no value between them")
+bsearch_every()
+    c_case(raw"""
+        int a[34];
+        for (int i = 0; i < 34; i++) a[i] = i * 3;
+        int wrong = 0;
+        for (int n = 0; n <= 33; n++) {
+            for (int i = 0; i < n; i++) {
+                if (find(a, n, a[i]) != &a[i]) wrong++;
+            }
+            for (int v = -2; v <= 3 * n + 2; v++) {
+                if (v % 3 != 0 && find(a, n, v) != NULL) wrong++;
+                if (v >= 3 * n && find(a, n, v) != NULL) wrong++;
+                if (v < 0 && find(a, n, v) != NULL) wrong++;
+            }
+        }
+        say_int(wrong);
+        say_int(bad_order);
+        """, raw"""
+        0
+        0
+        """, prelude = search_prelude)
+
+@test("bsearch over duplicates answers one of them, and over twelve-byte records strides by the size")
+bsearch_duplicates_and_records()
+    c_case(raw"""
+        int d[5] = {1, 2, 2, 2, 3};
+        int *p = find(d, 5, 2);
+        say_int(p >= d + 1 && p <= d + 3);
+        say_int(*p);
+        Rec r[5] = {{1, "one"}, {3, "three"}, {5, "five"}, {7, "seven"}, {9, "nine"}};
+        Rec k = {7, ""};
+        Rec *f = bsearch(&k, r, 5, sizeof(Rec), cmp_rec);
+        say_int(f - r);
+        say_str(f->tag);
+        k.key = 4;
+        say_ptr_eq(bsearch(&k, r, 5, sizeof(Rec), cmp_rec), NULL);
+        k.key = 9;
+        say_str(((Rec *)bsearch(&k, r, 5, sizeof(Rec), cmp_rec))->tag);
+        """, raw"""
+        1
+        2
+        3
+        seven
+        1
+        nine
+        """, prelude = search_prelude)
+
+@test("div, ldiv and lldiv truncate toward zero and the remainder takes the dividend's sign")
+div_family()
+    c_case(raw"""
+        div_t a = div(7, 2);
+        say_int(a.quot); say_int(a.rem);
+        a = div(-7, 2);
+        say_int(a.quot); say_int(a.rem);
+        a = div(7, -2);
+        say_int(a.quot); say_int(a.rem);
+        a = div(-7, -2);
+        say_int(a.quot); say_int(a.rem);
+        a = div(1, 2);
+        say_int(a.quot); say_int(a.rem);
+        a = div(-1, 2);
+        say_int(a.quot); say_int(a.rem);
+        a = div(6, 3);
+        say_int(a.quot); say_int(a.rem);
+        a = div(0, 5);
+        say_int(a.quot); say_int(a.rem);
+        ldiv_t l = ldiv(-9000000000L, 7);
+        say_int(l.quot); say_int(l.rem);
+        l = ldiv(9000000000L, -7);
+        say_int(l.quot); say_int(l.rem);
+        lldiv_t m = lldiv(9223372036854775807LL, 10);
+        say_int(m.quot); say_int(m.rem);
+        m = lldiv(-9223372036854775807LL - 1, 10);
+        say_int(m.quot); say_int(m.rem);
+        say_int(sizeof(div_t));
+        say_int(sizeof(ldiv_t));
+        say_int(sizeof(lldiv_t));
+        """, raw"""
+        3
+        1
+        -3
+        -1
+        -3
+        1
+        3
+        -1
+        0
+        1
+        0
+        -1
+        2
+        0
+        0
+        0
+        -1285714285
+        -5
+        -1285714285
+        5
+        922337203685477580
+        7
+        -922337203685477580
+        -8
+        8
+        16
+        16
+        """)
+
+@test("the remainder identity quot * d + rem == n holds for every sign pairing")
+div_identity()
+    c_case(raw"""
+        int wrong = 0;
+        for (int n = -40; n <= 40; n++) {
+            for (int d = -9; d <= 9; d++) {
+                if (d == 0) continue;
+                div_t r = div(n, d);
+                ldiv_t lr = ldiv(n, d);
+                lldiv_t llr = lldiv(n, d);
+                int mag = d < 0 ? -d : d;
+                if (r.quot * d + r.rem != n) wrong++;
+                if (r.rem >= mag || r.rem <= -mag) wrong++;
+                if (n >= 0 && r.rem < 0) wrong++;
+                if (n <= 0 && r.rem > 0) wrong++;
+                if (lr.quot != r.quot || lr.rem != r.rem) wrong++;
+                if (llr.quot != r.quot || llr.rem != r.rem) wrong++;
+            }
+        }
+        say_int(wrong);
+        """, raw"""
+        0
+        """)
+
+@test("llabs, with the most negative value wrapping to itself")
+llabs_wraps()
+    c_case(raw"""
+        say_int(llabs(-5));
+        say_int(llabs(5));
+        say_int(llabs(0));
+        say_int(llabs(-9223372036854775807LL));
+        say_int(llabs(-9223372036854775807LL - 1));
+        """, raw"""
+        5
+        5
+        0
+        9223372036854775807
+        -9223372036854775808
+        """)

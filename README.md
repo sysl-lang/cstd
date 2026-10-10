@@ -17,15 +17,19 @@ require, exported under its C name with `@export`.
 
 | header | functions |
 |---|---|
-| `string.h` | `strlen` `strcmp` `strncmp` `strcpy` `strncpy` `strcat` `strncat` `strchr` `strrchr` `strstr` `strspn` `strcspn` `strpbrk` `strtok_r` `memcpy` `memmove` `memset` `memcmp` `memchr` |
+| `string.h` | `strlen` `strnlen` `strcmp` `strncmp` `strcpy` `strncpy` `strcat` `strncat` `strchr` `strrchr` `strstr` `strspn` `strcspn` `strpbrk` `strtok` `strtok_r` `strerror` `memcpy` `memmove` `memset` `memcmp` `memchr` |
 | `ctype.h` | `isalnum` `isalpha` `isblank` `iscntrl` `isdigit` `isgraph` `islower` `isprint` `ispunct` `isspace` `isupper` `isxdigit` `tolower` `toupper`, for the C locale |
-| `stdlib.h` | `atoi` `atol` `strtol` `strtoul` `strtoll` `strtoull` `abs` `labs` |
+| `stdlib.h` | `atoi` `atol` `strtol` `strtoul` `strtoll` `strtoull` `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch` |
 | `errno.h` | `errno` (one global, defined by the library), `EINVAL`, `ERANGE` |
 
 - `long` is measured with a `c type`, so `strtol` answers 32 bits on a Cortex-M and 64 on an LP64
   machine.
 - The `strto*` functions take base 0 or 2–36, skip leading white space, read one sign and an
   optional `0x`, set `endptr`, and saturate with `ERANGE`.
+- `qsort` is a heapsort: O(n log n) on every input, constant stack, any element size, not stable.
+- `strerror` knows `0`, `EINVAL` and `ERANGE`; any other code answers the fixed text
+  `Unknown error`, because formatting the number in would need a formatter.
+- `strtok` keeps one save pointer for the whole program, as C does; `strtok_r` keeps it in the caller's hands.
 - Text with no number in it, or a base C does not define, sets `EINVAL`, as the BSD libcs do. C
   leaves that case unspecified.
 
@@ -94,8 +98,6 @@ sysl build-lib . --target aarch64-freestanding
   process, a crt0), so they belong with keel's port layer rather than this portable core.
 - **`strtod`, `atof` and every float conversion.** sysl's standard library itself goes to C's
   `strtod`/`snprintf` for floats, so a correctly rounded implementation belongs in `sysl.fmt` first.
-- **`strtok`.** It keeps hidden state between calls; `strtok_r` is the same thing with the state in
-  the caller's hands.
 - **Locales.** Only the C locale exists: every byte from 0x80 up is in no class.
 - **A per-thread `errno`.** Nothing this library serves has threads yet.
 
