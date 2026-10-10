@@ -1,0 +1,96 @@
+module sh.sysl.cstd
+
+@tests
+
+// The harness every cstd test goes through: a C snippet, compiled against `include/` and the
+// archive `sysl build-c` writes, run, and its standard output compared byte for byte with what the
+// test says it should be.
+//
+// **The expected output is written in the test, never asked of the host's libc.** A case that
+// compared against Apple's `strtol` would inherit every choice Apple made where C leaves one open,
+// and would pass for the wrong reason wherever the two libraries were wrong together.
+//
+// The snippet is the body of `main`, and reports through the `say_*` printers in `tests/say.h`,
+// which reach the host for nothing but `write`. It is compiled `-fno-builtin -O0`: clang folds
+// `strlen("hello")` to 5 otherwise, and the call that was meant to be tested is never made.
+
+import sysl.fs.{make_dir, make_dir_all, read_text, remove_dir, remove_file, write_text}
+import sysl.posix.time.sleep
+import sysl.process.capture
+import sysl.text.Search
+import sysl.time.millis
+
+private extern "getppid" c_ppid() -> i32
+private extern "getpid" c_pid() -> i32
+
+// Where the archive and every case's program are written. It is under `.sysl/`, which git ignores.
+private val work: string = ".sysl/c-tests"
+
+// How many cases this process has run, so two in one test do not share a file name.
+private var cases: int = 0
+
+private stamp_says(stamp: string, run: string) -> bool = read_text(stamp) match
+    Ok(text) -> text == run
+    Err(_) -> false
+
+private fail_with(what: string, out: string) -> never = panic(f"$what:\n$out")
+
+/** The archive under test, built **once per run of the suite** rather than once per case.
+ *
+ * `sysl test` runs each test in a process of its own, so nothing in this process's memory outlives
+ * the test. What every test of one run shares is the runner, which is each one's parent: the
+ * runner's pid, written beside the archive once it is built, says whether the archive on disk is
+ * this run's. A lock directory named for the run makes concurrent tests wait for one build, and a
+ * run that was killed holding its lock leaves a name no later run will ask for.
+ */
+private[cstd] archive() -> string
+    val run = f"${c_ppid()}"
+    val stamp = f"$work/built-by"
+    val lib = f"$work/libcstd.a"
+    if stamp_says(stamp, run) then return lib
+
+    make_dir_all(work).unwrap()
+    val lock = f"$work/lock-$run"
+    loop
+        if make_dir(lock).is_ok() then break
+        sleep(millis(50))
+
+    if !stamp_says(stamp, run)
+        val built = capture("sysl", ["build-c", ".", "-o", lib], stderr = true).unwrap()
+        if !built.status.ok()
+            remove_dir(lock)
+            fail_with("sysl build-c failed", built.err.unwrap_or(""))
+        val res = capture("clang", ["-print-resource-dir"]).unwrap()
+        write_text(f"$work/resource-dir", res.text.trim()).unwrap()
+        write_text(stamp, run).unwrap()
+
+    remove_dir(lock)
+    lib
+end archive
+
+/** Compile `snippet` as the body of `int main(void)`, run it, and check that it printed exactly
+ * `expected`.
+ *
+ * The program is built the way the README tells a consumer to build one — `-nostdinc`, clang's own
+ * freestanding headers, then `include/` — so a case cannot reach a host header by accident, and a
+ * declaration cstd's headers get wrong is a compile error here.
+ */
+private[cstd] c_case(snippet: string, expected: string)
+    val lib = archive()
+    val res = read_text(f"$work/resource-dir").unwrap()
+    cases += 1
+    val name = f"$work/case-${c_pid()}-$cases"
+    val source = f"#include \"say.h\"\n\nint main(void) {\n$snippet\n    return 0;\n}\n"
+    write_text(f"$name.c", source).unwrap()
+
+    val compiled = capture("clang", ["-std=c11", "-O0", "-fno-builtin", "-nostdinc",
+                                     "-isystem", f"$res/include", "-I", "include", "-I", "tests",
+                                     f"$name.c", lib, "-o", name], stderr = true).unwrap()
+    if !compiled.status.ok() then fail_with(f"clang refused the case:\n$source", compiled.err.unwrap_or(""))
+
+    val ran = capture(name, timeout = 10000, stderr = true).unwrap()
+    remove_file(f"$name.c")
+    remove_file(name)
+    if !ran.status.ok() then fail_with(f"the case did not exit 0 (${ran.status})", ran.text)
+    assert_eq(ran.text, expected)
+end c_case

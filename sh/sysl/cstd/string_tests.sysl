@@ -1,0 +1,25 @@
+module sh.sysl.cstd
+
+@tests
+
+// `<string.h>`, called from C.
+//
+// **A function that writes memory is checked on the bytes it wrote, not on its return value alone.**
+// Each such case prints the whole buffer, with a guard byte either side of the span the call was
+// given, so a write one past the end — or one short of it — shows up as a changed guard.
+
+// FINDINGS §1: on a hosted target, sysl 0.1.0-alpha.6 compiled the exported `strlen` into a bare
+// `ret` and `memset` into a call to itself. These two are the cases that saw it.
+@test("strlen of a literal answers its length (FINDINGS 1)")
+strlen_answers_the_length()
+    c_case(raw"""
+        say_uint(strlen("hello"));
+        """, "5\n")
+
+@test("memset returns and writes (FINDINGS 1)")
+memset_returns()
+    c_case(raw"""
+        char b[4] = "abc";
+        say_ptr_eq(memset(b, 'z', 3), b);
+        say_bytes(b, 4);
+        """, "1\nzzz[00]\n")
