@@ -124,3 +124,80 @@ abs(n: i32) -> i32 = if n < 0 then 0 - n else n
 
 @export("labs")
 labs(n: Long) -> Long = if n < 0 then 0 - n else n
+
+@export("llabs")
+llabs(n: LongLong) -> LongLong = if n < 0 then 0 - n else n
+
+// What `div`, `ldiv` and `lldiv` answer. The fields are in C's order, so the structs cross to a C
+// caller in the registers its convention names for `div_t` and its kin.
+struct DivT
+    quot: i32
+    rem: i32
+
+struct LDivT
+    quot: Long
+    rem: Long
+
+struct LLDivT
+    quot: LongLong
+    rem: LongLong
+
+// Division truncates toward zero, as C99 fixes it, so the remainder takes the dividend's sign and
+// `quot * d + rem == n` always. A zero divisor is undefined in C and traps here, as `/` does.
+@export("div")
+div(n: i32, d: i32) -> DivT = DivT(n / d, n % d)
+
+@export("ldiv")
+ldiv(n: Long, d: Long) -> LDivT = LDivT(n / d, n % d)
+
+@export("lldiv")
+lldiv(n: LongLong, d: LongLong) -> LLDivT = LLDivT(n / d, n % d)
+
+// Swaps two elements of `size` bytes, a byte at a time so that no size needs a case of its own.
+private swap(a: *u8, b: *u8, size: usize)
+    for i in 0..<size
+        val t = a[i]
+        a[i] = b[i]
+        b[i] = t
+
+// Restores the heap property for the element at `root` within the first `end` elements, moving it
+// down past any larger child.
+private sift_down(base: *u8, size: usize, root_at: usize, end: usize, cmp: *extern(*u8, *u8) -> i32)
+    var root = root_at
+    loop
+        var child = 2 * root + 1
+        if child >= end then break
+        if child + 1 < end && cmp(&base[child * size], &base[(child + 1) * size]) < 0 then child += 1
+        if cmp(&base[root * size], &base[child * size]) >= 0 then break
+        swap(&base[root * size], &base[child * size], size)
+        root = child
+
+// A heapsort: O(n log n) on every input, sorted and reverse-sorted included, in constant stack with
+// no recursion and no scratch memory, for any element size. It is not stable, which C does not ask
+// of `qsort`. Fewer than two elements are never compared.
+@export("qsort")
+qsort(base: *u8, n: usize, size: usize, cmp: *extern(*u8, *u8) -> i32)
+    if n < 2 || size == 0 then return
+    var start = n / 2
+    while start > 0
+        start -= 1
+        sift_down(base, size, start, n, cmp)
+    var end = n
+    while end > 1
+        end -= 1
+        swap(base, &base[end * size], size)
+        sift_down(base, size, 0, end, cmp)
+
+// Halves the span until the key is found or nothing is left. With duplicates, any one equal element
+// may answer. `key` is always the first argument to `cmp`, as C specifies.
+@export("bsearch")
+bsearch(key: *u8, base: *u8, n: usize, size: usize, cmp: *extern(*u8, *u8) -> i32) -> *u8
+    var lo: usize = 0
+    var hi = n
+    while lo < hi
+        val mid = lo + (hi - lo) / 2
+        val at = &base[mid * size]
+        val c = cmp(key, at)
+        if c == 0 then return at
+        if c < 0 then hi = mid else lo = mid + 1
+    null

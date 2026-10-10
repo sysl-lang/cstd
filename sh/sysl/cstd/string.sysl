@@ -12,6 +12,8 @@ module sh.sysl.cstd
 // header in `include/` carries the `const` and the `void` C wants to see. Bytes are compared as
 // `unsigned char`, as C requires of `strcmp` and `memcmp`.
 
+import sysl.slices.as_ptr
+
 @export("strlen")
 strlen(s: *u8) -> usize
     var n: usize = 0
@@ -179,3 +181,27 @@ memchr(s: *u8, c: i32, n: usize) -> *u8
     for i in 0..<n
         if s[i] == want then return &s[i]
     null
+
+// Like `strlen`, but never looks past `n` bytes, so a buffer that is not terminated is safe.
+@export("strnlen")
+strnlen(s: *u8, n: usize) -> usize
+    var i: usize = 0
+    while i < n && s[i] != 0 do i += 1
+    i
+
+// Where `strtok` resumes. One for the whole program, as C has it; `strtok_r` is the call for code
+// that tokenizes from two places at once.
+private var strtok_save: *u8 = null
+
+@export("strtok")
+strtok(s: *u8, delim: *u8) -> *u8 = strtok_r(s, delim, &strtok_save)
+
+// The message for an errno value: `Success` for 0 and one line for each code `errno.sysl` defines.
+// Any other number gets the fixed text `Unknown error`, without the number — a C library would
+// format it in, and nothing here may depend on a formatter.
+@export("strerror")
+strerror(code: i32) -> *u8
+    if code == 0 then return as_ptr("Success".bytes)
+    if code == EINVAL then return as_ptr("Invalid argument".bytes)
+    if code == ERANGE then return as_ptr("Numerical result out of range".bytes)
+    as_ptr("Unknown error".bytes)

@@ -10,7 +10,8 @@ module sh.sysl.cstd
 // compared against Apple's `strtol` would inherit every choice Apple made where C leaves one open,
 // and would pass for the wrong reason wherever the two libraries were wrong together.
 //
-// The snippet is the body of `main`, and reports through the `say_*` printers in `tests/say.h`,
+// The snippet is the body of `main`; an optional prelude is the C that goes above it, for what a
+// function body cannot hold (a comparator for `qsort`). It reports through the `say_*` printers in `tests/say.h`,
 // which reach the host for nothing but `write`. It is compiled `-fno-builtin -O0`: clang folds
 // `strlen("hello")` to 5 otherwise, and the call that was meant to be tested is never made.
 
@@ -83,12 +84,12 @@ end archive
  * freestanding headers, then `include/` — so a case cannot reach a host header by accident, and a
  * declaration cstd's headers get wrong is a compile error here.
  */
-private[cstd] c_run(snippet: string) -> Output
+private[cstd] c_run(snippet: string, prelude: string = "") -> Output
     val lib = archive()
     val res = read_text(f"$work/resource-dir").unwrap()
     cases += 1
     val name = f"$work/case-${c_pid()}-$cases"
-    val source = f"#include \"say.h\"\n\nint main(void) {\n$snippet\n    return 0;\n}\n"
+    val source = f"#include \"say.h\"\n\n$prelude\n\nint main(void) {\n$snippet\n    return 0;\n}\n"
     write_text(f"$name.c", source).unwrap()
 
     var args: Buf[string] = buf()
@@ -107,8 +108,8 @@ private[cstd] c_run(snippet: string) -> Output
 end c_run
 
 // `c_run`, and the check that the program exited 0 having printed exactly `expected`.
-private[cstd] c_case(snippet: string, expected: string)
-    val ran = c_run(snippet)
+private[cstd] c_case(snippet: string, expected: string, prelude: string = "")
+    val ran = c_run(snippet, prelude)
     if !ran.status.ok()
         val err = ran.err.unwrap_or("")
         fail_with(f"the case did not exit 0 (${ran.status})", f"${ran.text}$err")

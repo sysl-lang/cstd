@@ -452,3 +452,153 @@ memchr_finds()
         1
         0
         """)
+
+@test("strnlen stops at the terminator or at n, and never reads past n")
+strnlen_bounds()
+    c_case(raw"""
+        say_int(strnlen("hello", 3));
+        say_int(strnlen("hello", 5));
+        say_int(strnlen("hello", 6));
+        say_int(strnlen("hello", 100));
+        say_int(strnlen("hello", 0));
+        say_int(strnlen("", 4));
+        say_int(strnlen("ab\0cd", 5));
+        char open[4] = {'a', 'b', 'c', 'd'};
+        say_int(strnlen(open, 4));
+        say_int(strnlen(open, 2));
+        say_int(strnlen(NULL, 0));
+        """, raw"""
+        3
+        5
+        5
+        5
+        0
+        0
+        2
+        4
+        2
+        0
+        """)
+
+@test("strtok walks one buffer, writes NULs over the delimiters it ends tokens at, and ends with NULL")
+strtok_sequence()
+    c_case(raw"""
+        char buf[] = "  alpha, beta;;gamma  ";
+        const char *delim = " ,;";
+        char *t = strtok(buf, delim);
+        say_str(t);
+        say_off(t, buf);
+        t = strtok(NULL, delim);
+        say_str(t);
+        say_off(t, buf);
+        t = strtok(NULL, delim);
+        say_str(t);
+        say_off(t, buf);
+        say_str(strtok(NULL, delim));
+        say_str(strtok(NULL, delim));
+        say_bytes(buf, sizeof buf);
+        """, raw"""
+        alpha
+        2
+        beta
+        9
+        gamma
+        15
+        NULL
+        NULL
+          alpha[00] beta[00];gamma[00] [00]
+        """)
+
+@test("strtok skips leading, trailing and repeated delimiters, and finds nothing in all-delimiter text")
+strtok_delimiters()
+    c_case(raw"""
+        char a[] = ",,a,,,b,,";
+        say_str(strtok(a, ","));
+        say_str(strtok(NULL, ","));
+        say_str(strtok(NULL, ","));
+        say_bytes(a, sizeof a);
+        char only[] = ",,,";
+        say_str(strtok(only, ","));
+        say_bytes(only, sizeof only);
+        char empty[] = "";
+        say_str(strtok(empty, ","));
+        char none[] = "abc";
+        say_str(strtok(none, ","));
+        say_str(strtok(NULL, ","));
+        say_bytes(none, sizeof none);
+        char one[] = "x";
+        say_str(strtok(one, ""));
+        say_str(strtok(NULL, ""));
+        """, raw"""
+        a
+        b
+        NULL
+        ,,a[00],,b[00],[00]
+        NULL
+        ,,,[00]
+        NULL
+        abc
+        NULL
+        abc[00]
+        x
+        NULL
+        """)
+
+@test("strtok restarts on a new string, takes a new delimiter set per call, and answers NULL before any string")
+strtok_restart()
+    c_case(raw"""
+        say_str(strtok(NULL, ","));
+        char first[] = "x y z";
+        say_str(strtok(first, " "));
+        char second[] = "p q";
+        say_str(strtok(second, " "));
+        say_str(strtok(NULL, " "));
+        say_str(strtok(NULL, " "));
+        char mixed[] = "a=b;c";
+        say_str(strtok(mixed, "="));
+        say_str(strtok(NULL, ";"));
+        say_str(strtok(NULL, ";"));
+        say_str(strtok(NULL, ";"));
+        say_bytes(first, sizeof first);
+        say_bytes(mixed, sizeof mixed);
+        """, raw"""
+        NULL
+        x
+        p
+        q
+        NULL
+        a
+        b
+        c
+        NULL
+        x[00]y z[00]
+        a[00]b[00]c[00]
+        """)
+
+@test("strerror names each code errno.h defines, and answers fixed text for any other")
+strerror_messages()
+    c_case(raw"""
+        say_str(strerror(0));
+        say_str(strerror(EINVAL));
+        say_str(strerror(ERANGE));
+        say_str(strerror(9999));
+        say_str(strerror(-1));
+        say_str(strerror(1000000));
+        say_ptr_eq(strerror(EINVAL), strerror(EINVAL));
+        say_ptr_eq(strerror(ERANGE), strerror(EINVAL));
+        say_int(strlen(strerror(ERANGE)));
+        say_strtol("x", 10);
+        say_str(strerror(errno));
+        """, raw"""
+        Success
+        Invalid argument
+        Numerical result out of range
+        Unknown error
+        Unknown error
+        Unknown error
+        1
+        0
+        29
+        0 0 22
+        Invalid argument
+        """)
