@@ -1,0 +1,359 @@
+module sh.sysl.cstd
+
+// The float conversions of the printf family: `%f %F %e %E %g %G %a %A`.
+//
+// **Every digit is the exact value's.** A finite double is `m × 2^e` with `m` an integer, so its
+// decimal expansion is finite: `m × 2^e` itself when `e ≥ 0`, and `m × 5^-e` with the point `-e`
+// places from the right when `e < 0`. That integer is built exactly, in base-10^9 limbs, by
+// multiplying by `2^29` or `5^13` at a time -- musl's `fmt_fp` does the same -- and written out as
+// ASCII digits, at most 767 of them (the smallest subnormal's). A conversion then rounds that digit
+// string where its precision says, half to even: a dropped part above half rounds up, below half
+// down, and exactly half (a `5` with nothing after it) toward the even digit. So `%.0f` of 0.5 is
+// `0`, of 1.5 is `2`, `%.1f` of 0.25 is `0.2`, and `%.20f` of 0.1 prints the twenty digits 0.1's
+// double really holds. No float arithmetic is done, so nothing drifts and a soft-float board
+// prints what a hosted machine does.
+//
+// `%a` is the bits themselves in hexadecimal: `0x1.8p+1` for 3.0, a subnormal normalised to a
+// leading `1` as musl prints it (`0x1p-1074`), and a precision shorter than the thirteen hex digits
+// a double holds rounds half to even. With no precision it prints as many as the value needs.
+//
+// Infinity and NaN are `inf` and `nan`, upper case under an upper-case conversion, signed by
+// their sign bit as musl does, and padded with spaces even under the `0` flag. `L` (`long double`)
+// is not taken: cstd has no `long double`, so `%Lf` is a conversion it does not define and is
+// copied out as written, its argument left unread.
+
+// The longest exact expansion a double has is 767 digits (`(2^53 - 1) × 2^-1074` would be more,
+// but a subnormal's `m` is below `2^52`), so 90 limbs of nine digits and 820 bytes hold any.
+private const LIMBS: usize = 90
+private const DIGITS: usize = 820
+private const BILLION: u64 = 1000000000
+
+// A double's exact decimal value: the digits `0.d0 d1 d2 …` times `10^point`. Only the first `n`
+// are held, the last of them non-zero; every digit past them is a `0`. Zero is `n == 0`, with
+// `point` 1 so that it reads as one `0` before the point.
+private struct Decimal
+    digits: [DIGITS]u8
+    n: usize
+    point: int
+
+// The `i`th digit, where a place before the first or past the last held one is a `0`.
+private digit(d: *Decimal, i: int) -> u8 = if i < 0 || i >= int(d.n) then u8('0') else d.digits[i]
+
+// Multiplies the base-10^9 number in `limb[0..<used]` (least significant first) by `factor`,
+// which is at most `5^13`, so a limb times it plus a carry stays inside 64 bits.
+private scale(limb: *u32, used: *usize, factor: u64)
+    var carry: u64 = 0
+    for i in 0..<*used
+        val v = u64(limb[i]) * factor + carry
+        limb[i] = u32(v % BILLION)
+        carry = v / BILLION
+    while carry != 0
+        limb[*used] = u32(carry % BILLION)
+        carry /= BILLION
+        *used += 1
+
+private pow5(k: int) -> u64
+    var p: u64 = 1
+    for i in 0..<k do p *= 5
+    p
+
+// The exact decimal expansion of `m × 2^e`, for `m > 0`.
+private expand(d: *Decimal, m_in: u64, e_in: int)
+    var m = m_in
+    var e = e_in
+    // An even `m` moves a factor of two into the exponent, which shortens the work below.
+    while (m & 1) == 0
+        m >>= 1
+        e += 1
+
+    var limb: [LIMBS]u32
+    limb[0] = u32(m % BILLION)
+    limb[1] = u32((m / BILLION) % BILLION)
+    limb[2] = u32(m / (BILLION * BILLION))
+    var used: usize = 3
+    while used > 1 && limb[used - 1] == 0 do used -= 1
+
+    var left = if e < 0 then 0 - e else e
+    while left > 0
+        if e > 0
+            val k = if left > 29 then 29 else left
+            scale(&limb[0], &used, u64(1) << k)
+            left -= k
+        else
+            val k = if left > 13 then 13 else left
+            scale(&limb[0], &used, pow5(k))
+            left -= k
+
+    // The top limb without its leading zeros, then every other limb as nine digits.
+    var n: usize = 0
+    var top = limb[used - 1]
+    var reversed: [10]u8
+    var t: usize = 0
+    while top != 0
+        reversed[t] = u8('0') + u8(top % 10)
+        top /= 10
+        t += 1
+    while t > 0
+        t -= 1
+        d.digits[n] = reversed[t]
+        n += 1
+    var i = used - 1
+    while i > 0
+        i -= 1
+        var v = limb[i]
+        var k: usize = 9
+        while k > 0
+            k -= 1
+            d.digits[n + k] = u8('0') + u8(v % 10)
+            v /= 10
+        n += 9
+
+    d.point = int(n) + (if e < 0 then e else 0)
+    d.n = n
+    trim(d)
+end expand
+
+private trim(d: *Decimal)
+    while d.n > 0 && d.digits[d.n - 1] == u8('0') do d.n -= 1
+
+// Keeps the first `keep` digits and rounds what is dropped half to even. Rounding up through a run
+// of nines carries into a new leading `1`, one place further left.
+private round_at(d: *Decimal, keep: int)
+    if keep >= int(d.n) then return
+    if keep < 0
+        // Everything kept is a zero above the first digit, and what is dropped is under half of it.
+        d.n = 0
+        return
+    val k = usize(keep)
+    val first = d.digits[k]
+    var up = first > u8('5')
+    if first == u8('5')
+        // The held digits end on a non-zero one, so anything held past this `5` makes it more
+        // than half; with nothing past it, it is exactly half, and the even neighbour wins.
+        if k + 1 < d.n
+            up = true
+        else
+            up = k > 0 && (d.digits[k - 1] - u8('0')) % 2 == 1
+    d.n = k
+    if up
+        var i = k
+        loop
+            if i == 0
+                d.digits[0] = u8('1')
+                d.n = 1
+                d.point += 1
+                break
+            i -= 1
+            if d.digits[i] == u8('9')
+                d.digits[i] = u8('0')
+            else
+                d.digits[i] += 1
+                break
+    trim(d)
+end round_at
+
+// Where a conversion's bytes go: counted only, to measure a field before it is padded, or also
+// put into the sink.
+private struct Out
+    s: *Sink
+    on: bool
+    count: usize
+
+private out(o: *Out, b: u8)
+    if o.on then put(o.s, b)
+    o.count += 1
+
+private out_exponent(o: *Out, x: int, min_digits: usize)
+    out(o, if x < 0 then u8('-') else u8('+'))
+    var v = if x < 0 then 0 - x else x
+    var reversed: [12]u8
+    var n: usize = 0
+    while v != 0 || n < min_digits
+        reversed[n] = u8('0') + u8(v % 10)
+        v /= 10
+        n += 1
+    while n > 0
+        n -= 1
+        out(o, reversed[n])
+
+private enum Style
+    Fixed
+    Scientific
+    Hex
+    Word
+
+// What follows the sign: everything a conversion decided before writing any of it.
+private struct Layout
+    style: Style
+    frac: usize          // digits after the point
+    point: bool          // whether the point is written
+    upper: bool
+    nan: bool            // a NaN rather than an infinity, for the `Word` style
+    lead: u64            // %a: the digit before the point
+    nibbles: u64         // %a: the hex digits after it, `held` of them, most significant first
+    held: usize
+    binary_exp: int      // %a: the power of two
+
+private hex_digit(v: u64, upper: bool) -> u8
+    val letters = if upper then "0123456789ABCDEF" else "0123456789abcdef"
+    letters.bytes[v & 0xf]
+
+// The bytes after the sign and any `0x`.
+private body(o: *Out, d: *Decimal, l: *Layout)
+    if l.style == Word
+        val word = if l.nan then (if l.upper then "NAN" else "nan") else (if l.upper then "INF" else "inf")
+        for b in word.bytes do out(o, b)
+    elif l.style == Fixed
+        if d.point <= 0
+            out(o, u8('0'))
+        else
+            for i in 0..<d.point do out(o, digit(d, i))
+        if l.point then out(o, u8('.'))
+        for i in 0..<l.frac do out(o, digit(d, d.point + int(i)))
+    elif l.style == Scientific
+        out(o, digit(d, 0))
+        if l.point then out(o, u8('.'))
+        for i in 0..<l.frac do out(o, digit(d, int(i) + 1))
+        out(o, if l.upper then u8('E') else u8('e'))
+        out_exponent(o, if d.n == 0 then 0 else d.point - 1, 2)
+    else
+        out(o, hex_digit(l.lead, l.upper))
+        if l.point then out(o, u8('.'))
+        for i in 0..<l.frac
+            val nibble = if i < l.held then l.nibbles >> u64(4 * (l.held - 1 - i)) else 0
+            out(o, hex_digit(nibble, l.upper))
+        out(o, if l.upper then u8('P') else u8('p'))
+        out_exponent(o, l.binary_exp, 1)
+end body
+
+// The field: the width's spaces, the sign, `0x`, the `0` flag's zeros, the body, and the spaces of
+// a left-justified field. An infinity or a NaN is never padded with zeros.
+private field(s: *Sink, sp: Spec, sign: u8, d: *Decimal, l: *Layout)
+    var measure = Out(s, false, 0)
+    body(&measure, d, l)
+    val hex = l.style == Hex
+    var total = measure.count + (if sign != 0 then 1 else 0) + (if hex then 2 else 0)
+    var zeros: usize = 0
+    if sp.zero && !sp.minus && l.style != Word && sp.width > total
+        zeros = sp.width - total
+        total = sp.width
+    pad_before(s, sp, total)
+    if sign != 0 then put(s, sign)
+    if hex
+        put(s, u8('0'))
+        put(s, if l.upper then u8('X') else u8('x'))
+    put_run(s, u8('0'), zeros)
+    var real_out = Out(s, true, 0)
+    body(&real_out, d, l)
+    pad_after(s, sp, total)
+end field
+
+// `%a`'s digits: the significand normalised to `1.xxx` (a subnormal included), then rounded half to
+// even to the precision when that is shorter than the thirteen hex digits it holds.
+private hex_layout(l: *Layout, sp: Spec, biased: u64, fraction: u64)
+    if biased == 0 && fraction == 0
+        l.lead = 0
+        l.nibbles = 0
+        l.held = 0
+        l.binary_exp = 0
+    else
+        var m = fraction
+        var x: int = 0
+        if biased == 0
+            x = -1022
+            while m < u64(1) << 52
+                m <<= 1
+                x -= 1
+        else
+            m |= u64(1) << 52
+            x = int(biased) - 1023
+        l.binary_exp = x
+        if sp.has_precision && sp.precision < 13
+            val drop = u64(52 - 4 * sp.precision)
+            val rest = m & ((u64(1) << drop) - 1)
+            val half = u64(1) << (drop - 1)
+            var q = m >> drop
+            if rest > half || (rest == half && (q & 1) == 1) then q += 1
+            l.held = sp.precision
+            l.nibbles = q & ((u64(1) << u64(4 * sp.precision)) - 1)
+            l.lead = q >> u64(4 * sp.precision)
+        else
+            l.lead = 1
+            l.nibbles = m & ((u64(1) << 52) - 1)
+            l.held = 13
+    var shown = l.held
+    if sp.has_precision
+        shown = sp.precision
+    else
+        while shown > 0 && ((l.nibbles >> u64(4 * (l.held - shown))) & 0xf) == 0 do shown -= 1
+    l.frac = shown
+    l.point = shown > 0 || sp.alt
+end hex_layout
+
+// One float conversion of `x` under `sp`.
+private[cstd] emit_float(s: *Sink, sp: Spec, x: real)
+    val bits = x.bits()
+    val negative = bits >> 63 != 0
+    val biased = (bits >> 52) & 0x7ff
+    val fraction = bits & 0xfffffffffffff
+    val upper = sp.conv < u8('a')
+    val conv = sp.conv | 0x20
+
+    var sign: u8 = 0
+    if negative
+        sign = u8('-')
+    elif sp.plus
+        sign = u8('+')
+    elif sp.space
+        sign = u8(' ')
+
+    var l = Layout(Fixed, 0, false, upper, false, 0, 0, 0, 0)
+    var d: Decimal
+    d.n = 0
+    d.point = 1
+
+    if biased == 0x7ff
+        l.style = Word
+        l.nan = fraction != 0
+        field(s, sp, sign, &d, &l)
+        return
+
+    if conv == u8('a')
+        l.style = Hex
+        hex_layout(&l, sp, biased, fraction)
+        field(s, sp, sign, &d, &l)
+        return
+
+    if biased != 0
+        expand(&d, fraction | (u64(1) << 52), int(biased) - 1075)
+    elif fraction != 0
+        expand(&d, fraction, -1074)
+
+    val precision: usize = if sp.has_precision then sp.precision else 6
+    if conv == u8('f')
+        round_at(&d, d.point + int(precision))
+        l.style = Fixed
+        l.frac = precision
+    elif conv == u8('e')
+        round_at(&d, int(precision) + 1)
+        l.style = Scientific
+        l.frac = precision
+    else
+        // `%g`: `P` significant digits, and the exponent `X` the `%e` form would have. C's rule:
+        // `P > X ≥ -4` is `%f` with `P - 1 - X` places, anything else `%e` with `P - 1`.
+        val p = if precision == 0 then 1 else precision
+        round_at(&d, int(p))
+        val x10 = if d.n == 0 then 0 else d.point - 1
+        if x10 < int(p) && x10 >= -4
+            l.style = Fixed
+            l.frac = usize(int(p) - 1 - x10)
+        else
+            l.style = Scientific
+            l.frac = p - 1
+        if !sp.alt
+            // Without `#`, trailing zeros after the point go, and the point with them.
+            val first = if l.style == Fixed then d.point else 1
+            while l.frac > 0 && digit(&d, first + int(l.frac) - 1) == u8('0') do l.frac -= 1
+    l.point = l.frac > 0 || sp.alt
+    field(s, sp, sign, &d, &l)
+end emit_float

@@ -1,4 +1,4 @@
-/* <stdlib.h> from sh.sysl.cstd: the integer conversions, abs and div, qsort and bsearch. Nothing
+/* <stdlib.h> from sh.sysl.cstd: the number conversions, abs and div, qsort and bsearch. Nothing
  * that allocates or exits is here yet; see the README for what is deliberately absent. */
 #ifndef CSTD_STDLIB_H
 #define CSTD_STDLIB_H
@@ -11,10 +11,13 @@ extern "C" {
 
 int atoi(const char *s);
 long atol(const char *s);
-long strtol(const char *restrict s, char **restrict endptr, int base);
-long long strtoll(const char *restrict s, char **restrict endptr, int base);
-unsigned long strtoul(const char *restrict s, char **restrict endptr, int base);
-unsigned long long strtoull(const char *restrict s, char **restrict endptr, int base);
+double atof(const char *s);
+long strtol(const char *__restrict s, char **__restrict endptr, int base);
+long long strtoll(const char *__restrict s, char **__restrict endptr, int base);
+unsigned long strtoul(const char *__restrict s, char **__restrict endptr, int base);
+unsigned long long strtoull(const char *__restrict s, char **__restrict endptr, int base);
+double strtod(const char *__restrict s, char **__restrict endptr);
+float strtof(const char *__restrict s, char **__restrict endptr);
 int abs(int n);
 long labs(long n);
 long long llabs(long long n);

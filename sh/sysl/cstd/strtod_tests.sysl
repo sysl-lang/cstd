@@ -1,0 +1,273 @@
+module sh.sysl.cstd
+
+@tests
+
+// strtod, strtof and atof, called from C.
+//
+// Each `say_strtod` line is the double's bits in hex, how far `endptr` moved, and `errno` (34 is
+// `ERANGE`, 22 `EINVAL`). The bits are those of the nearest double to the text's exact value, half
+// way to the even one -- IEEE 754's rounding, worked out from the decimal by hand or from the bits.
+
+@test("strtod rounds the classic hard decimals correctly")
+strtod_hard_cases()
+    c_case(raw"""
+        say_strtod("2.2250738585072011e-308");
+        say_strtod("2.2250738585072012e-308");
+        say_strtod("9007199254740993");
+        say_strtod("9007199254740993.0000000001");
+        say_strtod("1e23");
+        say_strtod("8.98846567431158e307");
+        say_strtod("4.9406564584124654e-324");
+        say_strtod("2.4703282292062327e-324");
+        say_strtod("2.4703282292062328e-324");
+        say_strtod("1.7976931348623157e308");
+        say_strtod("1.7976931348623158e308");
+        say_strtod("0.1");
+        say_strtod("123.456e-2");
+        say_strtod("0.015");
+        """, raw"""
+        000fffffffffffff 23 34
+        0010000000000000 23 0
+        4340000000000000 16 0
+        4340000000000001 27 0
+        44b52d02c7e14af6 4 0
+        7fe0000000000000 20 0
+        0000000000000001 23 34
+        0000000000000000 23 34
+        0000000000000001 23 34
+        7fefffffffffffff 22 0
+        7fefffffffffffff 22 0
+        3fb999999999999a 3 0
+        3ff3c0c1fc8f3238 10 0
+        3f8eb851eb851eb8 5 0
+        """)
+
+// 1 + 2^-53 is exactly half way between 1 and the double after it. Written out it is 55 bytes and
+// rounds to the even 1; any non-zero digit however far past it tips it up, and digits under it
+// leave it down. The same at the top: half way between DBL_MAX and 2^1024 rounds to the even one,
+// which is out of range.
+@test("strtod settles a long decimal at a halfway point exactly")
+strtod_long_halfway()
+    c_case(raw"""
+        char big[1000];
+        const char *half = "1.00000000000000011102230246251565404236316680908203125";
+        strcpy(big, half);
+        say_strtod(big);
+        memset(big + 55, '0', 744);
+        big[799] = '1';
+        big[800] = 0;
+        say_strtod(big);
+        big[799] = '0';
+        say_strtod(big);
+        strcpy(big, "1.00000000000000011102230246251565404236316680908203124");
+        memset(big + 55, '9', 745);
+        big[800] = 0;
+        say_strtod(big);
+        say_strtod("179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497792");
+        say_strtod("179769313486231580793728971405303415079934132710037826936173778980444968292764750946649017977587207096330286416692887910946555547851940402630657488671505820681908902000708383676273854845817711531764475730270069855571366959622842914819860834936475292719074168444365510704342711559699508093042880177904174497791");
+        """, raw"""
+        3ff0000000000000 55 0
+        3ff0000000000001 800 0
+        3ff0000000000000 800 0
+        3ff0000000000000 800 0
+        7ff0000000000000 309 34
+        7fefffffffffffff 309 0
+        """)
+
+@test("strtod sets ERANGE with an infinity on overflow, and with a zero or subnormal on underflow")
+strtod_range()
+    c_case(raw"""
+        say_strtod("1.7976931348623159e308");
+        say_strtod("1e400");
+        say_strtod("-1e400");
+        say_strtod("1e-400");
+        say_strtod("-1e-400");
+        say_strtod("1e-99999999999999999999");
+        say_strtod("1e99999999999999999999");
+        say_strtod("4.9e-324");
+        say_strtod("0e-999999");
+        say_strtod("0");
+        say_strtod("-0");
+        say_strtod("0.000");
+        """, raw"""
+        7ff0000000000000 22 34
+        7ff0000000000000 5 34
+        fff0000000000000 6 34
+        0000000000000000 6 34
+        8000000000000000 7 34
+        0000000000000000 23 34
+        7ff0000000000000 22 34
+        0000000000000001 8 34
+        0000000000000000 9 0
+        0000000000000000 1 0
+        8000000000000000 2 0
+        0000000000000000 5 0
+        """)
+
+@test("strtod's endptr stops at the first byte that is not the number, and is the text itself for none")
+strtod_endptr()
+    c_case(raw"""
+        say_strtod("  -12.5e1x");
+        say_strtod("+.5e-1");
+        say_strtod(".5");
+        say_strtod("5.");
+        say_strtod("1e+");
+        say_strtod("1e");
+        say_strtod("1.5e-2abc");
+        say_strtod("\t\n 7 ");
+        say_strtod("abc");
+        say_strtod("");
+        say_strtod("   ");
+        say_strtod("-");
+        say_strtod(".");
+        say_strtod(".e1");
+        say_strtod("+-1");
+        """, raw"""
+        c05f400000000000 9 0
+        3fa999999999999a 6 0
+        3fe0000000000000 2 0
+        4014000000000000 2 0
+        3ff0000000000000 1 0
+        3ff0000000000000 1 0
+        3f8eb851eb851eb8 6 0
+        401c000000000000 4 0
+        0000000000000000 0 22
+        0000000000000000 0 22
+        0000000000000000 0 22
+        0000000000000000 0 22
+        0000000000000000 0 22
+        0000000000000000 0 22
+        0000000000000000 0 22
+        """)
+
+@test("strtod reads hexadecimal floats, rounding half to even and below the subnormals")
+strtod_hex()
+    c_case(raw"""
+        say_strtod("0x1.8p+1");
+        say_strtod("0X1P-1074");
+        say_strtod("0x1p-1075");
+        say_strtod("0x1.0000000000001p-1075");
+        say_strtod("0x.8p1");
+        say_strtod("0x1.0000000000000800p+0");
+        say_strtod("0x1.0000000000000801p+0");
+        say_strtod("0x1.0000000000001800p+0");
+        say_strtod("0x1.fffffffffffff8p+1023");
+        say_strtod("0x1P+1024");
+        say_strtod("-0x0p+0");
+        say_strtod("0x");
+        say_strtod("0xg");
+        say_strtod("0x1p");
+        say_strtod("0x1.fffffffffffffp+1023");
+        """, raw"""
+        4008000000000000 8 0
+        0000000000000001 9 34
+        0000000000000000 9 34
+        0000000000000001 23 34
+        3ff0000000000000 6 0
+        3ff0000000000000 23 0
+        3ff0000000000001 23 0
+        3ff0000000000002 23 0
+        7ff0000000000000 24 34
+        7ff0000000000000 9 34
+        8000000000000000 7 0
+        0000000000000000 1 0
+        0000000000000000 1 0
+        3ff0000000000000 3 0
+        7fefffffffffffff 23 0
+        """)
+
+// A NaN's payload bits are the implementation's to choose, so a NaN is shown as `nan`, its sign,
+// and the length read.
+@test("strtod reads inf, infinity and nan, with nan's (chars), in any case")
+strtod_inf_nan()
+    c_case(raw"""
+        say_strtod("inf");
+        say_strtod("INFINITY");
+        say_strtod("-Infinity");
+        say_strtod("infinit");
+        say_strtod("infx");
+        say_strtod("in");
+        const char *nans[] = {"nan", "NaN", "-nan", "nan()", "nan(123)", "nan(abc_9)", "nan(", "nan(1 2)", "nanx", "+NAN(x)"};
+        for (int i = 0; i < 10; i++) {
+            char *end;
+            errno = 0;
+            double v = strtod(nans[i], &end);
+            unsigned long long bits;
+            memcpy(&bits, &v, sizeof bits);
+            say_raw(v != v ? "nan " : "not ", 4);
+            say_raw(bits >> 63 ? "- " : "+ ", 2);
+            put_i(end - nans[i]);
+            say_ch(' ');
+            say_int(errno);
+        }
+        """, raw"""
+        7ff0000000000000 3 0
+        7ff0000000000000 8 0
+        fff0000000000000 9 0
+        7ff0000000000000 3 0
+        7ff0000000000000 3 0
+        0000000000000000 0 22
+        nan + 3 0
+        nan + 3 0
+        nan - 4 0
+        nan + 5 0
+        nan + 8 0
+        nan + 10 0
+        nan + 3 0
+        nan + 3 0
+        nan + 3 0
+        nan + 7 0
+        """)
+
+@test("strtof rounds once, straight to a float, and has its own range")
+strtof_cases()
+    c_case(raw"""
+        say_strtof("3.4028235e38");
+        say_strtof("3.4028236e38");
+        say_strtof("340282356779733661637539395458142568448");
+        say_strtof("340282356779733661637539395458142568447");
+        say_strtof("1e-46");
+        say_strtof("1.4e-45");
+        say_strtof("0.1");
+        say_strtof("16777217");
+        say_strtof("16777219");
+        say_strtof("1.000000059604644775390625");
+        say_strtof("1.0000000596046447753906250000000001");
+        say_strtof("inf");
+        say_strtof("-0");
+        say_strtof("0x1.fffffep+127");
+        say_strtof("abc");
+        """, raw"""
+        7f7fffff 12 0
+        7f800000 12 34
+        7f800000 39 34
+        7f7fffff 39 0
+        00000000 5 34
+        00000001 7 34
+        3dcccccd 3 0
+        4b800000 8 0
+        4b800002 8 0
+        3f800000 26 0
+        3f800001 36 0
+        7f800000 3 0
+        80000000 2 0
+        7f7fffff 15 0
+        00000000 0 22
+        """)
+
+@test("atof is strtod with no endptr")
+atof_reads_a_double()
+    c_case(raw"""
+        double v = atof("  2.5xyz");
+        unsigned long long bits;
+        memcpy(&bits, &v, sizeof bits);
+        put_hex(bits, 16);
+        say_end();
+        v = atof("-1e400");
+        memcpy(&bits, &v, sizeof bits);
+        put_hex(bits, 16);
+        say_end();
+        """, raw"""
+        4004000000000000
+        fff0000000000000
+        """)

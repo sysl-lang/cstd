@@ -1,6 +1,6 @@
 module sh.sysl.cstd
 
-// The printf family of `<stdio.h>`, minus floating point: `snprintf`, `sprintf` and their `v`
+// The printf family of `<stdio.h>`: `snprintf`, `sprintf` and their `v`
 // twins format into memory; `dprintf`, `printf` and theirs format onto a file descriptor through
 // `write`. There is no `FILE` here, so `printf` is `dprintf` to descriptor 1.
 //
@@ -17,8 +17,7 @@ module sh.sysl.cstd
 // - `%s` of a null pointer is `(null)`.
 // - A conversion C does not define is copied out as it was written, `%` and all.
 //
-// **The float conversions `%f %F %e %E %g %G %a %A` print nothing yet.** Each still takes its
-// `double` from the arguments, so the ones after it line up; they arrive with `strtod`.
+// The float conversions `%f %F %e %E %g %G %a %A` are in `printf_float.sysl`.
 
 @needs(os)
 private extern "write" c_write(fd: i32, bytes: *u8, n: usize) -> isize
@@ -32,7 +31,7 @@ private const STAGE: usize = 256
 // place is left for the NUL, and `total` goes on counting past that, which is what `snprintf`
 // answers. To a descriptor, the bytes gather in `stage`. Which of the two is `to_fd`, never the
 // descriptor's value: a negative one is still a descriptor, which `write` refuses.
-private struct Sink
+private[cstd] struct Sink
     dst: *u8
     room: usize
     to_fd: bool
@@ -65,7 +64,7 @@ private flush(s: *Sink)
     s.staged = 0
 end flush
 
-private put(s: *Sink, b: u8)
+private[cstd] put(s: *Sink, b: u8)
     if s.to_fd
         s.stage[s.staged] = b
         s.staged += 1
@@ -75,11 +74,11 @@ private put(s: *Sink, b: u8)
     s.total += 1
 end put
 
-private put_run(s: *Sink, b: u8, n: usize)
+private[cstd] put_run(s: *Sink, b: u8, n: usize)
     for i in 0..<n do put(s, b)
 
 // What the length modifier said the argument is.
-private enum Length
+private[cstd] enum Length
     Plain
     Char      // hh
     Short     // h
@@ -90,7 +89,7 @@ private enum Length
     Diff      // t
 
 // One conversion specification, read.
-private struct Spec
+private[cstd] struct Spec
     minus: bool
     plus: bool
     space: bool
@@ -167,10 +166,10 @@ private store_count(ap: *va_list, length: Length, count: usize)
 end store_count
 
 // Pads a field of `body` bytes out to the width, on the side the `-` flag says.
-private pad_before(s: *Sink, sp: Spec, body: usize)
+private[cstd] pad_before(s: *Sink, sp: Spec, body: usize)
     if !sp.minus && sp.width > body then put_run(s, u8(' '), sp.width - body)
 
-private pad_after(s: *Sink, sp: Spec, body: usize)
+private[cstd] pad_after(s: *Sink, sp: Spec, body: usize)
     if sp.minus && sp.width > body then put_run(s, u8(' '), sp.width - body)
 
 // An integer conversion: the sign or `0x`, the zeros the precision or the `0` flag asks for, then
@@ -359,7 +358,8 @@ private format(s: *Sink, fmt: *u8, ap: *va_list)
         elif c == u8('%')
             put(s, u8('%'))
         elif is_float_conv(c)
-            val skipped: real = va_arg(ap)
+            val v: real = va_arg(ap)
+            emit_float(s, sp, v)
         else
             // Not a conversion C defines: copied out as written. A format ending inside one stops
             // at its NUL.

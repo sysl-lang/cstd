@@ -193,4 +193,35 @@ static void say_strtoull(const char *s, int base) {
     put_u(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
 }
 
+/* `digits` hex digits of v, most significant first, without going through printf. */
+static void put_hex(unsigned long long v, int digits) {
+    for (int i = digits - 1; i >= 0; i--) say_ch("0123456789abcdef"[(v >> (4 * i)) & 15]);
+}
+
+/* strtod's answer as the double's bits in hex, how far endptr moved, and errno. */
+static void say_strtod(const char *s) {
+    char *end = (char *)"unset";
+    errno = 0;
+    double v = strtod(s, &end);
+    unsigned long long bits;
+    memcpy(&bits, &v, sizeof bits);
+    put_hex(bits, 16); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+}
+
+static void say_strtof(const char *s) {
+    char *end = (char *)"unset";
+    errno = 0;
+    float v = strtof(s, &end);
+    unsigned int bits;
+    memcpy(&bits, &v, sizeof bits);
+    put_hex(bits, 8); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+}
+
+/* A double with exactly these bits. */
+static double from_bits(unsigned long long bits) {
+    double v;
+    memcpy(&v, &bits, sizeof v);
+    return v;
+}
+
 #endif

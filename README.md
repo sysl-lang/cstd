@@ -19,18 +19,34 @@ require, exported under its C name with `@export`.
 |---|---|
 | `string.h` | `strlen` `strnlen` `strcmp` `strncmp` `strcpy` `strncpy` `strcat` `strncat` `strchr` `strrchr` `strstr` `strspn` `strcspn` `strpbrk` `strtok` `strtok_r` `strerror` `memcpy` `memmove` `memset` `memcmp` `memchr` |
 | `ctype.h` | `isalnum` `isalpha` `isblank` `iscntrl` `isdigit` `isgraph` `islower` `isprint` `ispunct` `isspace` `isupper` `isxdigit` `tolower` `toupper`, for the C locale |
-| `stdlib.h` | `atoi` `atol` `strtol` `strtoul` `strtoll` `strtoull` `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch` |
+| `stdlib.h` | `atoi` `atol` `atof` `strtol` `strtoul` `strtoll` `strtoull` `strtod` `strtof` `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch` |
 | `errno.h` | `errno` (one global, defined by the library), `EINVAL`, `ERANGE` |
-| `stdio.h` | `printf` `dprintf` `sprintf` `snprintf` `vprintf` `vdprintf` `vsprintf` `vsnprintf`, without floating point |
+| `stdio.h` | `printf` `dprintf` `sprintf` `snprintf` `vprintf` `vdprintf` `vsprintf` `vsnprintf` |
 
-- The printf family takes C99's `%d %i %u %o %x %X %c %s %p %n %%`, the flags `- + space # 0`, a
-  width and a precision as a number or `*`, and the lengths `hh h l ll j z t`. There is no `FILE`:
+- The printf family takes C99's `%d %i %u %o %x %X %c %s %p %n %%` and `%f %F %e %E %g %G %a %A`,
+  the flags `- + space # 0`, a width and a precision as a number or `*`, and the lengths
+  `hh h l ll j z t`. There is no `long double`, so `L` is not taken and `%Lf` is copied out as
+  written. There is no `FILE`:
   `printf` writes to descriptor 1 and `dprintf` to the one it is given, both through `write`, which
   the platform supplies. Output gathers in a 256-byte buffer on the stack and nothing allocates.
 - Where C leaves a choice, musl's answer is taken, since keel targets musl compatibility: `%p` is
   `%#zx`, so a null pointer prints `0` (glibc prints `(nil)`); `%s` of a null pointer prints
   `(null)`; a conversion C does not define is copied out as written.
 
+- **Floats print their exact value, correctly rounded.** A double is `m × 2^e`, so its decimal
+  expansion is finite; it is built exactly in base-10^9 limbs (as musl's `fmt_fp` does) and rounded
+  half to even where the precision says, so `%.0f` of 0.5 is `0`, `%.20f` of 0.1 is
+  `0.10000000000000000555`, and `%f` of 1e300 prints all of its 301 digits. No float arithmetic is
+  done, so a soft-float board prints exactly what a hosted machine does. `%a` is exact hex, a
+  subnormal normalised to `0x1p-1074` as musl prints it. Infinity and NaN are `inf`/`nan` (upper
+  case under `F E G A`), signed by the sign bit as musl does.
+- **`strtod` and `strtof` are correctly rounded for any length of input**, through the standard
+  library's `sysl.text.real_prefix`/`f32_prefix`: Eisel-Lemire on the first nineteen digits, and an
+  exact big-integer comparison against the halfway point where more digits could decide it.
+  Decimal and hex forms, `inf`, `infinity`, `nan` and `nan(...)` are read. Overflow answers
+  ±infinity and an underflow a zero or subnormal, each with `ERANGE` (every subnormal result sets
+  it; C leaves underflow's `errno` to the implementation). No number at all leaves `endptr` at the
+  text and sets `EINVAL`, as the integer `strto*` do here.
 - `long` is measured with a `c type`, so `strtol` answers 32 bits on a Cortex-M and 64 on an LP64
   machine.
 - The `strto*` functions take base 0 or 2–36, skip leading white space, read one sign and an
@@ -105,10 +121,7 @@ sysl build-lib . --target aarch64-freestanding
   platform's decision: keel's heap, or a board's static arena. That half arrives with a design for it.
 - **`FILE` and the rest of stdio, `exit`, `setjmp`.** These need a platform underneath (a process, a
   crt0, buffered streams), so they belong with keel's port layer rather than this portable core.
-- **`strtod`, `atof` and every float conversion, `printf`'s `%f %e %g %a` included.** sysl's
-  standard library itself goes to C's `strtod`/`snprintf` for floats, so a correctly rounded
-  implementation belongs in `sysl.fmt` first. Until then a float conversion prints nothing and still
-  takes its `double`, so the arguments after it line up; one ignored test per conversion waits for it.
+- **`long double`, `strtold` and `%Lf`.** cstd's floats are `double` and `float` only.
 - **Locales.** Only the C locale exists: every byte from 0x80 up is in no class.
 - **A per-thread `errno`.** Nothing this library serves has threads yet.
 

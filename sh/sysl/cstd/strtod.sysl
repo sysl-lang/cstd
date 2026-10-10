@@ -1,0 +1,79 @@
+module sh.sysl.cstd
+
+// The floating half of `<stdlib.h>`: `strtod`, `strtof` and `atof`.
+//
+// **The reading is the standard library's.** `sysl.text.real_prefix` reads exactly what C's
+// `strtod` reads -- white space, a sign, a decimal or hexadecimal float, `inf`, `infinity`, `nan`
+// and `nan(chars)` in any case -- and answers the nearest double, half way to the even one, for an
+// input of any length, in integer arithmetic and without a C library: Eisel-Lemire for the first
+// nineteen digits, and an exact big-integer comparison against the halfway point when the digits
+// after them could decide it. `f32_prefix` rounds once, straight to a `float`. What is left here
+// is C's contract around the value: `endptr` and `errno`.
+
+import sysl.text.{f32_prefix, real_prefix}
+
+// Where the digits of the significand say the number is not zero: any digit but `0` before the
+// exponent, hexadecimal after a `0x`. `text[start..<end]` is the prefix that was read, past its
+// white space and sign.
+private significand_nonzero(text: *u8, start: usize, end: usize) -> bool
+    var i = start
+    val hex = end - start > 2 && text[i] == u8('0') && (text[i + 1] | 0x20) == u8('x')
+    if hex then i += 2
+    while i < end
+        val b = text[i]
+        val lower = b | 0x20
+        if hex && lower == u8('p') then return false
+        if !hex && lower == u8('e') then return false
+        if b >= u8('1') && b <= u8('9') then return true
+        if hex && lower >= u8('a') && lower <= u8('f') then return true
+        i += 1
+    false
+
+// Past the white space and the sign of `text`.
+private number_start(text: *u8) -> usize
+    var i: usize = 0
+    while isspace(i32(text[i])) != 0 do i += 1
+    if text[i] == u8('-') || text[i] == u8('+') then i += 1
+    i
+
+// How a reading of `used` bytes that came to a value with these properties ends: `endptr` is one
+// past the last byte read, or `text` itself when nothing was; `errno` is `EINVAL` for no number at
+// all, as `strtol` does here, and `ERANGE` when the value overflowed to an infinity the text did
+// not spell, or underflowed -- a subnormal result, or a zero from digits that were not all zero.
+private settle_float(text: *u8, used: usize, endptr: **u8, infinite: bool, tiny: bool, zero: bool)
+    if endptr != null then *endptr = &text[used]
+    if used == 0
+        errno = EINVAL
+        return
+    val start = number_start(text)
+    if infinite && (text[start] | 0x20) != u8('i')
+        errno = ERANGE
+    elif tiny && (!zero || significand_nonzero(text, start, used))
+        errno = ERANGE
+
+private c_length(text: *u8) -> usize
+    var n: usize = 0
+    while text[n] != 0 do n += 1
+    n
+
+@export("strtod")
+strtod(text: *u8, endptr: **u8) -> real
+    val (value, used) = real_prefix(text[0..<c_length(text)])
+    val bits = value.bits()
+    val biased = (bits >> 52) & 0x7ff
+    val fraction = bits & 0xfffffffffffff
+    settle_float(text, used, endptr, biased == 0x7ff && fraction == 0, biased == 0, fraction == 0)
+    value
+
+@export("strtof")
+strtof(text: *u8, endptr: **u8) -> f32
+    val (value, used) = f32_prefix(text[0..<c_length(text)])
+    val bits = value.bits()
+    val biased = (bits >> 23) & 0xff
+    val fraction = bits & 0x7fffff
+    settle_float(text, used, endptr, biased == 0xff && fraction == 0, biased == 0, fraction == 0)
+    value
+
+// `atof` is `strtod` with nowhere to say where it stopped, as C defines it.
+@export("atof")
+atof(text: *u8) -> real = strtod(text, null)
