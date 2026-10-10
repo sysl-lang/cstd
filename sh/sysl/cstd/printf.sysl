@@ -30,10 +30,12 @@ private const STAGE: usize = 256
 //
 // To memory, `dst` is the caller's buffer and `room` its size: a byte is stored only while one
 // place is left for the NUL, and `total` goes on counting past that, which is what `snprintf`
-// answers. To a descriptor, `dst` is null and the bytes gather in `stage`.
+// answers. To a descriptor, the bytes gather in `stage`. Which of the two is `to_fd`, never the
+// descriptor's value: a negative one is still a descriptor, which `write` refuses.
 private struct Sink
     dst: *u8
     room: usize
+    to_fd: bool
     fd: i32
     total: usize
     stage: [STAGE]u8
@@ -44,12 +46,11 @@ private memory_sink(dst: *u8, room: usize) -> Sink
     var s: Sink
     s.dst = dst
     s.room = room
-    s.fd = -1
     s
-end memory_sink
 
 private fd_sink(fd: i32) -> Sink
     var s: Sink
+    s.to_fd = true
     s.fd = fd
     s
 
@@ -65,12 +66,12 @@ private flush(s: *Sink)
 end flush
 
 private put(s: *Sink, b: u8)
-    if s.fd < 0
-        if s.total + 1 < s.room then s.dst[s.total] = b
-    else
+    if s.to_fd
         s.stage[s.staged] = b
         s.staged += 1
         if s.staged == STAGE then flush(s)
+    elif s.total + 1 < s.room
+        s.dst[s.total] = b
     s.total += 1
 end put
 
@@ -242,7 +243,7 @@ private is_digit(b: u8) -> bool = b >= u8('0') && b <= u8('9')
 // Reads one specification starting just past its `%`, consuming the `*` arguments it names, and
 // answers it with how many bytes of the format it took.
 private read_spec(fmt: *u8, ap: *va_list) -> (Spec, usize)
-    var sp: Spec
+    var sp = Spec(false, false, false, false, false, 0, false, 0, Plain, 0)
     var i: usize = 0
     loop
         val b = fmt[i]
@@ -287,7 +288,6 @@ private read_spec(fmt: *u8, ap: *va_list) -> (Spec, usize)
                 sp.precision = sp.precision * 10 + usize(fmt[i] - u8('0'))
                 i += 1
 
-    sp.length = Plain
     val l = fmt[i]
     if l == u8('h')
         if fmt[i + 1] == u8('h')
@@ -363,7 +363,7 @@ private format(s: *Sink, fmt: *u8, ap: *va_list)
         else
             // Not a conversion C defines: copied out as written. A format ending inside one stops
             // at its NUL.
-            for k in 0..<used
+            for k in 0..<1 + used
                 if fmt[i + k] == 0 then return
                 put(s, fmt[i + k])
         i += 1 + used

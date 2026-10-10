@@ -21,6 +21,15 @@ require, exported under its C name with `@export`.
 | `ctype.h` | `isalnum` `isalpha` `isblank` `iscntrl` `isdigit` `isgraph` `islower` `isprint` `ispunct` `isspace` `isupper` `isxdigit` `tolower` `toupper`, for the C locale |
 | `stdlib.h` | `atoi` `atol` `strtol` `strtoul` `strtoll` `strtoull` `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch` |
 | `errno.h` | `errno` (one global, defined by the library), `EINVAL`, `ERANGE` |
+| `stdio.h` | `printf` `dprintf` `sprintf` `snprintf` `vprintf` `vdprintf` `vsprintf` `vsnprintf`, without floating point |
+
+- The printf family takes C99's `%d %i %u %o %x %X %c %s %p %n %%`, the flags `- + space # 0`, a
+  width and a precision as a number or `*`, and the lengths `hh h l ll j z t`. There is no `FILE`:
+  `printf` writes to descriptor 1 and `dprintf` to the one it is given, both through `write`, which
+  the platform supplies. Output gathers in a 256-byte buffer on the stack and nothing allocates.
+- Where C leaves a choice, musl's answer is taken, since keel targets musl compatibility: `%p` is
+  `%#zx`, so a null pointer prints `0` (glibc prints `(nil)`); `%s` of a null pointer prints
+  `(null)`; a conversion C does not define is copied out as written.
 
 - `long` is measured with a `c type`, so `strtol` answers 32 bits on a Cortex-M and 64 on an LP64
   machine.
@@ -94,10 +103,12 @@ sysl build-lib . --target aarch64-freestanding
 
 - **Anything that allocates** (`malloc` and friends, `strdup`). Where the memory comes from is the
   platform's decision: keel's heap, or a board's static arena. That half arrives with a design for it.
-- **stdio, `printf`, `exit`, `setjmp`.** These need a platform underneath (file descriptors, a
-  process, a crt0), so they belong with keel's port layer rather than this portable core.
-- **`strtod`, `atof` and every float conversion.** sysl's standard library itself goes to C's
-  `strtod`/`snprintf` for floats, so a correctly rounded implementation belongs in `sysl.fmt` first.
+- **`FILE` and the rest of stdio, `exit`, `setjmp`.** These need a platform underneath (a process, a
+  crt0, buffered streams), so they belong with keel's port layer rather than this portable core.
+- **`strtod`, `atof` and every float conversion, `printf`'s `%f %e %g %a` included.** sysl's
+  standard library itself goes to C's `strtod`/`snprintf` for floats, so a correctly rounded
+  implementation belongs in `sysl.fmt` first. Until then a float conversion prints nothing and still
+  takes its `double`, so the arguments after it line up; one ignored test per conversion waits for it.
 - **Locales.** Only the C locale exists: every byte from 0x80 up is in no class.
 - **A per-thread `errno`.** Nothing this library serves has threads yet.
 

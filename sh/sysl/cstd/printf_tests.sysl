@@ -1,0 +1,759 @@
+module sh.sysl.cstd
+
+@tests
+
+// The printf family, called from C.
+//
+// Each `say_f` line is one `vsnprintf` into a roomy buffer: the count it answered, then what it
+// wrote between bars, so a space at either edge shows: `5|   42|`. A byte that is not printable is
+// written as its hex in brackets, as `say_bytes` does. The host is LP64, so `long`, `size_t`,
+// `ptrdiff_t` and `intmax_t` are 64 bits here. Every expected value is C99's answer, written out.
+
+@test("text and %% are copied, and the count is the bytes written")
+printf_plain_text()
+    c_case(raw"""
+        say_f("hello");
+        say_f("");
+        say_f("%%");
+        say_f("a%%b%%");
+        """, raw"""
+        5|hello|
+        0||
+        1|%|
+        4|a%b%|
+        """)
+
+@test("%d and %i take the sign flags, the width and the 0 flag")
+printf_signed_flags()
+    c_case(raw"""
+        say_f("%d", 0);
+        say_f("%d", 42);
+        say_f("%i", -42);
+        say_f("%+d", 5);
+        say_f("%+d", -5);
+        say_f("% d", 5);
+        say_f("% d", -5);
+        say_f("%+ d", 5);
+        say_f("% +d", 5);
+        say_f("%5d", 42);
+        say_f("%-5d", 42);
+        say_f("%05d", 42);
+        say_f("%05d", -42);
+        say_f("%+05d", 42);
+        say_f("% 05d", 42);
+        say_f("%-05d", 42);
+        say_f("%2d", 12345);
+        say_f("%d", INT_MIN);
+        say_f("%d", INT_MAX);
+        say_f("%i", INT_MIN);
+        """, raw"""
+        1|0|
+        2|42|
+        3|-42|
+        2|+5|
+        2|-5|
+        2| 5|
+        2|-5|
+        2|+5|
+        2|+5|
+        5|   42|
+        5|42   |
+        5|00042|
+        5|-0042|
+        5|+0042|
+        5| 0042|
+        5|42   |
+        5|12345|
+        11|-2147483648|
+        10|2147483647|
+        11|-2147483648|
+        """)
+
+@test("a precision is a minimum digit count, ignores the 0 flag, and over 0 at 0 prints nothing")
+printf_signed_precision()
+    c_case(raw"""
+        say_f("%.3d", 42);
+        say_f("%.3d", -42);
+        say_f("%+.3d", 42);
+        say_f("%05.3d", 42);
+        say_f("%-05.3d", -42);
+        say_f("%8.5d", -42);
+        say_f("%.1d", 0);
+        say_f("%.0d", 0);
+        say_f("%.d", 0);
+        say_f("%5.0d", 0);
+        say_f("%-3.0d", 0);
+        say_f("%+.0d", 0);
+        say_f("% .0d", 0);
+        say_f("%.0d", 7);
+        say_f("%.0i", 0);
+        """, raw"""
+        3|042|
+        4|-042|
+        4|+042|
+        5|  042|
+        5|-042 |
+        8|  -00042|
+        1|0|
+        0||
+        0||
+        5|     |
+        3|   |
+        1|+|
+        1| |
+        1|7|
+        0||
+        """)
+
+@test("%u, %o, %x and %X read an unsigned int, and ignore + and space")
+printf_unsigned()
+    c_case(raw"""
+        say_f("%u", 0);
+        say_f("%u", 4294967295u);
+        say_f("%u", -1);
+        say_f("%+u", 5);
+        say_f("% u", 5);
+        say_f("%o", 8);
+        say_f("%o", 0);
+        say_f("%x", 255);
+        say_f("%X", 255);
+        say_f("%x", 0xdeadbeef);
+        say_f("%X", 0xdeadbeef);
+        say_f("%x", 0);
+        say_f("%8.3x", 10);
+        say_f("%-6.3X", 10);
+        say_f("%06x", 255);
+        say_f("%.0x", 0);
+        say_f("%.0u", 0);
+        say_f("%.0o", 0);
+        say_f("%3.0x", 0);
+        """, raw"""
+        1|0|
+        10|4294967295|
+        10|4294967295|
+        1|5|
+        1|5|
+        2|10|
+        1|0|
+        2|ff|
+        2|FF|
+        8|deadbeef|
+        8|DEADBEEF|
+        1|0|
+        8|     00a|
+        6|00A   |
+        6|0000ff|
+        0||
+        0||
+        0||
+        3|   |
+        """)
+
+@test("# makes octal begin with 0 and puts 0x or 0X before a hex value that is not 0")
+printf_alternate_form()
+    c_case(raw"""
+        say_f("%#o", 8);
+        say_f("%#o", 0);
+        say_f("%#.0o", 0);
+        say_f("%#.3o", 8);
+        say_f("%#.2o", 8);
+        say_f("%#5o", 8);
+        say_f("%#05o", 8);
+        say_f("%#-5o", 8);
+        say_f("%#x", 255);
+        say_f("%#X", 255);
+        say_f("%#x", 0);
+        say_f("%#.0x", 0);
+        say_f("%#8x", 255);
+        say_f("%#08x", 255);
+        say_f("%#-8x", 255);
+        say_f("%#.4x", 255);
+        say_f("%#08.4x", 255);
+        say_f("%#5x", 0);
+        say_f("%#u", 7);
+        say_f("%#d", 7);
+        """, raw"""
+        3|010|
+        1|0|
+        1|0|
+        3|010|
+        3|010|
+        5|  010|
+        5|00010|
+        5|010  |
+        4|0xff|
+        4|0XFF|
+        1|0|
+        0||
+        8|    0xff|
+        8|0x0000ff|
+        8|0xff    |
+        6|0x00ff|
+        8|  0x00ff|
+        5|    0|
+        1|7|
+        1|7|
+        """)
+
+@test("%c writes the argument as an unsigned char, padded to the width")
+printf_char()
+    c_case(raw"""
+        say_f("%c", 'A');
+        say_f("%3c", 'A');
+        say_f("%-3c", 'A');
+        say_f("%c", 256 + 'B');
+        say_f("%c%c%c", 'x', 'y', 'z');
+        say_f("%c", 0);
+        say_f("%c", 255);
+        """, raw"""
+        1|A|
+        3|  A|
+        3|A  |
+        1|B|
+        3|xyz|
+        1|[00]|
+        1|[ff]|
+        """)
+
+@test("%s stops at the precision, reads no byte past it, and prints (null) for a null pointer")
+printf_string()
+    c_case(raw"""
+        char raw3[3] = {'x', 'y', 'z'};
+        say_f("%s", "abc");
+        say_f("%s", "");
+        say_f("%5s", "abc");
+        say_f("%-5s", "abc");
+        say_f("%.2s", "abc");
+        say_f("%5.2s", "abc");
+        say_f("%-5.2s", "abc");
+        say_f("%.0s", "abc");
+        say_f("%.10s", "abc");
+        say_f("%2s", "abcdef");
+        say_f("%.3s", raw3);
+        say_f("%.2s", raw3);
+        say_f("%s", (char *)NULL);
+        say_f("%.3s", (char *)NULL);
+        say_f("%8s", (char *)NULL);
+        """, raw"""
+        3|abc|
+        0||
+        5|  abc|
+        5|abc  |
+        2|ab|
+        5|   ab|
+        5|ab   |
+        0||
+        3|abc|
+        6|abcdef|
+        3|xyz|
+        2|xy|
+        6|(null)|
+        3|(nu|
+        8|  (null)|
+        """)
+
+@test("* takes a width or precision from the arguments, a negative width meaning -")
+printf_star()
+    c_case(raw"""
+        say_f("%*d", 5, 42);
+        say_f("%*d", -5, 42);
+        say_f("%-*d", 5, 42);
+        say_f("%-*d", -5, 42);
+        say_f("%*d", 0, 42);
+        say_f("%.*d", 3, 7);
+        say_f("%.*d", -1, 7);
+        say_f("%.*d", -1, 0);
+        say_f("%.*d", 0, 0);
+        say_f("%*.*d", 6, 3, 7);
+        say_f("%*.*d", -6, 3, 7);
+        say_f("%0*d", 5, 42);
+        say_f("%0*.*d", 6, -1, 42);
+        say_f("%0*.*d", 6, 2, 42);
+        say_f("%.*s", 2, "abc");
+        say_f("%*s", 4, "ab");
+        say_f("%*s|%d", -4, "ab", 9);
+        say_f("%#*x", 6, 255);
+        """, raw"""
+        5|   42|
+        5|42   |
+        5|42   |
+        5|42   |
+        2|42|
+        3|007|
+        1|7|
+        1|0|
+        0||
+        6|   007|
+        6|007   |
+        5|00042|
+        6|000042|
+        6|    42|
+        2|ab|
+        4|  ab|
+        6|ab  |9|
+        6|  0xff|
+        """)
+
+@test("hh and h narrow the int they were given, as C converts it")
+printf_short_lengths()
+    c_case(raw"""
+        say_f("%hhd", 300);
+        say_f("%hhd", 200);
+        say_f("%hhd", -129);
+        say_f("%hhd", 0);
+        say_f("%hhu", 300);
+        say_f("%hhu", -1);
+        say_f("%hhx", 0x1ff);
+        say_f("%hho", 0x1ff);
+        say_f("%hhi", 127);
+        say_f("%hd", 70000);
+        say_f("%hd", 40000);
+        say_f("%hd", -32768);
+        say_f("%hu", -1);
+        say_f("%hx", 0x12345);
+        say_f("%hX", 0xabcde);
+        say_f("%hhd %d", 300, 7);
+        """, raw"""
+        2|44|
+        3|-56|
+        3|127|
+        1|0|
+        2|44|
+        3|255|
+        2|ff|
+        3|377|
+        3|127|
+        4|4464|
+        6|-25536|
+        6|-32768|
+        5|65535|
+        4|2345|
+        4|BCDE|
+        4|44 7|
+        """)
+
+@test("l, ll, j, z and t read the 64-bit types whole, at their edges")
+printf_long_lengths()
+    c_case(raw"""
+        say_f("%ld", LONG_MIN);
+        say_f("%ld", LONG_MAX);
+        say_f("%lu", ULONG_MAX);
+        say_f("%lx", 0x123456789abcdef0L);
+        say_f("%li", 0L);
+        say_f("%lld", LLONG_MIN);
+        say_f("%lld", LLONG_MAX);
+        say_f("%llu", ULLONG_MAX);
+        say_f("%llo", ULLONG_MAX);
+        say_f("%#llx", ULLONG_MAX);
+        say_f("%llX", 0xABCDEFULL);
+        say_f("%lld", 0LL);
+        say_f("%jd", INTMAX_MIN);
+        say_f("%jd", INTMAX_MAX);
+        say_f("%ju", UINTMAX_MAX);
+        say_f("%jx", (uintmax_t)0);
+        say_f("%zu", (size_t)-1);
+        say_f("%zd", (long)-3);
+        say_f("%zx", (size_t)255);
+        say_f("%td", (ptrdiff_t)-7);
+        say_f("%tu", (ptrdiff_t)-1);
+        say_f("%tx", (ptrdiff_t)16);
+        say_f("%lld %d", LLONG_MIN, 5);
+        say_f("%d %ld %d", 1, -2L, 3);
+        say_f("%+.20lld", 1LL);
+        """, raw"""
+        20|-9223372036854775808|
+        19|9223372036854775807|
+        20|18446744073709551615|
+        16|123456789abcdef0|
+        1|0|
+        20|-9223372036854775808|
+        19|9223372036854775807|
+        20|18446744073709551615|
+        22|1777777777777777777777|
+        18|0xffffffffffffffff|
+        6|ABCDEF|
+        1|0|
+        20|-9223372036854775808|
+        19|9223372036854775807|
+        20|18446744073709551615|
+        1|0|
+        20|18446744073709551615|
+        2|-3|
+        2|ff|
+        2|-7|
+        20|18446744073709551615|
+        2|10|
+        22|-9223372036854775808 5|
+        6|1 -2 3|
+        21|+00000000000000000001|
+        """)
+
+// `%p` is `%#zx`, musl's choice: a null pointer is `0`, where glibc prints `(nil)`.
+@test("%p is 0x and the address in lowercase hex, and a null pointer is 0")
+printf_pointer()
+    c_case(raw"""
+        say_f("%p", (void *)0);
+        say_f("%p", (void *)0x1234);
+        say_f("%p", (void *)(uintptr_t)0xdeadbeefcafeULL);
+        say_f("%10p", (void *)0x1234);
+        say_f("%-10p", (void *)0x1234);
+        say_f("%5p", (void *)0);
+        say_f("%p %d", (void *)0xff, 7);
+        """, raw"""
+        1|0|
+        6|0x1234|
+        14|0xdeadbeefcafe|
+        10|    0x1234|
+        10|0x1234    |
+        5|    0|
+        6|0xff 7|
+        """)
+
+@test("%n stores the count so far, at the width its length names, and touches no other byte")
+printf_count()
+    c_case(raw"""
+        int n = -1;
+        say_f("abc%n def", &n);
+        say_int(n);
+        union { long long a[3]; char c[24]; } u;
+        memset(u.c, '#', sizeof u.c);
+        char b[32];
+        say_int(snprintf(b, sizeof b, "ab%hhnc%hnd%ne%lln", (signed char *)(u.c + 1),
+                         (short *)(u.c + 2), (int *)(u.c + 4), (long long *)(u.c + 8)));
+        say_bytes(u.c, sizeof u.c);
+        long l = 0;
+        intmax_t j = 0;
+        long z = 0;
+        ptrdiff_t t = 0;
+        say_int(snprintf(b, sizeof b, "1%ln22%jn333%zn4444%tn", &l, &j, &z, &t));
+        say_int(l); say_int(j); say_int(z); say_int(t);
+        short h = 0;
+        say_int(snprintf(b, 2, "hello%n world%hn", &n, &h));
+        say_int(n); say_int(h);
+        """, raw"""
+        7|abc def|
+        3
+        5
+        #[02][03][00][04][00][00][00][05][00][00][00][00][00][00][00]########
+        10
+        1
+        3
+        6
+        10
+        11
+        5
+        11
+        """)
+
+// The float conversions are not built yet. Each prints nothing and still takes its double, so the
+// arguments after it line up.
+@test("a float conversion prints nothing for now, and still takes its double")
+printf_floats_take_their_argument()
+    c_case(raw"""
+        say_f("%d %f %d", 1, 2.5, 3);
+        say_f("%d %F %d", 1, 2.5, 3);
+        say_f("%d %e %d", 1, 2.5, 3);
+        say_f("%d %E %d", 1, 2.5, 3);
+        say_f("%d %g %d", 1, 2.5, 3);
+        say_f("%d %G %d", 1, 2.5, 3);
+        say_f("%d %a %d", 1, 2.5, 3);
+        say_f("%d %A %d", 1, 2.5, 3);
+        say_f("%d %10.3f %s", 1, 2.5, "x");
+        """, raw"""
+        4|1  3|
+        4|1  3|
+        4|1  3|
+        4|1  3|
+        4|1  3|
+        4|1  3|
+        4|1  3|
+        4|1  3|
+        4|1  x|
+        """)
+
+// TODO: un-ignore when the float conversions are built, with strtod.
+@test(ignore: "the float conversions are not built yet")
+printf_f()
+    c_case(raw"""
+        say_f("%f", 2.5);
+        say_f("%.2f", -0.125);
+        say_f("%F", 1.0 / 0.0);
+        """, raw"""
+        8|2.500000|
+        5|-0.12|
+        3|INF|
+        """)
+
+// TODO: un-ignore when the float conversions are built, with strtod.
+@test(ignore: "the float conversions are not built yet")
+printf_e()
+    c_case(raw"""
+        say_f("%e", 1234.5);
+        say_f("%E", 0.0);
+        """, raw"""
+        12|1.234500e+03|
+        12|0.000000E+00|
+        """)
+
+// TODO: un-ignore when the float conversions are built, with strtod.
+@test(ignore: "the float conversions are not built yet")
+printf_g()
+    c_case(raw"""
+        say_f("%g", 100000.0);
+        say_f("%g", 1000000.0);
+        say_f("%G", 0.0001);
+        """, raw"""
+        6|100000|
+        5|1e+06|
+        6|0.0001|
+        """)
+
+// TODO: un-ignore when the float conversions are built, with strtod.
+@test(ignore: "the float conversions are not built yet")
+printf_a()
+    c_case(raw"""
+        say_f("%a", 1.0);
+        say_f("%A", 0.5);
+        """, raw"""
+        6|0x1p+0|
+        6|0X1P-1|
+        """)
+
+@test("a conversion C does not define is copied out as written")
+printf_unknown_conversion()
+    c_case(raw"""
+        say_f("%y");
+        say_f("a%5yb");
+        say_f("abc%");
+        say_f("%-#08.3ly|%d", 4);
+        """, raw"""
+        2|%y|
+        5|a%5yb|
+        4|abc%|
+        11|%-#08.3ly|4|
+        """)
+
+// The rule for a function that writes memory: the whole buffer is printed, with a guard byte on
+// each side, so a byte written past the end or a missing NUL shows.
+@test("snprintf answers the length it would have written and NUL-terminates inside n, at every boundary")
+snprintf_truncates()
+    c_case(raw"""
+        char b[8];
+        size_t ns[] = {0, 1, 2, 5, 6, 7};
+        for (int i = 0; i < 6; i++) {
+            memset(b, '#', sizeof b);
+            say_int(snprintf(b + 1, ns[i], "hello"));
+            say_bytes(b, sizeof b);
+        }
+        say_int(snprintf(NULL, 0, "%d", 12345));
+        say_int(snprintf(NULL, 0, ""));
+        memset(b, '#', sizeof b);
+        say_int(snprintf(b + 1, 4, "%5d", 42));
+        say_bytes(b, sizeof b);
+        memset(b, '#', sizeof b);
+        say_int(snprintf(b + 1, 3, "%c%c%c", 0, 'a', 'b'));
+        say_bytes(b, sizeof b);
+        memset(b, '#', sizeof b);
+        say_int(snprintf(b + 1, 6, ""));
+        say_bytes(b, sizeof b);
+        """, raw"""
+        5
+        ########
+        5
+        #[00]######
+        5
+        #h[00]#####
+        5
+        #hell[00]##
+        5
+        #hello[00]#
+        5
+        #hello[00]#
+        5
+        0
+        5
+        #   [00]###
+        3
+        #[00]a[00]####
+        0
+        #[00]######
+        """)
+
+@test("vsnprintf truncates exactly as snprintf does")
+vsnprintf_truncates()
+    c_case(raw"""
+        char b[8];
+        size_t ns[] = {0, 1, 5, 6};
+        for (int i = 0; i < 4; i++) {
+            memset(b, '#', sizeof b);
+            say_int(vs(b + 1, ns[i], "%s%d", "abc", 12));
+            say_bytes(b, sizeof b);
+        }
+        say_int(vs(NULL, 0, "%x", 0xabc));
+        """, raw"""
+        5
+        ########
+        5
+        #[00]######
+        5
+        #abc1[00]##
+        5
+        #abc12[00]#
+        3
+        """, prelude = raw"""
+        static int vs(char *b, size_t n, const char *fmt, ...) {
+            va_list ap;
+            va_start(ap, fmt);
+            int r = vsnprintf(b, n, fmt, ap);
+            va_end(ap);
+            return r;
+        }
+        """)
+
+@test("snprintf into memory runs past the 256-byte stage that descriptor output uses")
+snprintf_long_output()
+    c_case(raw"""
+        char b[1000];
+        memset(b, '#', sizeof b);
+        say_int(snprintf(b, sizeof b, "%600d|", 7));
+        int spaces = 0;
+        while (b[spaces] == ' ') spaces++;
+        say_int(spaces);
+        say_bytes(b + 599, 4);
+        """, raw"""
+        601
+        599
+        7|[00]#
+        """)
+
+@test("sprintf and vsprintf write the whole text and its NUL, and nothing past it")
+sprintf_writes()
+    c_case(raw"""
+        char b[8];
+        memset(b, '#', sizeof b);
+        say_int(sprintf(b + 1, "%s-%d", "ab", 7));
+        say_bytes(b, sizeof b);
+        memset(b, '#', sizeof b);
+        say_int(vsp(b + 1, "%03x", 10));
+        say_bytes(b, sizeof b);
+        memset(b, '#', sizeof b);
+        say_int(sprintf(b + 1, ""));
+        say_bytes(b, sizeof b);
+        """, raw"""
+        4
+        #ab-7[00]##
+        3
+        #00a[00]###
+        0
+        #[00]######
+        """, prelude = raw"""
+        static int vsp(char *b, const char *fmt, ...) {
+            va_list ap;
+            va_start(ap, fmt);
+            int r = vsprintf(b, fmt, ap);
+            va_end(ap);
+            return r;
+        }
+        """)
+
+@test("printf, vprintf, dprintf and vdprintf write to the descriptor and answer the count")
+printf_to_stdout()
+    c_case(raw"""
+        say_int(printf("x=%d\n", 5));
+        say_int(dprintf(1, "%s|%c\n", "ok", 'Z'));
+        say_int(vp("%05d\n", -3));
+        say_int(vdp(1, "%#o\n", 8));
+        say_int(printf(""));
+        say_int(printf("%s", ""));
+        """, raw"""
+        x=5
+        4
+        ok|Z
+        5
+        -0003
+        6
+        010
+        4
+        0
+        0
+        """, prelude = raw"""
+        static int vp(const char *fmt, ...) {
+            va_list ap;
+            va_start(ap, fmt);
+            int r = vprintf(fmt, ap);
+            va_end(ap);
+            return r;
+        }
+        static int vdp(int fd, const char *fmt, ...) {
+            va_list ap;
+            va_start(ap, fmt);
+            int r = vdprintf(fd, fmt, ap);
+            va_end(ap);
+            return r;
+        }
+        """)
+
+@test("printf output longer than the 256-byte stage reaches stdout whole")
+printf_flushes_long_output()
+    var expected = ""
+    for i in 0..<599 do expected = expected + " "
+    expected = expected + "7|\n602\n"
+    c_case(raw"""
+        int r = printf("%600d|\n", 7);
+        say_int(r);
+        """, expected)
+
+// The stage flushes at exactly 256 bytes, so the counts around it are where a flush can lose or
+// repeat a byte. Each text is read back out of a pipe and checked whole: w-1 spaces, then a 1.
+@test("dprintf into a pipe delivers every byte across the 256-byte stage boundary")
+dprintf_to_a_pipe()
+    c_case(raw"""
+        int widths[] = {1, 255, 256, 257, 511, 512, 513, 2000};
+        for (int i = 0; i < 8; i++) {
+            int fds[2];
+            pipe(fds);
+            int r = dprintf(fds[1], "%*d", widths[i], 1);
+            close(fds[1]);
+            char got[4096];
+            long total = 0;
+            long k;
+            while ((k = read(fds[0], got + total, sizeof got - total)) > 0) total += k;
+            close(fds[0]);
+            int ok = total == widths[i] && got[total - 1] == '1';
+            for (long j = 0; j + 1 < total; j++) if (got[j] != ' ') ok = 0;
+            put_i(widths[i]); say_ch(' '); put_i(r); say_ch(' '); put_i(total); say_ch(' '); say_int(ok);
+        }
+        int fds[2];
+        pipe(fds);
+        say_int(dprintf(fds[1], "%s=%05d", "n", 42));
+        close(fds[1]);
+        char got[16];
+        long k = read(fds[0], got, sizeof got);
+        close(fds[0]);
+        say_bytes(got, (size_t)k);
+        """, raw"""
+        1 1 1 1
+        255 255 255 1
+        256 256 256 1
+        257 257 257 1
+        511 511 511 1
+        512 512 512 1
+        513 513 513 1
+        2000 2000 2000 1
+        7
+        n=00042
+        """, prelude = raw"""
+        int pipe(int fds[2]);
+        int close(int fd);
+        long read(int fd, void *buf, unsigned long n);
+        """)
+
+@test("dprintf to a descriptor that cannot be written answers -1")
+dprintf_failure()
+    c_case(raw"""
+        say_int(dprintf(-1, "x"));
+        say_int(dprintf(-1, ""));
+        """, raw"""
+        -1
+        0
+        """)

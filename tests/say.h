@@ -14,6 +14,8 @@
 #include <stdlib.h>
 #include <ctype.h>
 #include <errno.h>
+#include <stdint.h>
+#include <stdio.h>
 
 long write(int fd, const void *buf, unsigned long n);
 
@@ -60,7 +62,7 @@ static void say_str(const char *s) {
 
 /* Exactly n bytes, NULs and all. A printable byte is itself; every other byte, and '[' so the
  * form reads one way, is its two hex digits in brackets: "ab[00][ff]". */
-static void say_bytes(const void *p, size_t n) {
+static void put_bytes(const void *p, size_t n) {
     const unsigned char *b = p;
     for (size_t i = 0; i < n; i++) {
         unsigned char c = b[i];
@@ -73,6 +75,22 @@ static void say_bytes(const void *p, size_t n) {
             say_ch(']');
         }
     }
+}
+
+static void say_bytes(const void *p, size_t n) { put_bytes(p, n); say_end(); }
+
+/* One vsnprintf into a roomy buffer, on one line: the count it answered, then what it wrote between
+ * bars, in say_bytes's form so a space at either edge shows: "5|   42|". */
+static void say_f(const char *fmt, ...) {
+    char b[1024];
+    va_list ap;
+    va_start(ap, fmt);
+    int n = vsnprintf(b, sizeof b, fmt, ap);
+    va_end(ap);
+    put_i(n);
+    say_ch('|');
+    if (n > 0) put_bytes(b, (size_t)n < sizeof b ? (size_t)n : sizeof b - 1);
+    say_ch('|');
     say_end();
 }
 
