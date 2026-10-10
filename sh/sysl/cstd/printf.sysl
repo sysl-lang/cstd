@@ -1,0 +1,432 @@
+module sh.sysl.cstd
+
+// The printf family of `<stdio.h>`, minus floating point: `snprintf`, `sprintf` and their `v`
+// twins format into memory; `dprintf`, `printf` and theirs format onto a file descriptor through
+// `write`. There is no `FILE` here, so `printf` is `dprintf` to descriptor 1.
+//
+// **Nothing allocates.** A descriptor's output is gathered in a fixed buffer on the stack and
+// handed to `write` each time it fills, and once more at the end; memory output goes straight into
+// the caller's buffer.
+//
+// The conversions are C99's `%d %i %u %o %x %X %c %s %p %n %%`, with the flags `- + space # 0`, a
+// width and a precision each written as a number or as `*`, and the lengths `hh h l ll j z t`.
+// Where C leaves a choice open, musl's answer is taken, since keel ports programs written against
+// musl:
+//
+// - `%p` is `%#zx`: `0x` and the address in lowercase hex, and a null pointer is `0`.
+// - `%s` of a null pointer is `(null)`.
+// - A conversion C does not define is copied out as it was written, `%` and all.
+//
+// **The float conversions `%f %F %e %E %g %G %a %A` print nothing yet.** Each still takes its
+// `double` from the arguments, so the ones after it line up; they arrive with `strtod`.
+
+@needs(os)
+private extern "write" c_write(fd: i32, bytes: *u8, n: usize) -> isize
+
+// How many bytes a descriptor's output gathers before it is handed to `write`.
+private const STAGE: usize = 256
+
+// Where formatted bytes go, and how many the format has produced.
+//
+// To memory, `dst` is the caller's buffer and `room` its size: a byte is stored only while one
+// place is left for the NUL, and `total` goes on counting past that, which is what `snprintf`
+// answers. To a descriptor, `dst` is null and the bytes gather in `stage`.
+private struct Sink
+    dst: *u8
+    room: usize
+    fd: i32
+    total: usize
+    stage: [STAGE]u8
+    staged: usize
+    failed: bool
+
+private memory_sink(dst: *u8, room: usize) -> Sink
+    var s: Sink
+    s.dst = dst
+    s.room = room
+    s.fd = -1
+    s
+end memory_sink
+
+private fd_sink(fd: i32) -> Sink
+    var s: Sink
+    s.fd = fd
+    s
+
+private flush(s: *Sink)
+    var done: usize = 0
+    while done < s.staged && !s.failed
+        val wrote = c_write(s.fd, &s.stage[done], s.staged - done)
+        if wrote <= 0
+            s.failed = true
+        else
+            done += usize(wrote)
+    s.staged = 0
+end flush
+
+private put(s: *Sink, b: u8)
+    if s.fd < 0
+        if s.total + 1 < s.room then s.dst[s.total] = b
+    else
+        s.stage[s.staged] = b
+        s.staged += 1
+        if s.staged == STAGE then flush(s)
+    s.total += 1
+end put
+
+private put_run(s: *Sink, b: u8, n: usize)
+    for i in 0..<n do put(s, b)
+
+// What the length modifier said the argument is.
+private enum Length
+    Plain
+    Char      // hh
+    Short     // h
+    Lng       // l
+    LngLng    // ll
+    Max       // j
+    Size      // z
+    Diff      // t
+
+// One conversion specification, read.
+private struct Spec
+    minus: bool
+    plus: bool
+    space: bool
+    alt: bool
+    zero: bool
+    width: usize
+    has_precision: bool
+    precision: usize
+    length: Length
+    conv: u8
+
+// A signed argument at the width the length names, narrowed as C converts it.
+private signed_arg(ap: *va_list, length: Length) -> i64
+    if length == Lng
+        val v: Long = va_arg(ap)
+        return i64(v)
+    if length == LngLng
+        val v: LongLong = va_arg(ap)
+        return i64(v)
+    if length == Max
+        val v: i64 = va_arg(ap)
+        return v
+    if length == Size || length == Diff
+        val v: isize = va_arg(ap)
+        return i64(v)
+    val v: i32 = va_arg(ap)
+    if length == Char then return i64(i8(v))
+    if length == Short then return i64(i16(v))
+    i64(v)
+end signed_arg
+
+private unsigned_arg(ap: *va_list, length: Length) -> u64
+    if length == Lng
+        val v: ULong = va_arg(ap)
+        return u64(v)
+    if length == LngLng
+        val v: ULongLong = va_arg(ap)
+        return u64(v)
+    if length == Max
+        val v: u64 = va_arg(ap)
+        return v
+    if length == Size
+        val v: usize = va_arg(ap)
+        return u64(v)
+    if length == Diff
+        val v: isize = va_arg(ap)
+        return u64(v)
+    val v: u32 = va_arg(ap)
+    if length == Char then return u64(u8(v))
+    if length == Short then return u64(u16(v))
+    u64(v)
+end unsigned_arg
+
+// `%n`: the count so far, stored at the width the length names.
+private store_count(ap: *va_list, length: Length, count: usize)
+    if length == Char
+        val p: *i8 = va_arg(ap)
+        *p = i8(count)
+    elif length == Short
+        val p: *i16 = va_arg(ap)
+        *p = i16(count)
+    elif length == Lng
+        val p: *Long = va_arg(ap)
+        *p = Long(count)
+    elif length == LngLng || length == Max
+        val p: *i64 = va_arg(ap)
+        *p = i64(count)
+    elif length == Size || length == Diff
+        val p: *isize = va_arg(ap)
+        *p = isize(count)
+    else
+        val p: *i32 = va_arg(ap)
+        *p = i32(count)
+end store_count
+
+// Pads a field of `body` bytes out to the width, on the side the `-` flag says.
+private pad_before(s: *Sink, sp: Spec, body: usize)
+    if !sp.minus && sp.width > body then put_run(s, u8(' '), sp.width - body)
+
+private pad_after(s: *Sink, sp: Spec, body: usize)
+    if sp.minus && sp.width > body then put_run(s, u8(' '), sp.width - body)
+
+// An integer conversion: the sign or `0x`, the zeros the precision or the `0` flag asks for, then
+// the digits. A precision of 0 over the value 0 is no digits at all.
+private emit_int(s: *Sink, sp: Spec, magnitude: u64, negative: bool)
+    val base: u64 = if sp.conv == u8('o') then 8 elif sp.conv == u8('x') || sp.conv == u8('X') then 16 else 10
+    val letters = if sp.conv == u8('X') then "0123456789ABCDEF" else "0123456789abcdef"
+    var digits: [24]u8
+    var n: usize = 0
+    var v = magnitude
+    while v != 0
+        digits[n] = letters.bytes[v % base]
+        n += 1
+        v /= base
+
+    val precision: usize = if sp.has_precision then sp.precision else 1
+    var zeros: usize = if precision > n then precision - n else 0
+    // `#` with `o` makes the first digit a 0, raising the precision only as far as that takes.
+    if sp.alt && sp.conv == u8('o') && zeros == 0 then zeros = 1
+
+    var sign: u8 = 0
+    if negative
+        sign = u8('-')
+    elif sp.conv == u8('d') || sp.conv == u8('i')
+        if sp.plus
+            sign = u8('+')
+        elif sp.space
+            sign = u8(' ')
+    val hex_prefix = sp.alt && magnitude != 0 && (sp.conv == u8('x') || sp.conv == u8('X'))
+    val prefix: usize = (if sign != 0 then 1 else 0) + (if hex_prefix then 2 else 0)
+
+    var body = prefix + zeros + n
+    if sp.zero && !sp.minus && !sp.has_precision && sp.width > body
+        zeros += sp.width - body
+        body = sp.width
+
+    pad_before(s, sp, body)
+    if sign != 0 then put(s, sign)
+    if hex_prefix
+        put(s, u8('0'))
+        put(s, sp.conv)
+    put_run(s, u8('0'), zeros)
+    while n > 0
+        n -= 1
+        put(s, digits[n])
+    pad_after(s, sp, body)
+end emit_int
+
+// `%s`: at most `precision` bytes, and no byte past them is read, so an array with no NUL is fine
+// under a precision that stops inside it.
+private emit_text(s: *Sink, sp: Spec, text: *u8)
+    var n: usize = 0
+    while (!sp.has_precision || n < sp.precision) && text[n] != 0 do n += 1
+    pad_before(s, sp, n)
+    for i in 0..<n do put(s, text[i])
+    pad_after(s, sp, n)
+
+private emit_char(s: *Sink, sp: Spec, c: u8)
+    pad_before(s, sp, 1)
+    put(s, c)
+    pad_after(s, sp, 1)
+
+// A width or precision given as `*`: the next `int` argument.
+private star(ap: *va_list) -> i64
+    val v: i32 = va_arg(ap)
+    i64(v)
+
+private is_digit(b: u8) -> bool = b >= u8('0') && b <= u8('9')
+
+// Reads one specification starting just past its `%`, consuming the `*` arguments it names, and
+// answers it with how many bytes of the format it took.
+private read_spec(fmt: *u8, ap: *va_list) -> (Spec, usize)
+    var sp: Spec
+    var i: usize = 0
+    loop
+        val b = fmt[i]
+        if b == u8('-')
+            sp.minus = true
+        elif b == u8('+')
+            sp.plus = true
+        elif b == u8(' ')
+            sp.space = true
+        elif b == u8('#')
+            sp.alt = true
+        elif b == u8('0')
+            sp.zero = true
+        else
+            break
+        i += 1
+
+    if fmt[i] == u8('*')
+        val w = star(ap)
+        // A negative width is the `-` flag and the width it negates.
+        if w < 0
+            sp.minus = true
+            sp.width = usize(0 - w)
+        else
+            sp.width = usize(w)
+        i += 1
+    else
+        while is_digit(fmt[i])
+            sp.width = sp.width * 10 + usize(fmt[i] - u8('0'))
+            i += 1
+
+    if fmt[i] == u8('.')
+        i += 1
+        sp.has_precision = true
+        if fmt[i] == u8('*')
+            val p = star(ap)
+            // A negative precision is taken as if none had been written.
+            if p < 0 then sp.has_precision = false else sp.precision = usize(p)
+            i += 1
+        else
+            while is_digit(fmt[i])
+                sp.precision = sp.precision * 10 + usize(fmt[i] - u8('0'))
+                i += 1
+
+    sp.length = Plain
+    val l = fmt[i]
+    if l == u8('h')
+        if fmt[i + 1] == u8('h')
+            sp.length = Char
+            i += 1
+        else
+            sp.length = Short
+        i += 1
+    elif l == u8('l')
+        if fmt[i + 1] == u8('l')
+            sp.length = LngLng
+            i += 1
+        else
+            sp.length = Lng
+        i += 1
+    elif l == u8('j')
+        sp.length = Max
+        i += 1
+    elif l == u8('z')
+        sp.length = Size
+        i += 1
+    elif l == u8('t')
+        sp.length = Diff
+        i += 1
+
+    sp.conv = fmt[i]
+    (sp, i + 1)
+end read_spec
+
+private is_float_conv(c: u8) -> bool
+    val lower = c | 0x20
+    lower == u8('f') || lower == u8('e') || lower == u8('g') || lower == u8('a')
+
+// The one formatter every entry point shares.
+private format(s: *Sink, fmt: *u8, ap: *va_list)
+    var i: usize = 0
+    loop
+        val b = fmt[i]
+        if b == 0 then break
+        if b != u8('%')
+            put(s, b)
+            i += 1
+            continue
+        val (sp, used) = read_spec(&fmt[i + 1], ap)
+        val c = sp.conv
+        if c == u8('d') || c == u8('i')
+            val v = signed_arg(ap, sp.length)
+            emit_int(s, sp, if v < 0 then 0 - u64(v) else u64(v), v < 0)
+        elif c == u8('u') || c == u8('o') || c == u8('x') || c == u8('X')
+            emit_int(s, sp, unsigned_arg(ap, sp.length), false)
+        elif c == u8('p')
+            val p: *u8 = va_arg(ap)
+            var as_hex = sp
+            as_hex.conv = u8('x')
+            as_hex.alt = true
+            emit_int(s, as_hex, u64(usize(p)), false)
+        elif c == u8('c')
+            val v: i32 = va_arg(ap)
+            emit_char(s, sp, u8(v))
+        elif c == u8('s')
+            val text: *u8 = va_arg(ap)
+            if text == null
+                val shown = "(null)"
+                emit_text(s, sp, &shown.bytes[0])
+            else
+                emit_text(s, sp, text)
+        elif c == u8('n')
+            store_count(ap, sp.length, s.total)
+        elif c == u8('%')
+            put(s, u8('%'))
+        elif is_float_conv(c)
+            val skipped: real = va_arg(ap)
+        else
+            // Not a conversion C defines: copied out as written. A format ending inside one stops
+            // at its NUL.
+            for k in 0..<used
+                if fmt[i + k] == 0 then return
+                put(s, fmt[i + k])
+        i += 1 + used
+end format
+
+// The count a function of this family answers, which C says is an `int`.
+private answer(s: *Sink) -> i32 = if s.failed then -1 else i32(s.total)
+
+private to_memory(dst: *u8, room: usize, fmt: *u8, ap: *va_list) -> i32
+    var s = memory_sink(dst, room)
+    format(&s, fmt, ap)
+    if room > 0 then dst[if s.total < room then s.total else room - 1] = 0
+    answer(&s)
+
+private to_fd(fd: i32, fmt: *u8, ap: *va_list) -> i32
+    var s = fd_sink(fd)
+    format(&s, fmt, ap)
+    flush(&s)
+    answer(&s)
+
+// `vsprintf` and `sprintf` trust the caller's buffer to be big enough, as C does.
+private const UNBOUNDED: usize = usize::Max
+
+@export("vsnprintf")
+vsnprintf(dst: *u8, n: usize, fmt: *u8, ap: va_list) -> i32 = to_memory(dst, n, fmt, &ap)
+
+@export("vsprintf")
+vsprintf(dst: *u8, fmt: *u8, ap: va_list) -> i32 = to_memory(dst, UNBOUNDED, fmt, &ap)
+
+@export("vdprintf")
+vdprintf(fd: i32, fmt: *u8, ap: va_list) -> i32 = to_fd(fd, fmt, &ap)
+
+@export("vprintf")
+vprintf(fmt: *u8, ap: va_list) -> i32 = to_fd(1, fmt, &ap)
+
+@export("snprintf")
+snprintf(dst: *u8, n: usize, fmt: *u8, ...) -> i32
+    var ap: va_list
+    va_start(ap)
+    val r = to_memory(dst, n, fmt, &ap)
+    va_end(ap)
+    r
+
+@export("sprintf")
+sprintf(dst: *u8, fmt: *u8, ...) -> i32
+    var ap: va_list
+    va_start(ap)
+    val r = to_memory(dst, UNBOUNDED, fmt, &ap)
+    va_end(ap)
+    r
+
+@export("dprintf")
+dprintf(fd: i32, fmt: *u8, ...) -> i32
+    var ap: va_list
+    va_start(ap)
+    val r = to_fd(fd, fmt, &ap)
+    va_end(ap)
+    r
+
+@export("printf")
+printf(fmt: *u8, ...) -> i32
+    var ap: va_list
+    va_start(ap)
+    val r = to_fd(1, fmt, &ap)
+    va_end(ap)
+    r
