@@ -1,0 +1,25 @@
+// A C standard library written in sysl, for machines that have none.
+//
+// It exists for two consumers. keel, the research kernel at `github.com/sysl-lang/keel`, ports C
+// programs through it; and a bare-metal board, where sysl's freestanding targets carry no libc, so a
+// vendored C package that includes `<string.h>` or `<stdlib.h>` has nothing to compile against
+// until something supplies the header and the symbols behind it.
+//
+// This is the block a consumer writes to reach it:
+//
+//     dependencies {
+//       cstd { git = "github.com/sysl-lang/cstd", version = "<the first tag>" }
+//     }
+//
+// The coordinate names the package, `cstd`; the module is `sh.sysl.cstd`. A C program compiles
+// against `include/` with `-nostdinc`, beside clang's own freestanding `stddef.h` and `stdint.h`.
+
+package {
+  name    = "cstd"
+  version = "0.1.0"
+}
+
+// **There is deliberately no `requires` block.** Everything here is arithmetic over bytes a caller
+// handed in: nothing allocates, nothing opens a file or reads a clock, and nothing asks an
+// operating system for anything. A libc's allocating and I/O halves will change that when they
+// arrive, and the clause will say so then.

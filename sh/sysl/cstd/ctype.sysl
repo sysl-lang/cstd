@@ -1,0 +1,59 @@
+module sh.sysl.cstd
+
+// `<ctype.h>` for the C locale, which is the only locale this library has.
+//
+// C hands each of these an `int` that is either `EOF` (-1) or a byte read as `unsigned char`, and
+// in the C locale only the ASCII bytes belong to any class: every byte from 0x80 up answers no to
+// every question and is its own upper and lower case. A true answer is 1; C promises only
+// "nonzero", and a caller that compares with `== 1` is relying on this library rather than on C.
+//
+// As in `string.sysl`, every function is exported under its C name.
+
+private between(c: i32, lo: char, hi: char) -> bool = c >= i32(lo) && c <= i32(hi)
+
+private answer(yes: bool) -> i32 = if yes then 1 else 0
+
+@export("isdigit")
+isdigit(c: i32) -> i32 = answer(between(c, '0', '9'))
+
+@export("isupper")
+isupper(c: i32) -> i32 = answer(between(c, 'A', 'Z'))
+
+@export("islower")
+islower(c: i32) -> i32 = answer(between(c, 'a', 'z'))
+
+@export("isalpha")
+isalpha(c: i32) -> i32 = answer(between(c, 'A', 'Z') || between(c, 'a', 'z'))
+
+@export("isalnum")
+isalnum(c: i32) -> i32 = answer(isalpha(c) != 0 || isdigit(c) != 0)
+
+@export("isxdigit")
+isxdigit(c: i32) -> i32 =
+    answer(between(c, '0', '9') || between(c, 'a', 'f') || between(c, 'A', 'F'))
+
+// Space, `\t`, `\n`, `\v`, `\f` and `\r`: the space and the run 9 to 13.
+@export("isspace")
+isspace(c: i32) -> i32 = answer(c == i32(' ') || (c >= 9 && c <= 13))
+
+@export("isblank")
+isblank(c: i32) -> i32 = answer(c == i32(' ') || c == i32('\t'))
+
+@export("iscntrl")
+iscntrl(c: i32) -> i32 = answer((c >= 0 && c < 32) || c == 127)
+
+// Every visible character: the printable ones less the space.
+@export("isgraph")
+isgraph(c: i32) -> i32 = answer(between(c, '!', '~'))
+
+@export("isprint")
+isprint(c: i32) -> i32 = answer(between(c, ' ', '~'))
+
+@export("ispunct")
+ispunct(c: i32) -> i32 = answer(isgraph(c) != 0 && isalnum(c) == 0)
+
+@export("tolower")
+tolower(c: i32) -> i32 = if isupper(c) != 0 then c + 32 else c
+
+@export("toupper")
+toupper(c: i32) -> i32 = if islower(c) != 0 then c - 32 else c

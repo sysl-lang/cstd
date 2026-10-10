@@ -1,0 +1,15 @@
+module sh.sysl.cstd
+
+// `<errno.h>`: the one `errno` and the codes this library sets.
+//
+// `errno` is module storage exported as C data, so a C program's `errno` and the one `strtol`
+// writes are a single object. It is one global rather than one per thread, because nothing this
+// library serves yet has threads; a kernel that grows them will move it.
+
+@export("errno")
+var errno: i32 = 0
+
+// The numbers are Linux's and the BSDs' alike for these two, so a ported program that prints one
+// prints what it would have printed at home.
+const EINVAL: i32 = 22
+const ERANGE: i32 = 34

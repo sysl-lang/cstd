@@ -1,0 +1,126 @@
+module sh.sysl.cstd
+
+// The integer half of `<stdlib.h>`: the `strto*` family, `atoi`/`atol`, `abs`/`labs`.
+//
+// **`long` is measured, not assumed.** It is 64 bits on every LP64 target and 32 on a Cortex-M,
+// and `strtol` answers a `long`, so the width is the C compiler's answer for the target being
+// built. `long long` is 64 bits everywhere C runs, and is measured anyway so that the four types
+// are spelled one way.
+//
+// As in `string.sysl`, every function is exported under its C name.
+
+c type
+    Long = "long"
+    ULong = "unsigned long"
+    LongLong = "long long"
+    ULongLong = "unsigned long long"
+
+// What reading a number out of text found, before it is narrowed to the type asked for.
+private struct Scan
+    magnitude: u64     // the digits' value, clamped where they ran past the limit
+    negative: bool
+    overflowed: bool
+    end: *u8           // one past the last digit, or the start when nothing was converted
+    converted: bool
+    bad_base: bool
+
+// A byte's value as a digit in any base up to 36, or 36 when it is no digit at all.
+private digit_value(b: u8) -> u64
+    if b >= u8('0') && b <= u8('9') then return u64(b - u8('0'))
+    val lower = b | 0x20
+    if lower >= u8('a') && lower <= u8('z') then return u64(lower - u8('a')) + 10
+    36
+
+// The reading every `strto*` shares: leading white space, one sign, a base of 0 settled by the
+// prefix, an optional `0x` in base 16, then digits. `limit` is the largest magnitude the type can
+// hold for each sign; past it the digits are still consumed, as C requires `endptr` to say, and
+// the answer is marked overflowed.
+//
+// `0x` counts as a prefix only when a hex digit follows it, so `"0x"` and `"0xg"` read as the
+// number 0 ending at the `x`.
+private scan(text: *u8, base_asked: i32, positive_limit: u64, negative_limit: u64) -> Scan
+    if base_asked < 0 || base_asked == 1 || base_asked > 36
+        return Scan(0, false, false, text, false, true)
+    var i: usize = 0
+    while isspace(i32(text[i])) != 0 do i += 1
+    var negative = false
+    if text[i] == u8('-') || text[i] == u8('+')
+        negative = text[i] == u8('-')
+        i += 1
+    var base = u64(base_asked)
+    val hex_prefix = text[i] == u8('0') && (text[i + 1] | 0x20) == u8('x') && digit_value(text[i + 2]) < 16
+    if (base == 0 || base == 16) && hex_prefix
+        base = 16
+        i += 2
+    elif base == 0
+        base = if text[i] == u8('0') then 8 else 10
+    val limit = if negative then negative_limit else positive_limit
+    var magnitude: u64 = 0
+    var converted = false
+    var overflowed = false
+    loop
+        val d = digit_value(text[i])
+        if d >= base then break
+        converted = true
+        if overflowed || magnitude > (limit - d) / base
+            overflowed = true
+            magnitude = limit
+        else
+            magnitude = magnitude * base + d
+        i += 1
+    Scan(magnitude, negative, overflowed, if converted then &text[i] else text, converted, false)
+
+// Hands `endptr` its answer and sets `errno`: `EINVAL` for a base C does not define and for text
+// with no number in it, as the BSD libcs do (C leaves that case's `errno` unspecified), and
+// `ERANGE` for a number past the type. A successful reading leaves `errno` alone.
+private settle(s: Scan, endptr: **u8)
+    if endptr != null then *endptr = s.end
+    if s.bad_base || !s.converted
+        errno = EINVAL
+    elif s.overflowed
+        errno = ERANGE
+
+@export("strtol")
+strtol(text: *u8, endptr: **u8, base: i32) -> Long
+    val s = scan(text, base, u64(Long::Max), u64(Long::Max) + 1)
+    settle(s, endptr)
+    if s.overflowed then return if s.negative then Long::Min else Long::Max
+    if s.negative then 0 - Long(s.magnitude) else Long(s.magnitude)
+
+@export("strtoll")
+strtoll(text: *u8, endptr: **u8, base: i32) -> LongLong
+    val s = scan(text, base, u64(LongLong::Max), u64(LongLong::Max) + 1)
+    settle(s, endptr)
+    if s.overflowed then return if s.negative then LongLong::Min else LongLong::Max
+    if s.negative then 0 - LongLong(s.magnitude) else LongLong(s.magnitude)
+
+// A minus sign is accepted and negates in the unsigned type, so `"-1"` is the largest value — C's
+// rule, which surprises everyone once.
+@export("strtoul")
+strtoul(text: *u8, endptr: **u8, base: i32) -> ULong
+    val s = scan(text, base, u64(ULong::Max), u64(ULong::Max))
+    settle(s, endptr)
+    if s.overflowed then return ULong::Max
+    if s.negative then 0 - ULong(s.magnitude) else ULong(s.magnitude)
+
+@export("strtoull")
+strtoull(text: *u8, endptr: **u8, base: i32) -> ULongLong
+    val s = scan(text, base, u64(ULongLong::Max), u64(ULongLong::Max))
+    settle(s, endptr)
+    if s.overflowed then return ULongLong::Max
+    if s.negative then 0 - ULongLong(s.magnitude) else ULongLong(s.magnitude)
+
+// `atoi` is `strtol` in base 10 narrowed to `int`, as C defines it; a number past `int` is
+// undefined there and is whatever the narrowing leaves here.
+@export("atoi")
+atoi(text: *u8) -> i32 = i32(strtol(text, null, 10))
+
+@export("atol")
+atol(text: *u8) -> Long = strtol(text, null, 10)
+
+// `abs(INT_MIN)` is undefined in C; here it is `INT_MIN`, the two's-complement wrap.
+@export("abs")
+abs(n: i32) -> i32 = if n < 0 then 0 - n else n
+
+@export("labs")
+labs(n: Long) -> Long = if n < 0 then 0 - n else n
