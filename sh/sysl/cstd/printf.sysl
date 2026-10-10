@@ -265,7 +265,7 @@ private read_spec(fmt: *u8, ap: *va_list) -> (Spec, usize)
         // A negative width is the `-` flag and the width it negates.
         if w < 0
             sp.minus = true
-            sp.width = usize(0 - w)
+            sp.width = usize(-w)
         else
             sp.width = usize(w)
         i += 1

@@ -120,13 +120,13 @@ atol(text: *u8) -> Long = strtol(text, null, 10)
 
 // `abs(INT_MIN)` is undefined in C; here it is `INT_MIN`, the two's-complement wrap.
 @export("abs")
-abs(n: i32) -> i32 = if n < 0 then 0 - n else n
+abs(n: i32) -> i32 = if n < 0 then -n else n
 
 @export("labs")
-labs(n: Long) -> Long = if n < 0 then 0 - n else n
+labs(n: Long) -> Long = if n < 0 then -n else n
 
 @export("llabs")
-llabs(n: LongLong) -> LongLong = if n < 0 then 0 - n else n
+llabs(n: LongLong) -> LongLong = if n < 0 then -n else n
 
 // What `div`, `ldiv` and `lldiv` answer. The fields are in C's order, so the structs cross to a C
 // caller in the registers its convention names for `div_t` and its kin.
