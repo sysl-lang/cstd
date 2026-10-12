@@ -2,6 +2,8 @@ module sh.sysl.cstd
 
 @tests
 
+import sysl.fmt.float_scratch_len
+
 // The float conversions of the printf family, called from C.
 //
 // Each `say_f` line is the count `vsnprintf` answered, then the text between bars. Every expected
@@ -565,3 +567,28 @@ printf_strtod_round_trip()
         0
         0
         """)
+
+// The digits are worked out in scratch the caller lends. `float_scratch_len` bytes hold any double's
+// longest expansion, so the family never sees a refusal; a scratch one byte short of what the
+// conversion needs is refused, and the refusal marks the sink broken, which the family answers -1.
+@test("a float conversion whose scratch is too short is refused and breaks the sink")
+float_scratch_refusal()
+    val sp = Spec(false, false, false, false, false, 0, true, 400, Length.Plain, u8('f'))
+
+    var room: [1200]u8
+    var fits: Sink
+    fits.dst = &room[0]
+    fits.room = room.len
+    var scratch: [float_scratch_len]u8
+    emit_float_in(&fits, sp, DBL_MAX_VALUE, scratch[..])
+    assert(!fits.broken)
+    assert_eq(fits.total, 309 + 1 + 400)
+
+    var short: Sink
+    short.dst = &room[0]
+    short.room = room.len
+    var tiny: [16]u8
+    emit_float_in(&short, sp, DBL_MAX_VALUE, tiny[..])
+    assert(short.broken)
+
+private val DBL_MAX_VALUE: real = 1.7976931348623157e308

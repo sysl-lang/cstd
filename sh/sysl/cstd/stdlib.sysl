@@ -85,14 +85,14 @@ strtol(text: *u8, endptr: **u8, base: i32) -> Long
     val s = scan(text, base, u64(Long::Max), u64(Long::Max) + 1)
     settle(s, endptr)
     if s.overflowed then return if s.negative then Long::Min else Long::Max
-    if s.negative then 0 - Long(s.magnitude) else Long(s.magnitude)
+    if s.negative then -Long(s.magnitude) else Long(s.magnitude)
 
 @export("strtoll")
 strtoll(text: *u8, endptr: **u8, base: i32) -> LongLong
     val s = scan(text, base, u64(LongLong::Max), u64(LongLong::Max) + 1)
     settle(s, endptr)
     if s.overflowed then return if s.negative then LongLong::Min else LongLong::Max
-    if s.negative then 0 - LongLong(s.magnitude) else LongLong(s.magnitude)
+    if s.negative then -LongLong(s.magnitude) else LongLong(s.magnitude)
 
 // A minus sign is accepted and negates in the unsigned type, so `"-1"` is the largest value — C's
 // rule, which surprises everyone once.
