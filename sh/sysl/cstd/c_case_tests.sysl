@@ -146,4 +146,6 @@ asan_reports_an_over_read()
     val report = ran.err.unwrap_or("")
     assert(!ran.status.ok())
     assert(report.contains("AddressSanitizer: stack-buffer-overflow"))
-    assert(report.contains(" in strlen"))
+    // The exported `strlen` and the module's own name are one address; the symbolizer may print
+    // either.
+    assert(report.contains(" in strlen") || report.contains(" in sh.sysl.cstd$strlen"))

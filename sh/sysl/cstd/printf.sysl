@@ -39,7 +39,7 @@ private[cstd] struct Sink
     total: usize
     stage: [STAGE]u8
     staged: usize
-    failed: bool
+    broken: bool
 
 private memory_sink(dst: *u8, room: usize) -> Sink
     var s: Sink
@@ -55,10 +55,10 @@ private fd_sink(fd: i32) -> Sink
 
 private flush(s: *Sink)
     var done: usize = 0
-    while done < s.staged && !s.failed
+    while done < s.staged && !s.broken
         val wrote = c_write(s.fd, &s.stage[done], s.staged - done)
         if wrote <= 0
-            s.failed = true
+            s.broken = true
         else
             done += usize(wrote)
     s.staged = 0
@@ -370,7 +370,7 @@ private format(s: *Sink, fmt: *u8, ap: *va_list)
 end format
 
 // The count a function of this family answers, which C says is an `int`.
-private answer(s: *Sink) -> i32 = if s.failed then -1 else i32(s.total)
+private answer(s: *Sink) -> i32 = if s.broken then -1 else i32(s.total)
 
 private to_memory(dst: *u8, room: usize, fmt: *u8, ap: *va_list) -> i32
     var s = memory_sink(dst, room)
