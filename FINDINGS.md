@@ -42,6 +42,9 @@ target). The workaround not taken: disguising the loops (`volatile`) so LLVM doe
 
 ## 2. A C runtime cannot call `main(argc, argv, envp)` (gap)
 
+**Fixed in sysl 0.1.0-alpha.10.** `linux/`'s crt0 declares the three-argument form and
+`sysl build-c linux --target aarch64-freestanding` builds; keel's boot test runs a C program through it.
+
 Found writing `linux/`'s crt0 (sysl 0.1.0-alpha.9). The archive names its entry
 (`targets.aarch64-freestanding.entry = "_start"`), so `extern "main"` is allowed — but only at
 `(int, **byte) -> int`:
@@ -64,4 +67,4 @@ convention.
 What should happen: in a C runtime's archive, `extern "main"` also takes the three-argument form
 `(int, **byte, **byte) -> int`. The workaround not taken: loading x2 with `envp` in `_start`'s asm
 before branching, or calling the two-argument form and leaving three-argument programs broken.
-`linux/sh/sysl/cstd_linux/crt0.sysl` is written in the wanted form and does not compile until then.
+`linux/sh/sysl/cstd_linux/crt0.sysl` was written in the wanted form and did not compile until then.
