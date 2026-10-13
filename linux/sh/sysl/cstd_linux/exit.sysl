@@ -28,7 +28,7 @@ exit(status: i32) -> never
 @export("_exit")
 _exit(status: i32) -> never
     loop
-        svc(SYS_EXIT_GROUP, u64(i64(status)), 0, 0, 0, 0, 0)
+        svc(SYS_EXIT_GROUP, u64(status), 0, 0, 0, 0, 0)
 
 @export("_Exit")
 c_Exit(status: i32) -> never = _exit(status)

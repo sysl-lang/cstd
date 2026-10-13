@@ -5,16 +5,16 @@ module sh.sysl.cstd_linux
 // path calls are the `*at` forms against the working directory, aarch64 having no others.
 
 @export("read")
-read(fd: i32, buf: *u8, n: usize) -> isize = isize(checked(call(SYS_READ, u64(i64(fd)), addr(buf), u64(n))))
+read(fd: i32, buf: *u8, n: usize) -> isize = isize(checked(call(SYS_READ, u64(fd), addr(buf), u64(n))))
 
 @export("write")
-write(fd: i32, buf: *u8, n: usize) -> isize = isize(checked(call(SYS_WRITE, u64(i64(fd)), addr(buf), u64(n))))
+write(fd: i32, buf: *u8, n: usize) -> isize = isize(checked(call(SYS_WRITE, u64(fd), addr(buf), u64(n))))
 
 @export("close")
-close(fd: i32) -> i32 = i32(checked(call(SYS_CLOSE, u64(i64(fd)))))
+close(fd: i32) -> i32 = i32(checked(call(SYS_CLOSE, u64(fd))))
 
 @export("lseek")
-lseek(fd: i32, offset: i64, whence: i32) -> i64 = checked(call(SYS_LSEEK, u64(i64(fd)), u64(offset), u64(i64(whence))))
+lseek(fd: i32, offset: i64, whence: i32) -> i64 = checked(call(SYS_LSEEK, u64(fd), u64(offset), u64(whence)))
 
 // The flags that create a file, and so the only ones under which `open` reads a mode: a caller
 // creating nothing passes no third argument, and C does not let `open` read one it was not given.
@@ -31,7 +31,7 @@ openat(dirfd: i32, path: *u8, flags: i32, ...) -> i32
     va_start(ap)
     val mode = open_mode(flags, &ap)
     va_end(ap)
-    i32(checked(call(SYS_OPENAT, u64(i64(dirfd)), addr(path), u64(i64(flags)), mode)))
+    i32(checked(call(SYS_OPENAT, u64(dirfd), addr(path), u64(flags), mode)))
 
 @export("open")
 open(path: *u8, flags: i32, ...) -> i32
@@ -39,7 +39,7 @@ open(path: *u8, flags: i32, ...) -> i32
     va_start(ap)
     val mode = open_mode(flags, &ap)
     va_end(ap)
-    i32(checked(call(SYS_OPENAT, u64(AT_FDCWD), addr(path), u64(i64(flags)), mode)))
+    i32(checked(call(SYS_OPENAT, u64(AT_FDCWD), addr(path), u64(flags), mode)))
 
 @export("getpid")
 getpid() -> i32 = i32(call(SYS_GETPID))
@@ -48,7 +48,7 @@ getpid() -> i32 = i32(call(SYS_GETPID))
 getppid() -> i32 = i32(call(SYS_GETPPID))
 
 @export("dup")
-dup(fd: i32) -> i32 = i32(checked(call(SYS_DUP, u64(i64(fd)))))
+dup(fd: i32) -> i32 = i32(checked(call(SYS_DUP, u64(fd))))
 
 // aarch64 has `dup3` and no `dup2`, and `dup3` refuses the two descriptors being one, where `dup2`
 // answers the descriptor if it is open. Whether it is open is what `fstat` says.
@@ -56,9 +56,9 @@ dup(fd: i32) -> i32 = i32(checked(call(SYS_DUP, u64(i64(fd)))))
 dup2(fd: i32, to: i32) -> i32
     if fd == to
         var st: [16]u64
-        if checked(call(SYS_FSTAT, u64(i64(fd)), u64(usize(&st[0])))) < 0 then return -1
+        if checked(call(SYS_FSTAT, u64(fd), u64(usize(&st[0])))) < 0 then return -1
         return to
-    i32(checked(call(SYS_DUP3, u64(i64(fd)), u64(i64(to)), 0)))
+    i32(checked(call(SYS_DUP3, u64(fd), u64(to), 0)))
 
 @export("pipe")
 pipe(fds: *i32) -> i32 = i32(checked(call(SYS_PIPE2, u64(usize(fds)), 0)))
@@ -83,17 +83,17 @@ getcwd(buf: *u8, size: usize) -> *u8
 
 // `struct stat` is the 128-byte asm-generic one, laid out in `<sys/stat.h>`; the kernel fills it.
 @export("fstat")
-fstat(fd: i32, st: *u8) -> i32 = i32(checked(call(SYS_FSTAT, u64(i64(fd)), addr(st))))
+fstat(fd: i32, st: *u8) -> i32 = i32(checked(call(SYS_FSTAT, u64(fd), addr(st))))
 
 @export("stat")
 stat(path: *u8, st: *u8) -> i32 = i32(checked(call(SYS_NEWFSTATAT, u64(AT_FDCWD), addr(path), addr(st))))
 
 @export("kill")
-kill(pid: i32, sig: i32) -> i32 = i32(checked(call(SYS_KILL, u64(i64(pid)), u64(i64(sig)))))
+kill(pid: i32, sig: i32) -> i32 = i32(checked(call(SYS_KILL, u64(pid), u64(sig))))
 
 // `struct timespec` is two 64-bit words, seconds and nanoseconds.
 @export("nanosleep")
 nanosleep(req: *u8, rem: *u8) -> i32 = i32(checked(call(SYS_NANOSLEEP, addr(req), addr(rem))))
 
 @export("clock_gettime")
-clock_gettime(clock: i32, ts: *u8) -> i32 = i32(checked(call(SYS_CLOCK_GETTIME, u64(i64(clock)), addr(ts))))
+clock_gettime(clock: i32, ts: *u8) -> i32 = i32(checked(call(SYS_CLOCK_GETTIME, u64(clock), addr(ts))))
