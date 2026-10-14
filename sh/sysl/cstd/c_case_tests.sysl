@@ -25,7 +25,7 @@ import sysl.env.get_or
 import sysl.fs.{make_dir, make_dir_all, read_text, remove_dir, remove_file, write_text}
 import sysl.posix.time.sleep
 import sysl.process.{Output, capture}
-import sysl.testing.skip
+import sysl.testing.{compiler, skip}
 import sysl.text.{Search, split}
 import sysl.time.millis
 
@@ -65,7 +65,7 @@ private[cstd] archive() -> string
         sleep(millis(50))
 
     if !stamp_says(stamp, run)
-        val built = capture("sysl", ["build-c", ".", "-o", lib], stderr = true).unwrap()
+        val built = capture(compiler(), ["build-c", ".", "-o", lib], stderr = true).unwrap()
         if !built.status.ok()
             remove_dir(lock)
             fail_with("sysl build-c failed", built.err.unwrap_or(""))
