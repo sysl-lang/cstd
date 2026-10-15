@@ -94,6 +94,23 @@ Out of scope:
 | posix_fadvise | ADV | missing |
 | posix_fallocate | ADV | missing |
 
+## `<setjmp.h>`
+
+| function | codes | status | needs | half |
+|---|---|---|---|---|
+| longjmp | | done (core) | | core |
+| setjmp | | done (core) | | core |
+| siglongjmp | CX | done (core) | | core |
+| sigsetjmp | CX | done (core) | | core |
+
+Written for aarch64, thumb without a floating-point unit, and riscv32 without F; the header refuses to
+compile anywhere else (see the README). `sigsetjmp` with a non-zero `savemask` reads and restores the
+mask through an external `sigprocmask`, which the platform supplies as it supplies `write`; cstd's own
+`sigprocmask` comes with `<signal.h>`'s functions. `jmp_buf` and `sigjmp_buf` are one type.
+
+`_setjmp` and `_longjmp` are not in POSIX.1-2024: Issue 7 marked them [OB XSI] and Issue 8 removed
+them, so there is no out-of-scope table.
+
 ## `<signal.h>`
 
 | function | codes | status | needs | half |
@@ -544,6 +561,7 @@ In-scope functions only.
 | `ctype.h` | 28 | 14 | 14 | | 14 | | | | |
 | `errno.h` | 0 | 0 | 0 | | | | | | |
 | `fcntl.h` | 4 | 2 | 2 | | | | 2 | | |
+| `setjmp.h` | 4 | 4 | 0 | | | | | | |
 | `signal.h` | 22 | 1 | 21 | 7 | | | 14 | | |
 | `stdio.h` | 67 | 8 | 59 | 3 | | 2 | 3 | | 51 |
 | `stdlib.h` | 49 | 25 | 24 | 6 | 5 | 2 | 11 | | |
@@ -552,7 +570,7 @@ In-scope functions only.
 | `sys/types.h` | 0 | 0 | 0 | | | | | | |
 | `time.h` | 22 | 2 | 20 | 4 | 1 | | 11 | 4 | |
 | `unistd.h` | 75 | 14 | 61 | 2 | | | 58 | 1 | |
-| **total** | **317** | **91** | **226** | **29** | **25** | **6** | **110** | **5** | **51** |
+| **total** | **321** | **95** | **226** | **29** | **25** | **6** | **110** | **5** | **51** |
 
 Out of scope, all missing: 51 functions (`fcntl.h` 2, `signal.h` 2, `stdio.h` 1, `stdlib.h` 23,
 `string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15).
@@ -574,7 +592,7 @@ names are not POSIX functions at all: `brk` and `sbrk` (declared in `unistd.h`, 
 half's `malloc.sysl`). `cstd_start` is the Linux half's internal entry; `errno` and `environ` are
 variables.
 
-**Headers in `include/` that POSIX does not define.** None: all eleven are POSIX headers.
+**Headers in `include/` that POSIX does not define.** None: all twelve are POSIX headers.
 
 ## Declarations that disagree
 

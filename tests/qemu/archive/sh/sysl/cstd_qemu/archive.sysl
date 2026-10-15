@@ -1,0 +1,9 @@
+module sh.sysl.cstd_qemu
+
+// Nothing of its own: the project exists so that `sysl build-c` writes cstd for a board. One name
+// from cstd is reached so the dependency is a used one.
+
+import sh.sysl.cstd.strlen
+
+@export("cstd_qemu_strlen")
+qemu_strlen(s: *u8) -> usize = strlen(s)

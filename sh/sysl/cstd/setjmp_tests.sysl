@@ -1,0 +1,433 @@
+module sh.sysl.cstd
+
+@tests
+
+// `<setjmp.h>`, called from C on the host, which is aarch64, and on bare-metal machines under QEMU.
+
+import sysl.buf.{Buf, buf}
+import sysl.env.get_or
+import sysl.fs.{make_dir_all, write_text}
+import sysl.process.capture
+import sysl.testing.{compiler, skip}
+import sysl.text.Search
+
+// One buffer, and a chain of calls three deep that ends in a `longjmp`, so the jump unwinds frames
+// that never return. A `setjmp` that answered 0 after a jump would jump again for ever, so the
+// chain gives up after a few.
+private val frames: string = raw"""
+    #include <setjmp.h>
+
+    void _exit(int);
+
+    static jmp_buf env;
+    static int jumps;
+
+    static void third(int val) {
+        if (++jumps > 4) {
+            say_str("jumped back to a setjmp that answered 0");
+            _exit(1);
+        }
+        longjmp(env, val);
+    }
+    static void second(int val) { third(val); say_str("second came back"); }
+    static void first(int val) { second(val); say_str("first came back"); }
+    """
+
+@test("longjmp across three frames makes setjmp return the value it was given")
+longjmp_across_frames()
+    c_case(raw"""
+        int r = setjmp(env);
+        say_int(r);
+        if (r == 0) first(42);
+        r = setjmp(env);
+        say_int(r);
+        if (r == 0) first(-7);
+        """, raw"""
+        0
+        42
+        0
+        -7
+        """, frames)
+
+@test("longjmp with 0 makes setjmp return 1")
+longjmp_zero_is_one()
+    c_case(raw"""
+        int r = setjmp(env);
+        say_int(r);
+        if (r == 0) first(0);
+        """, raw"""
+        0
+        1
+        """, frames)
+
+@test("a volatile local changed after setjmp keeps its new value across the longjmp")
+volatile_locals_kept()
+    c_case(raw"""
+        volatile int n = 1;
+        volatile double x = 0.5;
+        if (setjmp(env) == 0) {
+            n = 2;
+            x = 2.25;
+            first(3);
+        }
+        say_int(n);
+        say_int((int)(x * 4));
+        """, raw"""
+        2
+        9
+        """, frames)
+
+// The registers a callee must preserve, checked directly. `probe` puts known values in x19–x28 and
+// d8–d15 and calls `cstd_run`, which takes a `setjmp` (or a `sigsetjmp`) and calls `smash`. `smash`
+// overwrites every one of those registers — its prologue saves them, but its epilogue never runs —
+// and jumps back. Only the `longjmp` can have put the values back, and `probe` stores what it finds
+// when `cstd_run` returns.
+private val registers: string = raw"""
+    #include <setjmp.h>
+
+    static sigjmp_buf env;
+    static int use_sig;
+
+    static void smash(void) {
+        __asm__ volatile(
+            "mov x19, #1\n mov x20, #1\n mov x21, #1\n mov x22, #1\n mov x23, #1\n"
+            "mov x24, #1\n mov x25, #1\n mov x26, #1\n mov x27, #1\n mov x28, #1\n"
+            "fmov d8, #-1.0\n fmov d9, #-1.0\n fmov d10, #-1.0\n fmov d11, #-1.0\n"
+            "fmov d12, #-1.0\n fmov d13, #-1.0\n fmov d14, #-1.0\n fmov d15, #-1.0\n"
+            ::: "x19", "x20", "x21", "x22", "x23", "x24", "x25", "x26", "x27", "x28",
+                "d8", "d9", "d10", "d11", "d12", "d13", "d14", "d15");
+        if (use_sig) siglongjmp(env, 5);
+        longjmp(env, 5);
+    }
+
+    int jumped;
+
+    void cstd_run(void) {
+        int r = use_sig ? sigsetjmp(env, 1) : setjmp(env);
+        if (r == 0) smash();
+        jumped = r;
+    }
+
+    static long xs[10];
+    static double ds[8];
+
+    static void probe(void) {
+        register long *px __asm__("x0") = xs;
+        register double *pd __asm__("x1") = ds;
+        __asm__ volatile(
+            "stp x0, x1, [sp, #-16]!\n"
+            "mov x19, #19\n mov x20, #20\n mov x21, #21\n mov x22, #22\n mov x23, #23\n"
+            "mov x24, #24\n mov x25, #25\n mov x26, #26\n mov x27, #27\n mov x28, #28\n"
+            "fmov d8, #8.0\n fmov d9, #9.0\n fmov d10, #10.0\n fmov d11, #11.0\n"
+            "fmov d12, #12.0\n fmov d13, #13.0\n fmov d14, #14.0\n fmov d15, #15.0\n"
+    #ifdef __APPLE__
+            "bl _cstd_run\n"
+    #else
+            "bl cstd_run\n"
+    #endif
+            "ldp x0, x1, [sp], #16\n"
+            "stp x19, x20, [x0]\n stp x21, x22, [x0, #16]\n stp x23, x24, [x0, #32]\n"
+            "stp x25, x26, [x0, #48]\n stp x27, x28, [x0, #64]\n"
+            "stp d8, d9, [x1]\n stp d10, d11, [x1, #16]\n stp d12, d13, [x1, #32]\n"
+            "stp d14, d15, [x1, #48]\n"
+            : "+r"(px), "+r"(pd)
+            :
+            : "x2", "x3", "x4", "x5", "x6", "x7", "x8", "x9", "x10", "x11", "x12", "x13", "x14",
+              "x15", "x16", "x17", "x19", "x20", "x21", "x22", "x23", "x24", "x25", "x26", "x27",
+              "x28", "x30", "v0", "v1", "v2", "v3", "v4", "v5", "v6", "v7", "v8", "v9", "v10",
+              "v11", "v12", "v13", "v14", "v15", "v16", "v17", "v18", "v19", "v20", "v21", "v22",
+              "v23", "v24", "v25", "v26", "v27", "v28", "v29", "v30", "v31", "memory", "cc");
+    }
+
+    static void report(void) {
+        say_int(jumped);
+        for (int i = 0; i < 10; i++) put_i(xs[i]), say_ch(i < 9 ? ' ' : '\n');
+        for (int i = 0; i < 8; i++) put_i((long long)ds[i]), say_ch(i < 7 ? ' ' : '\n');
+    }
+    """
+
+@test("longjmp puts back x19-x28 and d8-d15 that the frames it skipped overwrote")
+callee_saved_registers_kept()
+    c_case(raw"""
+        use_sig = 0;
+        probe();
+        report();
+        """, raw"""
+        5
+        19 20 21 22 23 24 25 26 27 28
+        8 9 10 11 12 13 14 15
+        """, registers)
+
+@test("siglongjmp to a sigsetjmp that saved the mask puts back x19-x28 and d8-d15 too")
+sigsetjmp_callee_saved_registers_kept()
+    c_case(raw"""
+        use_sig = 1;
+        probe();
+        report();
+        """, raw"""
+        5
+        19 20 21 22 23 24 25 26 27 28
+        8 9 10 11 12 13 14 15
+        """, registers)
+
+@test("two jmp_bufs nest: the inner jump lands inside, the outer one outside")
+nested_buffers()
+    c_case(raw"""
+        if (setjmp(outer) == 0) {
+            middle();
+            say_str("not reached");
+        } else {
+            say_str("outer landed");
+        }
+        """, raw"""
+        inner set
+        inner landed 2
+        jumping out
+        outer landed
+        """, raw"""
+        #include <setjmp.h>
+
+        void _exit(int);
+
+        static jmp_buf outer, inner;
+        static int landings;
+
+        static void deep(void) { longjmp(inner, 2); }
+
+        static void middle(void) {
+            int r = setjmp(inner);
+            if (++landings > 2) {
+                say_str("landed inside too often");
+                _exit(1);
+            }
+            if (r == 0) {
+                say_str("inner set");
+                deep();
+            }
+            say_raw("inner landed ", 13);
+            say_int(r);
+            say_str("jumping out");
+            longjmp(outer, 1);
+        }
+        """)
+
+@test("a hundred thousand jumps back to one setjmp leave the stack where it was")
+repeated_jumps_keep_the_stack()
+    c_case(raw"""
+        for (volatile int i = 0; i < 100000; i++)
+            if (setjmp(env) == 0) dive(i);
+        say_int(same);
+        say_int(last);
+        """, raw"""
+        1
+        100000
+        """, raw"""
+        #include <setjmp.h>
+
+        static jmp_buf env;
+        static char *first;
+        static int same = 1;
+        static int last;
+
+        static void dive(int i) {
+            volatile char here = 0;
+            if (i == 0) first = (char *)&here;
+            else if ((char *)&here != first) same = 0;
+            last = i + 1;
+            longjmp(env, i + 1);
+        }
+        """)
+
+// The host's own `sigprocmask` is the one `sigsetjmp` calls, as a board's or a kernel's would be,
+// so the case speaks the host's numbers. The set is a 128-byte buffer, which holds either host's.
+private val masks: string = raw"""
+    #include <setjmp.h>
+
+    #ifdef __APPLE__
+    #define BLOCK 1
+    #define SETMASK 3
+    #define USR1 30
+    #else
+    #define BLOCK 0
+    #define SETMASK 2
+    #define USR1 10
+    #endif
+
+    int sigprocmask(int how, const void *set, void *old);
+
+    static sigjmp_buf env;
+
+    static unsigned char set_of_usr1[128];
+
+    static void block_usr1(void) {
+        set_of_usr1[(USR1 - 1) / 8] = (unsigned char)(1 << ((USR1 - 1) % 8));
+        sigprocmask(BLOCK, set_of_usr1, 0);
+    }
+
+    static int usr1_blocked(void) {
+        unsigned char now[128] = {0};
+        sigprocmask(BLOCK, 0, now);
+        return (now[(USR1 - 1) / 8] >> ((USR1 - 1) % 8)) & 1;
+    }
+
+    static void clear_mask(void) {
+        unsigned char none[128] = {0};
+        sigprocmask(SETMASK, none, 0);
+    }
+
+    void _exit(int);
+
+    static int jumps;
+
+    static void leave(int val) {
+        if (++jumps > 4) {
+            say_str("jumped back to a sigsetjmp that answered 0");
+            _exit(1);
+        }
+        siglongjmp(env, val);
+    }
+    """
+
+@test("sigsetjmp with a non-zero savemask has siglongjmp put the signal mask back")
+sigsetjmp_restores_the_mask()
+    c_case(raw"""
+        clear_mask();
+        int r = sigsetjmp(env, 1);
+        say_int(r);
+        if (r == 0) {
+            block_usr1();
+            say_int(usr1_blocked());
+            leave(9);
+        }
+        say_int(usr1_blocked());
+        """, raw"""
+        0
+        1
+        9
+        0
+        """, masks)
+
+@test("sigsetjmp with savemask 0 leaves the mask as siglongjmp found it")
+sigsetjmp_zero_leaves_the_mask()
+    c_case(raw"""
+        clear_mask();
+        int r = sigsetjmp(env, 0);
+        say_int(r);
+        if (r == 0) {
+            block_usr1();
+            leave(4);
+        }
+        say_int(usr1_blocked());
+        clear_mask();
+        """, raw"""
+        0
+        4
+        1
+        """, masks)
+
+@test("siglongjmp with 0 makes sigsetjmp return 1, whether or not it saved the mask")
+siglongjmp_zero_is_one()
+    c_case(raw"""
+        int r = sigsetjmp(env, 1);
+        say_int(r);
+        if (r == 0) leave(0);
+        r = sigsetjmp(env, 0);
+        say_int(r);
+        if (r == 0) leave(0);
+        """, raw"""
+        0
+        1
+        0
+        1
+        """, masks)
+
+// Where no arm can be right, the header says so at compile time rather than link a `setjmp` that
+// loses registers: a thumb build with a floating-point unit, whose s16-s31 are not saved, and a
+// processor with no arm at all.
+private header_refusal(flags: []string) -> string
+    make_dir_all(".sysl/c-tests").unwrap()
+    val source = ".sysl/c-tests/setjmp-refusal.c"
+    write_text(source, "#include <setjmp.h>\nint main(void) { return 0; }\n").unwrap()
+    var args: Buf[string] = buf()
+    for f in flags do args.push(f)
+    for a in ["-ffreestanding", "-nostdinc", "-I", "include", "-fsyntax-only", source] do args.push(a)
+    val ran = capture("clang", args.view(), stderr = true).unwrap()
+    assert(!ran.status.ok())
+    ran.err.unwrap_or("")
+
+@test("setjmp.h refuses a thumb build with a floating-point unit, and a processor with no arm")
+setjmp_header_refuses()
+    val fpu = header_refusal(["--target=thumbv7em-none-eabihf", "-mfpu=fpv4-sp-d16", "-mfloat-abi=hard"])
+    assert(fpu.contains("cstd's setjmp does not save s16-s31"), fpu)
+    val softfp = header_refusal(["--target=thumbv8m.main-none-eabi", "-mfpu=fpv5-sp-d16", "-mfloat-abi=softfp"])
+    assert(softfp.contains("cstd's setjmp does not save s16-s31"), softfp)
+    val x86 = header_refusal(["--target=x86_64-unknown-linux-gnu"])
+    assert(x86.contains("cstd's setjmp is written for aarch64"), x86)
+
+// The thumb and riscv32 arms, run where they are meant to run. `tests/qemu/setjmp.c` checks a jump
+// across frames, 0 becoming 1, the callee-saved registers and ten thousand jumps with the stack
+// where it was, against cstd built for the target by `tests/qemu/archive`, and reports through
+// semihosting. A machine with no QEMU, LLVM clang or ld.lld here skips; so does a sanitizer run,
+// since `SYSL_EXTRA_CFLAGS` would reach the bare-metal build too.
+
+private val llvm_clang: string = "/opt/homebrew/opt/llvm/bin/clang"
+
+private absent(tool: string) -> bool = capture(tool, ["--version"]) match
+    Ok(out) -> !out.status.ok()
+    Err(_) -> true
+
+private qemu_case(target: string, flags: []string, start: string, script: string, qemu: string, machine: []string)
+    if get_or("SYSL_EXTRA_CFLAGS", "") != ""
+        skip("SYSL_EXTRA_CFLAGS would reach the bare-metal build")
+    for tool in [llvm_clang, "ld.lld", qemu]
+        if absent(tool) then skip(f"$tool is not on this machine")
+
+    val dir = f".sysl/qemu-tests/$target"
+    make_dir_all(dir).unwrap()
+    val lib = f"$dir/libcstd.a"
+    val built = capture(compiler(), ["build-c", "tests/qemu/archive", "--target", target, "-o", lib], stderr = true).unwrap()
+    assert(built.status.ok(), built.err.unwrap_or(""))
+
+    val res = capture(llvm_clang, ["-print-resource-dir"]).unwrap().text.trim()
+    var c_args: Buf[string] = buf()
+    for f in flags do c_args.push(f)
+    for a in ["-ffreestanding", "-nostdinc", "-isystem", f"$res/include", "-I", "include", "-O2",
+              "-ffunction-sections", "-c", "tests/qemu/setjmp.c", "-o", f"$dir/setjmp.o"]
+        c_args.push(a)
+    val compiled = capture(llvm_clang, c_args.view(), stderr = true).unwrap()
+    assert(compiled.status.ok(), compiled.err.unwrap_or(""))
+
+    var s_args: Buf[string] = buf()
+    for f in flags do s_args.push(f)
+    for a in ["-c", f"tests/qemu/$start", "-o", f"$dir/start.o"] do s_args.push(a)
+    val assembled = capture(llvm_clang, s_args.view(), stderr = true).unwrap()
+    assert(assembled.status.ok(), assembled.err.unwrap_or(""))
+
+    val linked = capture("ld.lld", ["-T", f"tests/qemu/$script", "--gc-sections", f"$dir/start.o",
+                                    f"$dir/setjmp.o", lib, "-o", f"$dir/setjmp.elf"], stderr = true).unwrap()
+    assert(linked.status.ok(), linked.err.unwrap_or(""))
+
+    var q_args: Buf[string] = buf()
+    for m in machine do q_args.push(m)
+    for a in ["-nographic", "-semihosting-config", "enable=on,target=native", "-kernel", f"$dir/setjmp.elf"]
+        q_args.push(a)
+    val ran = capture(qemu, q_args.view(), timeout = 15000, stderr = true).unwrap()
+    val said = f"${ran.text}${ran.err.unwrap_or("")}"
+    assert_eq(said, "setjmp: ok\n")
+    assert(ran.status.ok())
+end qemu_case
+
+@test("setjmp on QEMU's micro:bit, a Cortex-M0: the thumb arm in Armv6-M's instructions holds")
+qemu_cortex_m0()
+    qemu_case("thumbv6m-freestanding", ["--target=thumbv6m-none-eabi", "-mcpu=cortex-m0", "-mfloat-abi=soft"],
+              "start_thumb.s", "thumb.ld", "qemu-system-arm", ["-M", "microbit"])
+
+@test("setjmp on QEMU's MPS2 AN385, a Cortex-M3: the thumb arm holds")
+qemu_cortex_m3()
+    qemu_case("thumbv7m-freestanding", ["--target=thumbv7m-none-eabi", "-mcpu=cortex-m3", "-mfloat-abi=soft"],
+              "start_thumb.s", "thumb.ld", "qemu-system-arm", ["-M", "mps2-an385"])
+
+@test("setjmp on QEMU's RV32 virt machine: the riscv32 arm holds")
+qemu_riscv32()
+    qemu_case("riscv32-freestanding", ["--target=riscv32-unknown-elf", "-march=rv32imac", "-mabi=ilp32"],
+              "start_riscv.s", "riscv.ld", "qemu-system-riscv32", ["-M", "virt", "-bios", "none"])

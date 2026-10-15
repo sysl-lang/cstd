@@ -1,0 +1,11 @@
+// The archive the QEMU cases link: cstd, built for a bare-metal target. A project of its own, as
+// `linux/` is, because `sysl build-c` of the root would carry the hosted test files with it.
+
+package {
+  name    = "cstd_qemu"
+  version = "0.0.1"
+}
+
+dependencies {
+  cstd { path = "../../.." }
+}

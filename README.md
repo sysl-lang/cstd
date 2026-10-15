@@ -22,6 +22,18 @@ require, exported under its C name with `@export`.
 | `stdlib.h` | `atoi` `atol` `atof` `strtol` `strtoul` `strtoll` `strtoull` `strtod` `strtof` `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch` |
 | `errno.h` | `errno` (one global, defined by the library), Linux's codes from `EPERM` to `ETIMEDOUT` |
 | `stdio.h` | `printf` `dprintf` `sprintf` `snprintf` `vprintf` `vdprintf` `vsprintf` `vsnprintf` |
+| `setjmp.h` | `setjmp` `longjmp` `sigsetjmp` `siglongjmp` |
+
+- **`setjmp` is assembly per processor** (`sh/sysl/cstd/setjmp.sysl`): aarch64 (x19–x30, sp,
+  d8–d15; x18 left alone), thumb in Armv6-M's instructions so every Cortex-M runs it (r4–r11, sp,
+  lr), and riscv32 (ra, sp, s0–s11). `<setjmp.h>` refuses to compile anywhere else, and on a thumb
+  build with a floating-point unit (`__ARM_FP`: `thumb-freestanding`, `thumb-freestanding-softfp`,
+  `thumbv7em-freestanding`), because s16–s31 are not saved yet: an asm arm cannot tell those
+  targets from the ones without a unit. `longjmp` with 0 makes `setjmp` return 1.
+- `sigjmp_buf` is `jmp_buf`, and `siglongjmp` is `longjmp`. `sigsetjmp` with a non-zero `savemask`
+  reads the mask, and puts it back after a `siglongjmp`, through an external `sigprocmask` that the
+  platform supplies, as it supplies `write`. `sigsetjmp` sits in a section of its own, so a board
+  that links only `setjmp` with `--gc-sections` needs no `sigprocmask`.
 
 - The printf family takes C99's `%d %i %u %o %x %X %c %s %p %n %%` and `%f %F %e %E %g %G %a %A`,
   the flags `- + space # 0`, a width and a precision as a number or `*`, and the lengths
@@ -146,14 +158,29 @@ The freestanding builds are checked with:
 
 ```
 sysl build-lib . --target thumb-freestanding-softfp
+sysl build-lib . --target thumb-freestanding
+sysl build-lib . --target thumbv7em-freestanding
+sysl build-lib . --target thumbv6m-freestanding
+sysl build-lib . --target riscv32-freestanding
 sysl build-lib . --target aarch64-freestanding
 ```
+
+The `setjmp` cases run on the host, which is aarch64: a jump across frames, 0 becoming 1, volatile
+locals, x19–x28 and d8–d15 overwritten by the skipped frames and put back, nested buffers, a
+hundred thousand jumps with the stack where it was, and `sigsetjmp`'s mask through the host's
+`sigprocmask`. The thumb and riscv32 arms run on QEMU (`microbit`, a Cortex-M0; `mps2-an385`, a
+Cortex-M3; `virt`, RV32): `tests/qemu/setjmp.c` is linked against cstd built for the target by
+`tests/qemu/archive` and reports through semihosting. Those three cases need `qemu-system-arm`,
+`qemu-system-riscv32`, `ld.lld` and Homebrew's LLVM clang, skip where any is missing, and skip
+under ASan, whose flags would reach the bare-metal build. Under ASan a C caller of `longjmp` calls
+`__asan_handle_no_return` itself, because the prototype is `noreturn`, so the skipped frames'
+shadow is cleared without cstd doing anything.
 
 ## What is deliberately absent, and why
 
 - **Allocation and `exit` in the portable half.** Where memory comes from and how a process ends are
   the platform's: `linux/` answers both for Linux's ABI; a board's arena is still to come.
-- **`FILE` and the rest of stdio, `setjmp`.** Buffered streams are not written yet.
+- **`FILE` and the rest of stdio.** Buffered streams are not written yet.
 - **`long double`, `strtold` and `%Lf`.** cstd's floats are `double` and `float` only.
 - **Locales.** Only the C locale exists: every byte from 0x80 up is in no class.
 - **A per-thread `errno`.** Nothing this library serves has threads yet.
