@@ -13,6 +13,13 @@ module sh.sysl.cstd
 // and stays musl's. erfc reaches the subnormals at 26.5 and underflows past 27.2.
 //
 // The float forms compute in double and round once.
+//
+// The fits are fdlibm's, whose terms ask that its notice be kept with the code:
+//
+//     Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+//     Developed at SunSoft, a Sun Microsystems, Inc. business.
+//     Permission to use, copy, modify, and distribute this software is freely granted,
+//     provided that this notice is preserved.
 
 private val erx: real = 8.45062911510467529297e-1    // 0x3FEB0AC1 0x60000000
 private val efx8: real = 1.02703333676410069053e0    // 0x3FF06EBA 0x8214DB69

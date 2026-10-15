@@ -1,0 +1,31 @@
+module sh.sysl.cstd
+
+@tests
+
+// The float functions that compute in double and round once. A double result within 0.9 ulp of the
+// exact value, rounded to float, is the correctly rounded float unless the exact value lies within
+// about 2^-29 of a float's rounding boundary, which a handful of inputs among the four billion do;
+// so these are correctly rounded nearly everywhere, and on every input sampled here the oracle holds
+// them to the bit.
+//
+// atan2f is not among them, and the reason is worth knowing: for a tiny quotient atan2 answers y/x,
+// the double nearest atan(y/x), and where y/x is exactly half way between two floats -- the largest
+// float subnormal over 2 is one -- rounding that double to float breaks the tie to even, while
+// atan(y/x), a hair below it, rounds down. It is within 0.5 ulp and a hair, which its own test holds.
+
+private val double_backed: [26]string = ["exp", "exp2", "expm1", "log", "log2", "log10", "log1p",
+    "sin", "cos", "tan", "asin", "acos", "atan", "sinh", "cosh", "tanh", "asinh", "acosh", "atanh",
+    "erf", "erfc", "cbrt", "tgamma", "lgamma", "hypot", "pow"]
+
+@test("the double-backed float functions are correctly rounded on every sampled input")
+math_float_correctly_rounded()
+    for f in double_backed
+        if f == "hypot" || f == "pow"
+            judge(f, 24, 0.0, binary_f(f + "f", 30000) + f"""
+                for (int i = 0; i < 30000; i++) F2(${f}f, uni_f(-10, 10), uni_f(-10, 10));
+                """)
+        else
+            judge(f, 24, 0.0, unary_f(f + "f", 30000) + f"""
+                for (int i = 0; i < 30000; i++) F1(${f}f, uni_f(-10, 10));
+                for (int i = 0; i < 10000; i++) F1(${f}f, sgn_f(mag_f(-30, 10)));
+                """)

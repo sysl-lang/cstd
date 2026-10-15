@@ -28,8 +28,14 @@ sqrt(x: real) -> real = soft_sqrt(x)
 @export("sqrtf")
 sqrtf(x: f32) -> f32 = f32(sqrt(real(x)))
 
-// --- cbrt: musl's `cbrt.c` (FreeBSD's): 5 bits from dividing the exponent's bits by 3, 23 from a
-// polynomial, then t rounded to 23 bits so that t² is exact and one Newton step. Within 0.667 ulp. ---
+// --- cbrt: musl's `cbrt.c` (FreeBSD's, optimized by Bruce D. Evans): 5 bits from dividing the
+// exponent's bits by 3, 23 from a polynomial, then t rounded to 23 bits so that t² is exact and one
+// Newton step. Within 0.667 ulp. From fdlibm, whose terms ask that its notice be kept with the code:
+//
+//     Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+//     Developed at SunPro, a Sun Microsystems, Inc. business.
+//     Permission to use, copy, modify, and distribute this software is freely granted,
+//     provided that this notice is preserved. ---
 
 private val cbrt_b1: u32 = 715094163  // (1023 - 1023/3 - 0.03306235651) × 2^20
 private val cbrt_b2: u32 = 696219795  // (1023 - 1023/3 - 54/3 - 0.03306235651) × 2^20

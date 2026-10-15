@@ -10,6 +10,14 @@ module sh.sysl.cstd
 // The tables are the bits of musl's hexadecimal constants: `log_tab` holds 1/c and log(c) for each of
 // the 128 subintervals, `log_tab2` holds c as a double and the part of it a double misses, used
 // because there is no fused multiply-add to form z/c - 1 in one rounding.
+//
+// log and log2: Copyright (c) 2018, Arm Limited. SPDX-License-Identifier: MIT.
+// log10 and log1p, from fdlibm, whose terms ask that its notice be kept with the code:
+//
+//     Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+//     Developed at SunSoft, a Sun Microsystems, Inc. business.
+//     Permission to use, copy, modify, and distribute this software is freely granted,
+//     provided that this notice is preserved.
 
 private val log_table_bits: u64 = 7
 private val log_off: u64 = 0x3fe6000000000000

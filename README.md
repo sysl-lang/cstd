@@ -22,6 +22,7 @@ require, exported under its C name with `@export`.
 | `stdlib.h` | `atoi` `atol` `atof` `strtol` `strtoul` `strtoll` `strtoull` `strtod` `strtof` `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch` |
 | `errno.h` | `errno` (one global, defined by the library), Linux's codes from `EPERM` to `ETIMEDOUT` |
 | `stdio.h` | `printf` `dprintf` `sprintf` `snprintf` `vprintf` `vdprintf` `vsprintf` `vsnprintf` |
+| `math.h` | all 57 functions of POSIX.1-2024 in `double` and `float`, and in `long double` where it is a `double`; the classification and comparison macros, `HUGE_VAL`, `INFINITY`, `NAN`, the `FP_` and `MATH_` constants and `M_PI` and friends |
 
 - The printf family takes C99's `%d %i %u %o %x %X %c %s %p %n %%` and `%f %F %e %E %g %G %a %A`,
   the flags `- + space # 0`, a width and a precision as a number or `*`, and the lengths
@@ -57,6 +58,71 @@ require, exported under its C name with `@export`.
 - `strtok` keeps one save pointer for the whole program, as C does; `strtok_r` keeps it in the caller's hands.
 - Text with no number in it, or a base C does not define, sets `EINVAL`, as the BSD libcs do. C
   leaves that case unspecified.
+
+### `<math.h>`
+
+- **The algorithms are musl's** (1.2.6), ported into sysl with their structure, constants and tables
+  kept so that each file can be read beside the C it came from: Arm's optimized-routines for `exp`,
+  `exp2`, `log`, `log2` and `pow`; fdlibm (FreeBSD's msun) for the trigonometric, inverse
+  trigonometric, error and gamma functions, `expm1`, `log10`, `log1p` and `cbrt`; musl's own for the
+  rest. Their notices are in `LICENSE`.
+- **Where musl rounds an intermediate and lands past 1 ulp, the intermediate is carried in
+  double-double** (`math_dd.sysl`: two-sum, Dekker's product, and exp, expm1 and log built from the
+  tables above without rounding their tails away), and only the answer is rounded. That is `sinh`,
+  `cosh`, `tanh`, `asinh`, `acosh`, `atanh`, `atan2`, `erf`, `erfc`, `lgamma` and `tgamma`; musl's
+  forms measure between 1.2 and 10 ulp, and its `tgamma` (Lanczos) and `acosh` for negative
+  arguments are not used at all.
+- **Nothing calls a C library.** `sqrt` is AArch64's `fsqrt` or x86-64's `sqrtsd` through
+  `llvm.sqrt`, and elsewhere musl's integer square root; `fma` is musl's 128-bit integer version on
+  every target; the roundings are integer operations on the bits. A test checks the archive's
+  undefined symbols on the host, on 32-bit Arm and on AArch64.
+- **`float` computes in `double` and rounds once**, except where a function of its own is needed to
+  be exact: `fmaf` rounds the double sum to odd before narrowing, which is correct even into float's
+  subnormals. `sqrtf`, `fmodf`, `remainderf`, `remquof`, the roundings and the scalings are exact
+  through `double`; the others are correctly rounded on every input the tests sample (some 70 000
+  each), except `atan2f`, which a tie between two floats can cost half an ulp and a hair (the test
+  file says why).
+- **`long double`** is `double` on arm64 macOS and 32-bit Arm, and there each `l` function is its
+  double counterpart under the `l` name. Where it is binary128 (AArch64 Linux, RISC-V) they are not
+  offered, and `math.h` does not declare them; `nexttoward` takes its direction at the type's width on
+  both.
+- **Errors go to `errno` only**: `math_errhandling` is `MATH_ERRNO`. A domain error sets `EDOM` and
+  answers NaN; a pole error or an overflow sets `ERANGE` and answers ±infinity; an underflow answers
+  the subnormal or zero and sets nothing, which POSIX permits. A NaN argument is never an error. The
+  exception flags are whatever the arithmetic raises, and nothing promises which.
+- C Annex F's special values hold throughout: `pow(-1, ±inf)` and `pow(x, ±0)` are 1, `atan2` of
+  signed zeros answers ±0 or ±pi, `hypot(inf, NaN)` is inf, every zero keeps its sign.
+- The rounding mode is assumed to be to nearest, as musl assumes it.
+
+The largest error measured against MPFR, in units in the last place of the exact answer, over the
+inputs the tests run (between 20 000 and 75 000 per function and form):
+
+| function | `double` | `float` |
+|---|---|---|
+| `sqrt` `fma` `fmod` `remainder` `remquo` `floor` `ceil` `trunc` `round` `rint` `nearbyint` `lrint` `llrint` `lround` `llround` `frexp` `ldexp` `scalbn` `scalbln` `modf` `ilogb` `logb` `nextafter` `nexttoward` `fabs` `copysign` `fdim` `fmax` `fmin` | 0 (exact) | 0 (exact) |
+| `exp` `exp2` | 0.503 | 0.500 |
+| `expm1` | 0.737 | 0.500 |
+| `log` | 0.503 | 0.500 |
+| `log2` | 0.526 | 0.500 |
+| `log10` | 0.612 | 0.500 |
+| `log1p` | 0.787 | 0.500 |
+| `pow` | 0.505 | 0.500 |
+| `cbrt` | 0.665 | 0.500 |
+| `hypot` | 0.939 | 0.500 |
+| `sin` `cos` `tan` | 0.740 0.730 0.798 | 0.500 |
+| `asin` `acos` `atan` | 0.799 0.815 0.766 | 0.500 |
+| `atan2` | 0.803 | 0.500 |
+| `sinh` `cosh` `tanh` | 0.647 0.580 0.639 | 0.500 |
+| `asinh` `acosh` `atanh` | 0.500 0.501 0.500 | 0.500 |
+| `erf` `erfc` | 0.869 0.746 | 0.500 |
+| `tgamma` | 0.820 | 0.500 |
+| `lgamma` | 0.614 for x > 0; 0.998 for x < 0, except next to its zeros | 0.500 |
+
+The tests hold every elementary function to 1 ulp and the exact ones to the bit. **lgamma** below
+zero is the one exception: lgamma(x) = log(pi / |x sin(pi x)|) - lgamma(-x) subtracts two nearly
+equal numbers wherever lgamma(x) is close to one of its zeros (two in each unit interval from -2
+down), and there the answer is held to an absolute error, measured at most 7.6 × 10^-18, rather than
+to ulps.
 
 ## The Linux half (`linux/`)
 
@@ -142,6 +208,20 @@ this mode:
 - `nm -u` of the archive must show `__asan_report_load1` and `__asan_report_store1`.
 - `strlen` over a buffer with no NUL must be reported as a `stack-buffer-overflow` in `strlen`.
 
+**The mathematics is judged by MPFR**, which computes every function correctly rounded at any
+precision (`sh/sysl/cstd/math_oracle.sysl`; the suite needs Homebrew's `mpfr` and `gmp` under
+`/opt/homebrew/opt`). A case is C over `tests/math_gen.h`: it calls a cstd function on the special
+values (zeros, infinities, NaNs, the ends of the subnormal and normal ranges, one and its
+neighbours), on a fixed-seed spread of arbitrary bit patterns, and on the places its algorithm has
+edges -- arguments next to multiples of pi/2 and past 2^20 pi/2 for the trigonometric functions, the
+overflow and underflow thresholds, the neighbourhood of 1 for a logarithm, perfect squares and cubes,
+halves for the roundings, cancellation for `fma`, each fit's interval boundaries -- and prints the
+bits. A C program built once per run against MPFR reads those lines and checks each answer against
+the correctly rounded one (to the bit, for the exact functions) or against the exact one to within the
+function's bound in ulps, and checks `errno` on every line. It appends the largest error it saw to
+`.sysl/c-tests/ulp-report.txt`, which is where the table above comes from. The `math_c_tests.sysl`
+cases pin the header's macros and constants and the `errno` and Annex F behaviour by name.
+
 The freestanding builds are checked with:
 
 ```
@@ -154,10 +234,15 @@ sysl build-lib . --target aarch64-freestanding
 - **Allocation and `exit` in the portable half.** Where memory comes from and how a process ends are
   the platform's: `linux/` answers both for Linux's ABI; a board's arena is still to come.
 - **`FILE` and the rest of stdio, `setjmp`.** Buffered streams are not written yet.
-- **`long double`, `strtold` and `%Lf`.** cstd's floats are `double` and `float` only.
+- **`long double` beyond binary64: `strtold`, `%Lf`, and the `l` functions of `<math.h>` where
+  `long double` is binary128.** cstd's floats are `double` and `float`; where `long double` is a
+  `double` the `<math.h>` `l` functions are offered as their `double` counterparts, and where it is
+  binary128 a quad-precision argument reduction, polynomials and tables are still to be written.
+  A `double` answer widened would be wrong in its last 60 bits, so nothing is offered there.
 - **Locales.** Only the C locale exists: every byte from 0x80 up is in no class.
 - **A per-thread `errno`.** Nothing this library serves has threads yet.
 
 ## License
 
-ISC. See `LICENSE`.
+ISC. See `LICENSE`, which also carries the notices of musl, Arm and Sun's fdlibm for the
+mathematics.

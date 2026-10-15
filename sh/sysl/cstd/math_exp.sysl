@@ -9,6 +9,14 @@ module sh.sysl.cstd
 // result keeps its digits.
 //
 // The float forms compute in double and round once.
+//
+// exp and exp2: Copyright (c) 2018, Arm Limited. SPDX-License-Identifier: MIT.
+// expm1, from fdlibm, whose terms ask that its notice be kept with the code:
+//
+//     Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+//     Developed at SunSoft, a Sun Microsystems, Inc. business.
+//     Permission to use, copy, modify, and distribute this software is freely granted,
+//     provided that this notice is preserved.
 
 // `pow` shares the table, the reduction constants and the polynomial (`math_pow.sysl`).
 private[cstd] val exp_table_bits: u64 = 7

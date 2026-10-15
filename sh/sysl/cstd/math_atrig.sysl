@@ -12,6 +12,13 @@ module sh.sysl.cstd
 // 1 ulp.
 //
 // The float forms compute in double and round once.
+//
+// From fdlibm, whose terms ask that its notice be kept with the code:
+//
+//     Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+//     Developed at SunSoft, a Sun Microsystems, Inc. business.
+//     Permission to use, copy, modify, and distribute this software is freely granted,
+//     provided that this notice is preserved.
 
 private val pio2_hi: real = 1.57079632679489655800e0    // 0x3FF921FB 0x54442D18
 private val pio2_lo: real = 6.12323399573676603587e-17  // 0x3C91A626 0x33145C07

@@ -24,6 +24,13 @@ module sh.sysl.cstd
 // A pole -- lgamma at zero or a negative integer, tgamma at ±0 -- answers an infinity with ERANGE;
 // tgamma at a negative integer or -infinity is a domain error. The float forms compute in double and
 // round once.
+//
+// The fits are fdlibm's, whose terms ask that its notice be kept with the code:
+//
+//     Copyright (C) 1993 by Sun Microsystems, Inc. All rights reserved.
+//     Developed at SunSoft, a Sun Microsystems, Inc. business.
+//     Permission to use, copy, modify, and distribute this software is freely granted,
+//     provided that this notice is preserved.
 
 private val lg_tc: real = 1.46163214496836224576e0    // 0x3FF762D8 0x6356BE3F
 private val lg_tf: real = -1.21486290535849611461e-1  // 0xBFBF19B9 0xBCC38A42

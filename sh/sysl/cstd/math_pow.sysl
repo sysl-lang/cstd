@@ -9,6 +9,8 @@ module sh.sysl.cstd
 // x, pow(1, y) = 1 for any y, pow(-1, ±inf) = 1, a negative x only with an integer y.
 //
 // The float form computes in double and rounds once.
+//
+// Copyright (c) 2018, Arm Limited. SPDX-License-Identifier: MIT.
 
 private val pow_log_table_bits: u64 = 7
 private val pow_off: u64 = 0x3fe6955500000000
