@@ -18,7 +18,8 @@ require, exported under its C name with `@export`.
 | header | functions |
 |---|---|
 | `string.h` | `strlen` `strnlen` `strcmp` `strncmp` `strcpy` `strncpy` `strcat` `strncat` `strchr` `strrchr` `strstr` `strspn` `strcspn` `strpbrk` `strtok` `strtok_r` `strerror` `memcpy` `memmove` `memset` `memcmp` `memchr` |
-| `ctype.h` | `isalnum` `isalpha` `isblank` `iscntrl` `isdigit` `isgraph` `islower` `isprint` `ispunct` `isspace` `isupper` `isxdigit` `tolower` `toupper`, for the C locale |
+| `ctype.h` | `isalnum` `isalpha` `isblank` `iscntrl` `isdigit` `isgraph` `islower` `isprint` `ispunct` `isspace` `isupper` `isxdigit` `tolower` `toupper`, and the `_l` variant of each, for the C locale |
+| `locale.h` | `setlocale` `localeconv` `newlocale` `duplocale` `freelocale` `uselocale` `getlocalename_l`, for the C locale |
 | `stdlib.h` | `atoi` `atol` `atof` `strtol` `strtoul` `strtoll` `strtoull` `strtod` `strtof` `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch` |
 | `errno.h` | `errno` (one global, defined by the library), Linux's codes from `EPERM` to `ETIMEDOUT` |
 | `stdio.h` | `printf` `dprintf` `sprintf` `snprintf` `vprintf` `vdprintf` `vsprintf` `vsnprintf` |
@@ -124,7 +125,10 @@ guard byte on each side, NULs included. The cases cover:
 - not-found answers
 - overlapping `memmove` in both directions
 - `strncpy`'s padding and its missing terminator
-- every `<ctype.h>` function over EOF and 0–255
+- every `<ctype.h>` function over EOF and 0–255, and each `_l` variant agreeing with its plain twin
+  there, given a locale object and given `LC_GLOBAL_LOCALE`
+- the names `setlocale` and `newlocale` accept and refuse, `newlocale`'s `ENOENT` and `EINVAL`,
+  every `localeconv` field, and `uselocale` handing back the locale it replaced
 - every base from 2 to 36
 - `EINVAL` for a bad base or no digits
 - overflow in each `strto*` with `ERANGE`
@@ -155,7 +159,11 @@ sysl build-lib . --target aarch64-freestanding
   the platform's: `linux/` answers both for Linux's ABI; a board's arena is still to come.
 - **`FILE` and the rest of stdio, `setjmp`.** Buffered streams are not written yet.
 - **`long double`, `strtold` and `%Lf`.** cstd's floats are `double` and `float` only.
-- **Locales.** Only the C locale exists: every byte from 0x80 up is in no class.
+- **Locales other than C.** Only the C locale exists: every byte from 0x80 up is in no class,
+  `setlocale` and `newlocale` accept only "C", "POSIX" and "" (which is the C locale here), and the
+  `_l` functions answer as the C locale whatever `locale_t` they are given. A locale's data would
+  have to come from somewhere, and nothing cstd runs on has it. The current locale `uselocale`
+  installs is one per program, like `errno`.
 - **A per-thread `errno`.** Nothing this library serves has threads yet.
 
 ## License
