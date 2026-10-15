@@ -17,7 +17,7 @@ require, exported under its C name with `@export`.
 
 | header | functions |
 |---|---|
-| `string.h` | `strlen` `strnlen` `strcmp` `strncmp` `strcpy` `strncpy` `strcat` `strncat` `strchr` `strrchr` `strstr` `strspn` `strcspn` `strpbrk` `strtok` `strtok_r` `strerror` `memcpy` `memmove` `memset` `memcmp` `memchr` |
+| `string.h` | `strlen` `strnlen` `strcmp` `strncmp` `strcpy` `strncpy` `strcat` `strncat` `strchr` `strrchr` `strstr` `strspn` `strcspn` `strpbrk` `strtok` `strtok_r` `strerror` `strerror_r` `strerror_l` `strsignal` `stpcpy` `stpncpy` `strlcpy` `strlcat` `strdup` `strndup` `strcoll` `strcoll_l` `strxfrm` `strxfrm_l` `memcpy` `memmove` `memset` `memcmp` `memchr` `memmem` — all of POSIX.1-2024's base `<string.h>` |
 | `ctype.h` | `isalnum` `isalpha` `isblank` `iscntrl` `isdigit` `isgraph` `islower` `isprint` `ispunct` `isspace` `isupper` `isxdigit` `tolower` `toupper`, for the C locale |
 | `stdlib.h` | `atoi` `atol` `atof` `strtol` `strtoul` `strtoll` `strtoull` `strtod` `strtof` `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch` |
 | `errno.h` | `errno` (one global, defined by the library), Linux's codes from `EPERM` to `ETIMEDOUT` |
@@ -55,6 +55,14 @@ require, exported under its C name with `@export`.
 - `strerror` knows `0` and every code `errno.h` defines, in glibc's words; any other code answers
   the fixed text `Unknown error`, because formatting the number in would need a formatter.
 - `strtok` keeps one save pointer for the whole program, as C does; `strtok_r` keeps it in the caller's hands.
+- `strdup` and `strndup` call an external `malloc` that the program supplies (the Linux half's, a
+  board's, or the host's), and set `ENOMEM` themselves when it answers null. `strndup` reads at most
+  `n` bytes and allocates only what it copies.
+- Only the C locale exists: `locale_t` is an opaque pointer the `_l` functions ignore, `strcoll` is
+  `strcmp`, and `strxfrm` copies its source when it fits (and touches nothing when it does not).
+- `strerror_r` is POSIX's `int` form: a message cut to fit is still terminated and answers `ERANGE`,
+  an unknown code answers `EINVAL` with `Unknown error` in the buffer. `strsignal` gives glibc's
+  words for each signal `signal.h` defines and `Unknown signal` for any other number.
 - Text with no number in it, or a base C does not define, sets `EINVAL`, as the BSD libcs do. C
   leaves that case unspecified.
 
@@ -124,6 +132,11 @@ guard byte on each side, NULs included. The cases cover:
 - not-found answers
 - overlapping `memmove` in both directions
 - `strncpy`'s padding and its missing terminator
+- `n = 0`, exact-fit and one-short buffers for `strlcpy`, `strlcat`, `stpncpy`, `strxfrm` and
+  `strerror_r`, and `errno` left alone where the function promises it
+- `strdup`/`strndup` against a `malloc` the case supplies in its prelude: the size asked for, and
+  `ENOMEM` from a refusal
+- `memmem` with an empty needle, a needle longer than the haystack, and a match at the very end
 - every `<ctype.h>` function over EOF and 0–255
 - every base from 2 to 36
 - `EINVAL` for a bad base or no digits
@@ -141,6 +154,9 @@ case's clang, so the archive and every program are instrumented together. Two te
 this mode:
 - `nm -u` of the archive must show `__asan_report_load1` and `__asan_report_store1`.
 - `strlen` over a buffer with no NUL must be reported as a `stack-buffer-overflow` in `strlen`.
+
+And one ordinary case earns its keep here: `strnlen` and `strndup` over an unterminated array within
+their `n` must not read past it, which only ASan can see.
 
 The freestanding builds are checked with:
 

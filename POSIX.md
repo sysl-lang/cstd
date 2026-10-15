@@ -312,39 +312,43 @@ Out of scope:
 | memchr | | done (core) | | core |
 | memcmp | | done (core) | | core |
 | memcpy | | done (core) | | core |
-| memmem | CX | missing | pure | core |
+| memmem | CX | done (core) | | core |
 | memmove | | done (core) | | core |
 | memset | | done (core) | | core |
-| stpcpy | CX | missing | pure | core |
-| stpncpy | CX | missing | pure | core |
+| stpcpy | CX | done (core) | | core |
+| stpncpy | CX | done (core) | | core |
 | strcat | | done (core) | | core |
 | strchr | | done (core) | | core |
 | strcmp | | done (core) | | core |
-| strcoll | | missing | locale | core |
-| strcoll_l | CX | missing | locale | core |
+| strcoll | | done (core) | | core |
+| strcoll_l | CX | done (core) | | core |
 | strcpy | | done (core) | | core |
 | strcspn | | done (core) | | core |
-| strdup | CX | missing | heap | either |
+| strdup | CX | done (core) | | core |
 | strerror | | done (core) | | core |
-| strerror_l | CX | missing | locale | core |
-| strerror_r | CX | missing | pure | core |
-| strlcat | CX | missing | pure | core |
-| strlcpy | CX | missing | pure | core |
+| strerror_l | CX | done (core) | | core |
+| strerror_r | CX | done (core) | | core |
+| strlcat | CX | done (core) | | core |
+| strlcpy | CX | done (core) | | core |
 | strlen | | done (core) | | core |
 | strncat | | done (core) | | core |
 | strncmp | | done (core) | | core |
 | strncpy | | done (core) | | core |
-| strndup | CX | missing | heap | either |
+| strndup | CX | done (core) | | core |
 | strnlen | CX | done (core) | | core |
 | strpbrk | | done (core) | | core |
 | strrchr | | done (core) | | core |
-| strsignal | CX | missing | pure | core |
+| strsignal | CX | done (core) | | core |
 | strspn | | done (core) | | core |
 | strstr | | done (core) | | core |
 | strtok | | done (core) | | core |
 | strtok_r | CX | done (core) | | core |
-| strxfrm | | missing | locale | core |
-| strxfrm_l | CX | missing | locale | core |
+| strxfrm | | done (core) | | core |
+| strxfrm_l | CX | done (core) | | core |
+
+`strdup` and `strndup` call an external `malloc` the program supplies (the Linux half's, a board's,
+or the host's). `strcoll`, `strxfrm` and the `_l` forms collate as the C locale does, by byte;
+`locale_t` is an opaque pointer, defined under the guard `__CSTD_LOCALE_T` so `locale.h` agrees.
 
 Out of scope:
 
@@ -547,12 +551,12 @@ In-scope functions only.
 | `signal.h` | 22 | 1 | 21 | 7 | | | 14 | | |
 | `stdio.h` | 67 | 8 | 59 | 3 | | 2 | 3 | | 51 |
 | `stdlib.h` | 49 | 25 | 24 | 6 | 5 | 2 | 11 | | |
-| `string.h` | 36 | 22 | 14 | 7 | 5 | 2 | | | |
+| `string.h` | 36 | 36 | 0 | | | | | | |
 | `sys/stat.h` | 14 | 3 | 11 | | | | 11 | | |
 | `sys/types.h` | 0 | 0 | 0 | | | | | | |
 | `time.h` | 22 | 2 | 20 | 4 | 1 | | 11 | 4 | |
 | `unistd.h` | 75 | 14 | 61 | 2 | | | 58 | 1 | |
-| **total** | **317** | **91** | **226** | **29** | **25** | **6** | **110** | **5** | **51** |
+| **total** | **317** | **105** | **212** | **22** | **20** | **4** | **110** | **5** | **51** |
 
 Out of scope, all missing: 51 functions (`fcntl.h` 2, `signal.h` 2, `stdio.h` 1, `stdlib.h` 23,
 `string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15).
@@ -565,7 +569,8 @@ cstd's. `<sys/types.h>` is included by `time.h`, `fcntl.h`, `signal.h`, `unistd.
 `<time.h>` by `sys/stat.h`. Both are offered.
 
 **Headers the standard's pages make the offered ones depend on.** `ctype.h`, `string.h` and `time.h`
-must define `locale_t` "as described in `<locale.h>`", which cstd does not offer. `time.h` declares
+must define `locale_t` "as described in `<locale.h>`", which cstd does not offer. `string.h` defines
+it. `time.h` declares
 `struct sigevent` as defined in `<signal.h>`, whose types (`sigset_t`, `siginfo_t`, `struct sigaction`,
 `union sigval`, `stack_t`, `pthread_t`) cstd's `signal.h` does not define.
 
