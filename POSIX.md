@@ -36,6 +36,19 @@ counts and totals cover in-scope functions only.
 `time` (and the core only through a hook, see design question 1); `either` where the answer depends on a
 design question below.
 
+## `<assert.h>`
+
+The page defines no function: it requires the `assert` macro (a macro, never a function), which is
+redefined from the state of `NDEBUG` each time the header is included. cstd's header has no include
+guard around it for that reason, supplies `static_assert` as `_Static_assert` before C23, and its
+failure path is the exported helper `__cstd_assert_fail` (not a POSIX name), which writes
+`Assertion failed: <expression> (<file>: <function>: <line>)` to descriptor 2 and calls `abort`.
+`abort` is the platform's (`stdlib.h`'s, supplied by cstd's Linux half or the host libc).
+
+| macro | codes | status | needs | half |
+|---|---|---|---|---|
+| assert | | done (core) | | core |
+
 ## `<ctype.h>`
 
 All 14 C functions are done in the core. The page says they "shall be declared as functions and may also
@@ -93,6 +106,26 @@ Out of scope:
 |---|---|---|
 | posix_fadvise | ADV | missing |
 | posix_fallocate | ADV | missing |
+
+## `<inttypes.h>`
+
+All 6 functions are done in the core. The page also requires `imaxdiv_t`, `wchar_t` (from
+`<stddef.h>`), `<stdint.h>`, and a `PRI`/`SCN` format macro for each `<stdint.h>` type and each of
+`d i o u x X` (`PRI`) and `d i o u x` (`SCN`) over `N` = 8, 16, 32, 64, `LEASTN`, `FASTN`, `MAX` and
+`PTR`: 154 macros, all defined. Each expands to the compiler's own `__INT64_FMTd__`-family string for
+the type the compiler's `<stdint.h>` gives that name, so `PRId64` is `"ld"` where `int64_t` is `long`
+and `"lld"` where it is `long long`, and `PRIdPTR` follows the pointer width. `strtoimax` and
+`strtoumax` are `strtoll` and `strtoull`; `wcstoimax` and `wcstoumax` run the same scan over a
+`wchar_t` string (read as 32-bit; in the C locale only ASCII characters are white space or digits).
+
+| function | codes | status | needs | half |
+|---|---|---|---|---|
+| imaxabs | | done (core) | | core |
+| imaxdiv | | done (core) | | core |
+| strtoimax | | done (core) | | core |
+| strtoumax | | done (core) | | core |
+| wcstoimax | | done (core) | | core |
+| wcstoumax | | done (core) | | core |
 
 ## `<signal.h>`
 
@@ -352,6 +385,27 @@ Out of scope:
 |---|---|---|
 | memccpy | XSI | missing |
 
+## `<strings.h>`
+
+All 4 in-scope functions are done in the core. Only the C locale exists, so the `_l` forms ignore their
+`locale_t` and case folding is ASCII. `locale_t` is declared in the header with the guard shared by the
+other headers that need it.
+
+| function | codes | status | needs | half |
+|---|---|---|---|---|
+| strcasecmp | | done (core) | | core |
+| strcasecmp_l | | done (core) | | core |
+| strncasecmp | | done (core) | | core |
+| strncasecmp_l | | done (core) | | core |
+
+Out of scope (offered anyway: the header declares them and the core implements them):
+
+| function | codes | status |
+|---|---|---|
+| ffs | XSI | done (core) |
+| ffsl | XSI | done (core) |
+| ffsll | XSI | done (core) |
+
 ## `<sys/stat.h>`
 
 | function | codes | status | needs | half |
@@ -541,21 +595,25 @@ In-scope functions only.
 
 | header | required | done | missing | pure | locale | heap | os | time | stdio streams |
 |---|---|---|---|---|---|---|---|---|---|
+| `assert.h` | 0 | 0 | 0 | | | | | | |
 | `ctype.h` | 28 | 14 | 14 | | 14 | | | | |
 | `errno.h` | 0 | 0 | 0 | | | | | | |
 | `fcntl.h` | 4 | 2 | 2 | | | | 2 | | |
+| `inttypes.h` | 6 | 6 | 0 | | | | | | |
 | `signal.h` | 22 | 1 | 21 | 7 | | | 14 | | |
 | `stdio.h` | 67 | 8 | 59 | 3 | | 2 | 3 | | 51 |
 | `stdlib.h` | 49 | 25 | 24 | 6 | 5 | 2 | 11 | | |
 | `string.h` | 36 | 22 | 14 | 7 | 5 | 2 | | | |
+| `strings.h` | 4 | 4 | 0 | | | | | | |
 | `sys/stat.h` | 14 | 3 | 11 | | | | 11 | | |
 | `sys/types.h` | 0 | 0 | 0 | | | | | | |
 | `time.h` | 22 | 2 | 20 | 4 | 1 | | 11 | 4 | |
 | `unistd.h` | 75 | 14 | 61 | 2 | | | 58 | 1 | |
-| **total** | **317** | **91** | **226** | **29** | **25** | **6** | **110** | **5** | **51** |
+| **total** | **327** | **101** | **226** | **29** | **25** | **6** | **110** | **5** | **51** |
 
-Out of scope, all missing: 51 functions (`fcntl.h` 2, `signal.h` 2, `stdio.h` 1, `stdlib.h` 23,
-`string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15).
+Out of scope and missing: 51 functions (`fcntl.h` 2, `signal.h` 2, `stdio.h` 1, `stdlib.h` 23,
+`string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15). Out of scope but done: 3 (`strings.h`
+`ffs`, `ffsl`, `ffsll`).
 
 ## Other headers and functions
 
@@ -564,17 +622,17 @@ Out of scope, all missing: 51 functions (`fcntl.h` 2, `signal.h` 2, `stdio.h` 1,
 cstd's. `<sys/types.h>` is included by `time.h`, `fcntl.h`, `signal.h`, `unistd.h` and `sys/stat.h`;
 `<time.h>` by `sys/stat.h`. Both are offered.
 
-**Headers the standard's pages make the offered ones depend on.** `ctype.h`, `string.h` and `time.h`
+**Headers the standard's pages make the offered ones depend on.** `ctype.h`, `string.h`, `strings.h` and `time.h`
 must define `locale_t` "as described in `<locale.h>`", which cstd does not offer. `time.h` declares
 `struct sigevent` as defined in `<signal.h>`, whose types (`sigset_t`, `siginfo_t`, `struct sigaction`,
 `union sigval`, `stack_t`, `pthread_t`) cstd's `signal.h` does not define.
 
 **Functions present under headers cstd does not offer.** None from POSIX. Two exported and declared
 names are not POSIX functions at all: `brk` and `sbrk` (declared in `unistd.h`, exported by the Linux
-half's `malloc.sysl`). `cstd_start` is the Linux half's internal entry; `errno` and `environ` are
+half's `malloc.sysl`). `__cstd_assert_fail` is `assert`'s failure path. `cstd_start` is the Linux half's internal entry; `errno` and `environ` are
 variables.
 
-**Headers in `include/` that POSIX does not define.** None: all eleven are POSIX headers.
+**Headers in `include/` that POSIX does not define.** None: all fourteen are POSIX headers.
 
 ## Declarations that disagree
 

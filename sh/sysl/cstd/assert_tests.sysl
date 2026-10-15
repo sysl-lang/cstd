@@ -1,0 +1,134 @@
+module sh.sysl.cstd
+
+@tests
+
+// `<assert.h>`, called from C.
+//
+// A failing assertion calls `abort`, which cstd's portable half leaves to the platform. The cases
+// that fail on purpose define their own `abort` in the prelude: it prints `ABORT` and exits 0, so the
+// harness sees an ordinary run and the test reads both the marker (standard output) and the
+// diagnostic (standard error). `#line` pins the file name and line number the diagnostic must show.
+
+// An `abort` that proves it was reached instead of killing the process.
+private val catch_abort: string = raw"""
+    _Noreturn void abort(void) { say_str("ABORT"); _Exit(0); }
+    """
+
+@test("a true assertion does nothing, and its expression is evaluated exactly once")
+assert_passes()
+    c_case(raw"""
+        say_int(bump_and_check());
+        say_int(calls);
+        assert(1 == 1);
+        assert(sizeof(int) >= 2);
+        say_str("done");
+        """, raw"""
+        1
+        1
+        done
+        """, prelude = raw"""
+        #include <assert.h>
+        static int calls = 0;
+        static int bump_and_check(void) { assert(++calls == 1); return calls; }
+        """)
+
+@test("a false assertion writes the diagnostic to stderr and then calls abort")
+assert_fails()
+    val ran = c_run(raw"""
+        say_str("before");
+        trip();
+        say_str("not reached");
+        """, prelude = catch_abort + raw"""
+        #include <assert.h>
+        static int calls = 5;
+        #line 500 "prog.c"
+        static void trip(void) { assert(calls == 99); }
+        """)
+    assert(ran.status.ok())
+    assert_eq(ran.text, "before\nABORT\n")
+    assert_eq(ran.err.unwrap_or(""), "Assertion failed: calls == 99 (prog.c: trip: 500)\n")
+
+@test("the diagnostic carries the expression text as written, the function, the file and a long line number")
+assert_diagnostic_text()
+    val ran = c_run(raw"""
+        char s[2] = {'a', 0};
+        check(s, 3);
+        """, prelude = catch_abort + raw"""
+        #include <assert.h>
+        #line 1234567 "dir/sub file.c"
+        static void check(char *s, int n) { assert(s[0] == 'b' && n > (1, 4)); }
+        """)
+    assert(ran.status.ok())
+    assert_eq(ran.text, "ABORT\n")
+    assert_eq(ran.err.unwrap_or(""),
+              "Assertion failed: s[0] == 'b' && n > (1, 4) (dir/sub file.c: check: 1234567)\n")
+
+@test("a line number of 1 and the file's name come through")
+assert_line_one()
+    val ran = c_run("        one();", prelude = catch_abort + raw"""
+        #include <assert.h>
+        #line 1 "a.c"
+        static void one(void) { assert(0); }
+        """)
+    assert_eq(ran.err.unwrap_or(""), "Assertion failed: 0 (a.c: one: 1)\n")
+    assert_eq(ran.text, "ABORT\n")
+
+@test("NDEBUG is read each time the header is included, so one file can switch assertions off and on")
+assert_ndebug_toggles()
+    val ran = c_run(raw"""
+        quiet();
+        say_int(calls);
+        loud_but_true();
+        say_int(calls);
+        say_str("before");
+        again();
+        say_str("not reached");
+        """, prelude = catch_abort + raw"""
+        #include <assert.h>
+        static int calls = 0;
+        static int bump(void) { calls++; return 0; }
+
+        #define NDEBUG
+        #include <assert.h>
+        static void quiet(void) { assert(bump()); assert(0); assert(calls == 99); }
+
+        #undef NDEBUG
+        #include <assert.h>
+        static void loud_but_true(void) { assert(bump() == 0); }
+        #line 77 "t.c"
+        static void again(void) { assert(calls == 99); }
+        """)
+    assert(ran.status.ok())
+    assert_eq(ran.text, "0\n1\nbefore\nABORT\n")
+    assert_eq(ran.err.unwrap_or(""), "Assertion failed: calls == 99 (t.c: again: 77)\n")
+
+@test("under NDEBUG the expression is not evaluated and the macro is a void expression")
+assert_ndebug_off()
+    c_case(raw"""
+        say_int(calls);
+        int x = (assert(bump()), 7);
+        say_int(x);
+        say_int(calls);
+        """, raw"""
+        0
+        7
+        0
+        """, prelude = raw"""
+        #define NDEBUG
+        #include <assert.h>
+        static int calls = 0;
+        static int bump(void) { calls++; return 0; }
+        """)
+
+@test("static_assert is available at file scope and in a block")
+static_assert_works()
+    c_case(raw"""
+        static_assert(sizeof(char) == 1, "a char is a byte");
+        static_assert(1, "one");
+        say_str("ok");
+        """, raw"""
+        ok
+        """, prelude = raw"""
+        #include <assert.h>
+        static_assert(sizeof(long long) >= 8, "long long is at least 64 bits");
+        """)

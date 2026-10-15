@@ -16,6 +16,8 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <inttypes.h>
+#include <strings.h>
 
 long write(int fd, const void *buf, unsigned long n);
 
@@ -190,6 +192,34 @@ static void say_strtoull(const char *s, int base) {
     char *end = (char *)"unset";
     errno = 0;
     unsigned long long v = strtoull(s, &end, base);
+    put_u(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+}
+
+static void say_strtoimax(const char *s, int base) {
+    char *end = (char *)"unset";
+    errno = 0;
+    intmax_t v = strtoimax(s, &end, base);
+    put_i(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+}
+
+static void say_strtoumax(const char *s, int base) {
+    char *end = (char *)"unset";
+    errno = 0;
+    uintmax_t v = strtoumax(s, &end, base);
+    put_u(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+}
+
+static void say_wcstoimax(const wchar_t *s, int base) {
+    wchar_t *end = (wchar_t *)s;
+    errno = 0;
+    intmax_t v = wcstoimax(s, &end, base);
+    put_i(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+}
+
+static void say_wcstoumax(const wchar_t *s, int base) {
+    wchar_t *end = (wchar_t *)s;
+    errno = 0;
+    uintmax_t v = wcstoumax(s, &end, base);
     put_u(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
 }
 

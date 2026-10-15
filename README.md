@@ -20,6 +20,9 @@ require, exported under its C name with `@export`.
 | `string.h` | `strlen` `strnlen` `strcmp` `strncmp` `strcpy` `strncpy` `strcat` `strncat` `strchr` `strrchr` `strstr` `strspn` `strcspn` `strpbrk` `strtok` `strtok_r` `strerror` `memcpy` `memmove` `memset` `memcmp` `memchr` |
 | `ctype.h` | `isalnum` `isalpha` `isblank` `iscntrl` `isdigit` `isgraph` `islower` `isprint` `ispunct` `isspace` `isupper` `isxdigit` `tolower` `toupper`, for the C locale |
 | `stdlib.h` | `atoi` `atol` `atof` `strtol` `strtoul` `strtoll` `strtoull` `strtod` `strtof` `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch` |
+| `inttypes.h` | every `PRI*`/`SCN*` macro for the target's `<stdint.h>` types, `imaxdiv_t`, `imaxabs` `imaxdiv` `strtoimax` `strtoumax` `wcstoimax` `wcstoumax` |
+| `strings.h` | `strcasecmp` `strncasecmp` `strcasecmp_l` `strncasecmp_l` (ASCII folding, C locale), `ffs` `ffsl` `ffsll` |
+| `assert.h` | `assert` (honours `NDEBUG` at each inclusion; failure writes `Assertion failed: expr (file: func: line)` to descriptor 2, then `abort`), `static_assert` |
 | `errno.h` | `errno` (one global, defined by the library), Linux's codes from `EPERM` to `ETIMEDOUT` |
 | `stdio.h` | `printf` `dprintf` `sprintf` `snprintf` `vprintf` `vdprintf` `vsprintf` `vsnprintf` |
 

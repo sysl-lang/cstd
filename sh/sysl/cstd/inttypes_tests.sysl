@@ -1,0 +1,465 @@
+module sh.sysl.cstd
+
+@tests
+
+// `<inttypes.h>`, called from C.
+//
+// The PRI macros are checked through cstd's own printf: `say_f` prints the count it answered and the
+// text between bars, so a modifier that is too short or too long shows as truncated or garbled digits.
+// The host is LP64, so `long` and the pointer are 64 bits here. Each `say_strto*` line is the value,
+// where `endptr` was left as an offset into the text, and `errno` (cleared before the call); 22 is
+// `EINVAL` and 34 is `ERANGE`.
+
+@test("PRId64 PRIi64 PRIu64 PRIo64 PRIx64 PRIX64 carry the whole 64 bits")
+pri_64()
+    c_case(raw"""
+        say_f("%" PRId64, INT64_MIN);
+        say_f("%" PRIi64, INT64_MAX);
+        say_f("%" PRIu64, UINT64_MAX);
+        say_f("%" PRIo64, UINT64_MAX);
+        say_f("%" PRIx64, UINT64_MAX);
+        say_f("%" PRIX64, UINT64_MAX);
+        say_f("(%" PRIx64 ")", (uint64_t)0x123456789abcdef0ULL);
+        """, raw"""
+        20|-9223372036854775808|
+        19|9223372036854775807|
+        20|18446744073709551615|
+        22|1777777777777777777777|
+        16|ffffffffffffffff|
+        16|FFFFFFFFFFFFFFFF|
+        18|(123456789abcdef0)|
+        """)
+
+@test("the LEAST64, FAST64 and MAX macros carry the whole 64 bits")
+pri_least_fast_max_64()
+    c_case(raw"""
+        say_f("%" PRIdLEAST64, INT64_MIN);
+        say_f("%" PRIuLEAST64, UINT64_MAX);
+        say_f("%" PRIxLEAST64, UINT64_MAX);
+        say_f("%" PRIdFAST64, INT64_MIN);
+        say_f("%" PRIuFAST64, UINT64_MAX);
+        say_f("%" PRIXFAST64, UINT64_MAX);
+        say_f("%" PRIdMAX, INTMAX_MIN);
+        say_f("%" PRIiMAX, INTMAX_MAX);
+        say_f("%" PRIuMAX, UINTMAX_MAX);
+        say_f("%" PRIoMAX, UINTMAX_MAX);
+        say_f("%" PRIxMAX, UINTMAX_MAX);
+        say_f("%" PRIXMAX, UINTMAX_MAX);
+        """, raw"""
+        20|-9223372036854775808|
+        20|18446744073709551615|
+        16|ffffffffffffffff|
+        20|-9223372036854775808|
+        20|18446744073709551615|
+        16|FFFFFFFFFFFFFFFF|
+        20|-9223372036854775808|
+        19|9223372036854775807|
+        20|18446744073709551615|
+        22|1777777777777777777777|
+        16|ffffffffffffffff|
+        16|FFFFFFFFFFFFFFFF|
+        """)
+
+@test("the 32-bit macros print an int and an unsigned int")
+pri_32()
+    c_case(raw"""
+        say_f("%" PRId32, INT32_MIN);
+        say_f("%" PRIi32, INT32_MAX);
+        say_f("%" PRIu32, UINT32_MAX);
+        say_f("%" PRIo32, UINT32_MAX);
+        say_f("%" PRIx32, UINT32_MAX);
+        say_f("%" PRIX32, UINT32_MAX);
+        say_f("%" PRIdLEAST32, INT32_MIN);
+        say_f("%" PRIuLEAST32, UINT32_MAX);
+        say_f("%" PRIdFAST32, (int_fast32_t)INT32_MIN);
+        say_f("%" PRIuFAST32, (uint_fast32_t)4000000000u);
+        say_f("%" PRIxFAST32, (uint_fast32_t)0xdeadbeefu);
+        """, raw"""
+        11|-2147483648|
+        10|2147483647|
+        10|4294967295|
+        11|37777777777|
+        8|ffffffff|
+        8|FFFFFFFF|
+        11|-2147483648|
+        10|4294967295|
+        11|-2147483648|
+        10|4000000000|
+        8|deadbeef|
+        """)
+
+@test("the 16-bit macros truncate to a short")
+pri_16()
+    c_case(raw"""
+        say_f("%" PRId16, INT16_MIN);
+        say_f("%" PRIi16, INT16_MAX);
+        say_f("%" PRIu16, UINT16_MAX);
+        say_f("%" PRIo16, UINT16_MAX);
+        say_f("%" PRIx16, UINT16_MAX);
+        say_f("%" PRIX16, UINT16_MAX);
+        say_f("%" PRIx16, 0x12345);
+        say_f("%" PRIdLEAST16, INT16_MIN);
+        say_f("%" PRIuLEAST16, UINT16_MAX);
+        say_f("%" PRIdFAST16, (int_fast16_t)-30000);
+        say_f("%" PRIuFAST16, (uint_fast16_t)65535);
+        """, raw"""
+        6|-32768|
+        5|32767|
+        5|65535|
+        6|177777|
+        4|ffff|
+        4|FFFF|
+        4|2345|
+        6|-32768|
+        5|65535|
+        6|-30000|
+        5|65535|
+        """)
+
+@test("the 8-bit macros truncate to a char")
+pri_8()
+    c_case(raw"""
+        say_f("%" PRId8, INT8_MIN);
+        say_f("%" PRIi8, INT8_MAX);
+        say_f("%" PRIu8, UINT8_MAX);
+        say_f("%" PRIo8, UINT8_MAX);
+        say_f("%" PRIx8, UINT8_MAX);
+        say_f("%" PRIX8, UINT8_MAX);
+        say_f("%" PRIx8, 0x1234);
+        say_f("%" PRIdLEAST8, INT8_MIN);
+        say_f("%" PRIuLEAST8, UINT8_MAX);
+        say_f("%" PRIdFAST8, (int_fast8_t)-100);
+        say_f("%" PRIuFAST8, (uint_fast8_t)200);
+        """, raw"""
+        4|-128|
+        3|127|
+        3|255|
+        3|377|
+        2|ff|
+        2|FF|
+        2|34|
+        4|-128|
+        3|255|
+        4|-100|
+        3|200|
+        """)
+
+@test("the PTR macros are as wide as a pointer, 64 bits on this host")
+pri_ptr()
+    c_case(raw"""
+        say_f("%" PRIdPTR, (intptr_t)INTPTR_MIN);
+        say_f("%" PRIiPTR, (intptr_t)INTPTR_MAX);
+        say_f("%" PRIuPTR, (uintptr_t)UINTPTR_MAX);
+        say_f("%" PRIoPTR, (uintptr_t)UINTPTR_MAX);
+        say_f("%" PRIxPTR, (uintptr_t)UINTPTR_MAX);
+        say_f("%" PRIXPTR, (uintptr_t)UINTPTR_MAX);
+        """, raw"""
+        20|-9223372036854775808|
+        19|9223372036854775807|
+        20|18446744073709551615|
+        22|1777777777777777777777|
+        16|ffffffffffffffff|
+        16|FFFFFFFFFFFFFFFF|
+        """)
+
+@test("the fixed-width format strings are the standard's modifiers")
+pri_strings()
+    c_case(raw"""
+        say_str(PRId8); say_str(PRIu8); say_str(PRIx8);
+        say_str(PRId16); say_str(PRIu16); say_str(PRIx16);
+        say_str(PRId32); say_str(PRIu32); say_str(PRIX32);
+        say_str(SCNd8); say_str(SCNi8); say_str(SCNo8); say_str(SCNu8); say_str(SCNx8);
+        say_str(SCNd16); say_str(SCNi16); say_str(SCNo16); say_str(SCNu16); say_str(SCNx16);
+        say_str(SCNd32); say_str(SCNi32); say_str(SCNo32); say_str(SCNu32); say_str(SCNx32);
+        """, raw"""
+        hhd
+        hhu
+        hhx
+        hd
+        hu
+        hx
+        d
+        u
+        X
+        hhd
+        hhi
+        hho
+        hhu
+        hhx
+        hd
+        hi
+        ho
+        hu
+        hx
+        d
+        i
+        o
+        u
+        x
+        """)
+
+@test("every SCN macro is the PRI macro of the same type and conversion")
+scn_matches_pri()
+    c_case(raw"""
+        #define SAME(sfx) say_int(strcmp(SCNd##sfx, PRId##sfx) == 0 && strcmp(SCNi##sfx, PRIi##sfx) == 0 \
+            && strcmp(SCNo##sfx, PRIo##sfx) == 0 && strcmp(SCNu##sfx, PRIu##sfx) == 0 \
+            && strcmp(SCNx##sfx, PRIx##sfx) == 0 && PRIX##sfx[0] != 0)
+        SAME(8); SAME(16); SAME(32); SAME(64);
+        SAME(LEAST8); SAME(LEAST16); SAME(LEAST32); SAME(LEAST64);
+        SAME(FAST8); SAME(FAST16); SAME(FAST32); SAME(FAST64);
+        SAME(MAX); SAME(PTR);
+        """, raw"""
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        """)
+
+@test("imaxabs")
+imaxabs_cases()
+    c_case(raw"""
+        say_int(imaxabs(0));
+        say_int(imaxabs(5));
+        say_int(imaxabs(-5));
+        say_int(imaxabs(INTMAX_MAX));
+        say_int(imaxabs(-INTMAX_MAX));
+        say_int(imaxabs(INTMAX_MIN));
+        """, raw"""
+        0
+        5
+        5
+        9223372036854775807
+        9223372036854775807
+        -9223372036854775808
+        """)
+
+@test("imaxdiv truncates toward zero and the remainder takes the dividend's sign")
+imaxdiv_cases()
+    c_case(raw"""
+        imaxdiv_t d = imaxdiv(7, 2);
+        say_int(d.quot); say_int(d.rem);
+        d = imaxdiv(-7, 2);
+        say_int(d.quot); say_int(d.rem);
+        d = imaxdiv(7, -2);
+        say_int(d.quot); say_int(d.rem);
+        d = imaxdiv(-7, -2);
+        say_int(d.quot); say_int(d.rem);
+        d = imaxdiv(INTMAX_MIN, 1);
+        say_int(d.quot); say_int(d.rem);
+        d = imaxdiv(INTMAX_MAX, 1000000007);
+        say_int(d.quot); say_int(d.rem);
+        d = imaxdiv(0, 5);
+        say_int(d.quot); say_int(d.rem);
+        """, raw"""
+        3
+        1
+        -3
+        -1
+        -3
+        1
+        3
+        -1
+        -9223372036854775808
+        0
+        9223371972
+        291172003
+        0
+        0
+        """)
+
+@test("strtoimax reads white space, one sign, and the digits, and says where it stopped")
+strtoimax_reads()
+    c_case(raw"""
+        say_strtoimax("42", 10);
+        say_strtoimax(" \t\n\v\f\r42x", 10);
+        say_strtoimax("-42", 10);
+        say_strtoimax("+42", 10);
+        say_strtoimax("12abc", 10);
+        say_strtoimax("abc", 10);
+        say_strtoimax("- 1", 10);
+        say_strtoimax("", 10);
+        char *e = NULL;
+        say_int(strtoimax("9", NULL, 10));
+        say_int(strtoimax("7z", &e, 10));
+        say_int(*e);
+        """, raw"""
+        42 2 0
+        42 8 0
+        -42 3 0
+        42 3 0
+        12 2 0
+        0 0 22
+        0 0 22
+        0 0 22
+        9
+        7
+        122
+        """)
+
+@test("strtoimax settles base 0, 8, 16 and 36")
+strtoimax_bases()
+    c_case(raw"""
+        say_strtoimax("0x1f", 0);
+        say_strtoimax("0X1F", 16);
+        say_strtoimax("017", 0);
+        say_strtoimax("17", 0);
+        say_strtoimax("0b", 0);
+        say_strtoimax("0x", 16);
+        say_strtoimax("0xg", 0);
+        say_strtoimax("0777", 8);
+        say_strtoimax("789", 8);
+        say_strtoimax("FFz", 16);
+        say_strtoimax("zz", 36);
+        say_strtoimax("ZZ", 36);
+        say_strtoimax("-z", 36);
+        say_strtoimax("101", 2);
+        say_strtoimax("12", 1);
+        say_strtoimax("12", 37);
+        say_strtoimax("12", -1);
+        """, raw"""
+        31 4 0
+        31 4 0
+        15 3 0
+        17 2 0
+        0 1 0
+        0 1 0
+        0 1 0
+        511 4 0
+        7 1 0
+        255 2 0
+        1295 2 0
+        1295 2 0
+        -35 2 0
+        5 3 0
+        0 0 22
+        0 0 22
+        0 0 22
+        """)
+
+@test("strtoimax saturates with ERANGE and still consumes every digit")
+strtoimax_overflow()
+    c_case(raw"""
+        say_strtoimax("9223372036854775807", 10);
+        say_strtoimax("9223372036854775808", 10);
+        say_strtoimax("-9223372036854775808", 10);
+        say_strtoimax("-9223372036854775809", 10);
+        say_strtoimax("99999999999999999999999x", 10);
+        say_strtoimax("-99999999999999999999999", 10);
+        say_strtoimax("0x7fffffffffffffff", 0);
+        say_strtoimax("0x8000000000000000", 0);
+        """, raw"""
+        9223372036854775807 19 0
+        9223372036854775807 19 34
+        -9223372036854775808 20 0
+        -9223372036854775808 20 34
+        9223372036854775807 23 34
+        -9223372036854775808 24 34
+        9223372036854775807 18 0
+        9223372036854775807 18 34
+        """)
+
+@test("strtoumax reads the unsigned range, negates a minus, and saturates")
+strtoumax_cases()
+    c_case(raw"""
+        say_strtoumax("18446744073709551615", 10);
+        say_strtoumax("18446744073709551616", 10);
+        say_strtoumax("-1", 10);
+        say_strtoumax("-0", 10);
+        say_strtoumax("-18446744073709551616", 10);
+        say_strtoumax("0xFFFFFFFFFFFFFFFF", 0);
+        say_strtoumax("0x10000000000000000", 0);
+        say_strtoumax("777", 8);
+        say_strtoumax("zz", 36);
+        say_strtoumax("12x", 10);
+        say_strtoumax("none", 10);
+        say_strtoumax("1", 99);
+        """, raw"""
+        18446744073709551615 20 0
+        18446744073709551615 20 34
+        18446744073709551615 2 0
+        0 2 0
+        18446744073709551615 21 34
+        18446744073709551615 18 0
+        18446744073709551615 19 34
+        511 3 0
+        1295 2 0
+        12 2 0
+        0 0 22
+        0 0 22
+        """)
+
+@test("wcstoimax reads wide characters by the same rules")
+wcstoimax_cases()
+    c_case(raw"""
+        say_wcstoimax(L"42", 10);
+        say_wcstoimax(L" \t-0x1F", 0);
+        say_wcstoimax(L"9223372036854775807", 10);
+        say_wcstoimax(L"9223372036854775808", 10);
+        say_wcstoimax(L"-9223372036854775809", 10);
+        say_wcstoimax(L"zz", 36);
+        say_wcstoimax(L"12\x00e9", 10);
+        say_wcstoimax(L"7", 1);
+        say_wcstoimax(L"", 10);
+        """, raw"""
+        42 2 0
+        -31 7 0
+        9223372036854775807 19 0
+        9223372036854775807 19 34
+        -9223372036854775808 20 34
+        1295 2 0
+        12 2 0
+        0 0 22
+        0 0 22
+        """)
+
+@test("a wide character past ASCII is no digit and no white space, whatever its low bits are")
+wcstoimax_non_ascii()
+    c_case(raw"""
+        wchar_t a[3] = {0x0661, 0, 0};
+        wchar_t b[3] = {0xff11, 0, 0};
+        wchar_t c[3] = {0x1000031, 0, 0};
+        wchar_t d[3] = {0x1000020, '5', 0};
+        wchar_t e[3] = {(wchar_t)-1, '5', 0};
+        wchar_t f[3] = {0x1000041, 0, 0};
+        say_wcstoimax(a, 10);
+        say_wcstoimax(b, 10);
+        say_wcstoimax(c, 10);
+        say_wcstoimax(d, 10);
+        say_wcstoimax(e, 10);
+        say_wcstoimax(f, 16);
+        """, raw"""
+        0 0 22
+        0 0 22
+        0 0 22
+        0 0 22
+        0 0 22
+        0 0 22
+        """)
+
+@test("wcstoumax reads the unsigned range, negates a minus, and saturates")
+wcstoumax_cases()
+    c_case(raw"""
+        say_wcstoumax(L"18446744073709551615", 10);
+        say_wcstoumax(L"18446744073709551616", 10);
+        say_wcstoumax(L"-1", 10);
+        say_wcstoumax(L"0xff", 0);
+        say_wcstoumax(L"x", 10);
+        say_wcstoumax(L"1", 99);
+        """, raw"""
+        18446744073709551615 20 0
+        18446744073709551615 20 34
+        18446744073709551615 2 0
+        255 4 0
+        0 0 22
+        0 0 22
+        """)

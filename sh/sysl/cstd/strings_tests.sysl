@@ -1,0 +1,214 @@
+module sh.sysl.cstd
+
+@tests
+
+// `<strings.h>`, called from C. A comparison's answer is reported as its sign (`say_sign`), since C
+// promises only that. The locale argument of the `_l` forms is ignored, so the cases hand it
+// arbitrary values. The host is LP64, so `long` is 64 bits here.
+
+@test("strcasecmp folds ASCII letters and compares the folded bytes")
+strcasecmp_folds()
+    c_case(raw"""
+        say_sign(strcasecmp("abc", "ABC"));
+        say_sign(strcasecmp("AbC", "aBc"));
+        say_sign(strcasecmp("a", "B"));
+        say_sign(strcasecmp("B", "a"));
+        say_sign(strcasecmp("Z", "a"));
+        say_sign(strcasecmp("_", "a"));
+        say_sign(strcasecmp("_", "A"));
+        say_sign(strcasecmp("@", "`"));
+        say_sign(strcasecmp("[", "A"));
+        say_sign(strcasecmp("a1", "A2"));
+        say_sign(strcasecmp("a-", "A+"));
+        """, raw"""
+        0
+        0
+        -1
+        1
+        1
+        -1
+        -1
+        -1
+        -1
+        -1
+        1
+        """)
+
+@test("strcasecmp over unequal lengths, empty strings, and an embedded stop")
+strcasecmp_lengths()
+    c_case(raw"""
+        say_sign(strcasecmp("", ""));
+        say_sign(strcasecmp("", "a"));
+        say_sign(strcasecmp("a", ""));
+        say_sign(strcasecmp("abc", "AB"));
+        say_sign(strcasecmp("ab", "ABC"));
+        say_sign(strcasecmp("ab\0c", "AB\0d"));
+        say_int(strcasecmp("hello", "HELLO"));
+        say_int(strcasecmp("a", "c"));
+        say_int(strcasecmp("c", "a"));
+        """, raw"""
+        0
+        -1
+        1
+        1
+        -1
+        0
+        0
+        -2
+        2
+        """)
+
+@test("strcasecmp compares bytes from 0x80 up as unsigned char and does not fold them")
+strcasecmp_high_bytes()
+    c_case(raw"""
+        say_sign(strcasecmp("\xc0", "\xe0"));
+        say_sign(strcasecmp("\xe0", "\xc0"));
+        say_sign(strcasecmp("\xc0", "\xc0"));
+        say_sign(strcasecmp("\xff", "\xff"));
+        say_sign(strcasecmp("\x80", "a"));
+        say_sign(strcasecmp("a", "\x80"));
+        say_sign(strcasecmp("\xff", "\x01"));
+        say_sign(strcasecmp("\xc1", "A"));
+        say_sign(strcasecmp("\xc3\xa9", "\xc3\x89"));
+        """, raw"""
+        -1
+        1
+        0
+        0
+        1
+        -1
+        1
+        1
+        1
+        """)
+
+@test("strncasecmp looks at no more than n bytes")
+strncasecmp_n()
+    c_case(raw"""
+        say_sign(strncasecmp("abc", "xyz", 0));
+        say_sign(strncasecmp("", "a", 0));
+        say_sign(strncasecmp("abcd", "ABCE", 3));
+        say_sign(strncasecmp("abcd", "ABCE", 4));
+        say_sign(strncasecmp("ab", "ABC", 5));
+        say_sign(strncasecmp("abc", "AB", 2));
+        say_sign(strncasecmp("abc", "AB", 3));
+        say_sign(strncasecmp("ab\0x", "AB\0y", 4));
+        say_sign(strncasecmp("\xc0", "\xe0", 1));
+        say_sign(strncasecmp("\xe0", "\xc0", 1));
+        say_sign(strncasecmp("\xc0", "\xc0", 1));
+        say_sign(strncasecmp("A", "b", 1));
+        """, raw"""
+        0
+        0
+        0
+        -1
+        -1
+        0
+        1
+        0
+        -1
+        1
+        0
+        -1
+        """)
+
+@test("strncasecmp reads nothing past the terminator even with a large n")
+strncasecmp_no_over_read()
+    c_case(raw"""
+        char a[3] = {'a', 'b', 0};
+        char b[3] = {'A', 'B', 0};
+        say_sign(strncasecmp(a, b, 1000));
+        say_sign(strcasecmp(a, b));
+        char c[1] = {0};
+        say_sign(strncasecmp(c, c, 1000));
+        """, raw"""
+        0
+        0
+        0
+        """)
+
+@test("strcasecmp_l and strncasecmp_l answer as the C locale does, whatever the locale is")
+case_l_forms()
+    c_case(raw"""
+        locale_t l = (locale_t)0;
+        locale_t m = (locale_t)1;
+        say_sign(strcasecmp_l("abc", "ABC", l));
+        say_sign(strcasecmp_l("a", "B", m));
+        say_sign(strcasecmp_l("B", "a", m));
+        say_sign(strcasecmp_l("\xc0", "\xe0", l));
+        say_sign(strcasecmp_l("ab", "ABC", l));
+        say_sign(strncasecmp_l("abcd", "ABCE", 3, l));
+        say_sign(strncasecmp_l("abcd", "ABCE", 4, m));
+        say_sign(strncasecmp_l("x", "y", 0, l));
+        say_sign(strncasecmp_l("\xe0", "\xc0", 1, m));
+        """, raw"""
+        0
+        -1
+        1
+        -1
+        -1
+        0
+        -1
+        0
+        1
+        """)
+
+@test("ffs answers the 1-based index of the least significant set bit, 0 for 0")
+ffs_cases()
+    c_case(raw"""
+        say_int(ffs(0));
+        say_int(ffs(1));
+        say_int(ffs(2));
+        say_int(ffs(3));
+        say_int(ffs(12));
+        say_int(ffs(0x40000));
+        say_int(ffs(INT_MAX));
+        say_int(ffs(INT_MIN));
+        say_int(ffs(-1));
+        say_int(ffs(-2));
+        say_int(ffs(INT_MIN + 1));
+        """, raw"""
+        0
+        1
+        2
+        1
+        3
+        19
+        1
+        32
+        1
+        2
+        1
+        """)
+
+@test("ffsl and ffsll cover the whole width of long and long long")
+ffsl_ffsll_cases()
+    c_case(raw"""
+        say_int(ffsl(0));
+        say_int(ffsl(8));
+        say_int(ffsl(-1));
+        say_int(ffsl(1L << 40));
+        say_int(ffsl(LONG_MIN));
+        say_int(ffsl(LONG_MAX));
+        say_int(ffsll(0));
+        say_int(ffsll(1));
+        say_int(ffsll(1LL << 40));
+        say_int(ffsll(1LL << 62));
+        say_int(ffsll(LLONG_MIN));
+        say_int(ffsll(-1));
+        say_int(ffsll(-4));
+        """, raw"""
+        0
+        4
+        1
+        41
+        64
+        1
+        0
+        1
+        41
+        63
+        64
+        1
+        3
+        """)
