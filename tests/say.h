@@ -13,9 +13,12 @@
 #include <string.h>
 #include <stdlib.h>
 #include <ctype.h>
+#include <locale.h>
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <inttypes.h>
+#include <strings.h>
 #include <math.h>
 
 long write(int fd, const void *buf, unsigned long n);
@@ -164,6 +167,49 @@ static void say_mapping(int (*f)(int)) {
     say_end();
 }
 
+/* A locale-taking classifier or case mapping given `loc`, held fixed while say_class or say_mapping
+ * walks the arguments. */
+static int (*held_l)(int, locale_t);
+static locale_t held_loc;
+static int held_call(int c) { return held_l(c, held_loc); }
+
+/* How many arguments in EOF, 0..255 an `_l` variant given `loc` answers differently from its plain
+ * twin: "same" when none, else the count and the first one, "differs 3 at 65". */
+static void say_agreement(int (*f_l)(int, locale_t), int (*f)(int), locale_t loc) {
+    int count = 0;
+    int first = 0;
+    for (int c = -1; c <= 255; c++) {
+        if (f_l(c, loc) != f(c)) {
+            if (count == 0) first = c;
+            count++;
+        }
+    }
+    if (count == 0) {
+        say_str("same");
+        return;
+    }
+    say_raw("differs ", 8);
+    put_i(count);
+    say_raw(" at ", 4);
+    say_int(first);
+}
+
+/* say_class, then say_agreement, of an `_l` classifier given `loc`: two lines. */
+static void say_class_l(int (*f_l)(int, locale_t), int (*f)(int), locale_t loc) {
+    held_l = f_l;
+    held_loc = loc;
+    say_class(held_call);
+    say_agreement(f_l, f, loc);
+}
+
+/* say_mapping, then say_agreement, of an `_l` case mapping given `loc`: two lines. */
+static void say_mapping_l(int (*f_l)(int, locale_t), int (*f)(int), locale_t loc) {
+    held_l = f_l;
+    held_loc = loc;
+    say_mapping(held_call);
+    say_agreement(f_l, f, loc);
+}
+
 /* One reading by a strto* function, on one line: the value, where endptr was left (as an offset
  * into the text), and errno, which is cleared first — "-42 3 0". */
 static void say_strtol(const char *s, int base) {
@@ -191,6 +237,34 @@ static void say_strtoull(const char *s, int base) {
     char *end = (char *)"unset";
     errno = 0;
     unsigned long long v = strtoull(s, &end, base);
+    put_u(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+}
+
+static void say_strtoimax(const char *s, int base) {
+    char *end = (char *)"unset";
+    errno = 0;
+    intmax_t v = strtoimax(s, &end, base);
+    put_i(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+}
+
+static void say_strtoumax(const char *s, int base) {
+    char *end = (char *)"unset";
+    errno = 0;
+    uintmax_t v = strtoumax(s, &end, base);
+    put_u(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+}
+
+static void say_wcstoimax(const wchar_t *s, int base) {
+    wchar_t *end = (wchar_t *)s;
+    errno = 0;
+    intmax_t v = wcstoimax(s, &end, base);
+    put_i(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+}
+
+static void say_wcstoumax(const wchar_t *s, int base) {
+    wchar_t *end = (wchar_t *)s;
+    errno = 0;
+    uintmax_t v = wcstoumax(s, &end, base);
     put_u(v); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
 }
 

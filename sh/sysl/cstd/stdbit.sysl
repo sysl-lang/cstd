@@ -1,0 +1,243 @@
+module sh.sysl.cstd
+
+// `<stdbit.h>` of ISO C23 (section 7.18): fourteen families of bit questions, each answered for
+// `unsigned char`, `unsigned short`, `unsigned int`, `unsigned long` and `unsigned long long` under
+// the suffixes `_uc`, `_us`, `_ui`, `_ul` and `_ull`. The type-generic macros that pick among them
+// are in `include/stdbit.h`.
+//
+// **`unsigned long` is measured, not assumed**, as in `stdlib.sysl`: 32 bits on a Cortex-M, 64 on an
+// LP64 machine. The questions are the standard library's own `Bits` members, which already answer
+// zero as the full width; what is added here is C's numbering and C's total functions.
+//
+// - The `first_*` functions answer a 1-based position counted from the end named, and 0 when no such
+//   bit exists.
+// - `bit_floor(0)` is 0 and `bit_ceil(0)` is 1.
+// - `bit_ceil` of a value above the largest power of two the type holds is undefined in C, because
+//   the answer does not fit; here it wraps to 0, the value that cannot be mistaken for a power of two.
+//
+// As in `string.sysl`, every function is exported under its C name.
+
+import sysl.math.Bits
+
+// A 1-based position from a count of the bits before the one looked for, or 0 where the count ran
+// to the full width because there was none.
+private position(before: u32, width: u32) -> u32 = if before == width then 0 else before + 1
+
+// The largest power of two not above `x`, computed in 64 bits; 0 for 0.
+private floor64(x: u64) -> u64 = if x == 0 then 0 else u64(1) << (63 - x.leading_zeros())
+
+// The smallest power of two not below `x` in a type `width` bits wide; 0 where it does not fit.
+private ceil64(x: u64, width: u32) -> u64
+    if x <= 1 then return 1
+    val bits = 64 - (x - 1).leading_zeros()
+    if bits >= width then 0 else u64(1) << bits
+
+@export("stdc_leading_zeros_uc")
+stdc_leading_zeros_uc(x: u8) -> u32 = x.leading_zeros()
+
+@export("stdc_leading_zeros_us")
+stdc_leading_zeros_us(x: u16) -> u32 = x.leading_zeros()
+
+@export("stdc_leading_zeros_ui")
+stdc_leading_zeros_ui(x: u32) -> u32 = x.leading_zeros()
+
+@export("stdc_leading_zeros_ul")
+stdc_leading_zeros_ul(x: ULong) -> u32 = x.leading_zeros()
+
+@export("stdc_leading_zeros_ull")
+stdc_leading_zeros_ull(x: ULongLong) -> u32 = x.leading_zeros()
+
+@export("stdc_leading_ones_uc")
+stdc_leading_ones_uc(x: u8) -> u32 = x.leading_ones()
+
+@export("stdc_leading_ones_us")
+stdc_leading_ones_us(x: u16) -> u32 = x.leading_ones()
+
+@export("stdc_leading_ones_ui")
+stdc_leading_ones_ui(x: u32) -> u32 = x.leading_ones()
+
+@export("stdc_leading_ones_ul")
+stdc_leading_ones_ul(x: ULong) -> u32 = x.leading_ones()
+
+@export("stdc_leading_ones_ull")
+stdc_leading_ones_ull(x: ULongLong) -> u32 = x.leading_ones()
+
+@export("stdc_trailing_zeros_uc")
+stdc_trailing_zeros_uc(x: u8) -> u32 = x.trailing_zeros()
+
+@export("stdc_trailing_zeros_us")
+stdc_trailing_zeros_us(x: u16) -> u32 = x.trailing_zeros()
+
+@export("stdc_trailing_zeros_ui")
+stdc_trailing_zeros_ui(x: u32) -> u32 = x.trailing_zeros()
+
+@export("stdc_trailing_zeros_ul")
+stdc_trailing_zeros_ul(x: ULong) -> u32 = x.trailing_zeros()
+
+@export("stdc_trailing_zeros_ull")
+stdc_trailing_zeros_ull(x: ULongLong) -> u32 = x.trailing_zeros()
+
+@export("stdc_trailing_ones_uc")
+stdc_trailing_ones_uc(x: u8) -> u32 = x.trailing_ones()
+
+@export("stdc_trailing_ones_us")
+stdc_trailing_ones_us(x: u16) -> u32 = x.trailing_ones()
+
+@export("stdc_trailing_ones_ui")
+stdc_trailing_ones_ui(x: u32) -> u32 = x.trailing_ones()
+
+@export("stdc_trailing_ones_ul")
+stdc_trailing_ones_ul(x: ULong) -> u32 = x.trailing_ones()
+
+@export("stdc_trailing_ones_ull")
+stdc_trailing_ones_ull(x: ULongLong) -> u32 = x.trailing_ones()
+
+@export("stdc_first_leading_zero_uc")
+stdc_first_leading_zero_uc(x: u8) -> u32 = position(x.leading_ones(), 8)
+
+@export("stdc_first_leading_zero_us")
+stdc_first_leading_zero_us(x: u16) -> u32 = position(x.leading_ones(), 16)
+
+@export("stdc_first_leading_zero_ui")
+stdc_first_leading_zero_ui(x: u32) -> u32 = position(x.leading_ones(), 32)
+
+@export("stdc_first_leading_zero_ul")
+stdc_first_leading_zero_ul(x: ULong) -> u32 = position(x.leading_ones(), ULong::Max.count_ones())
+
+@export("stdc_first_leading_zero_ull")
+stdc_first_leading_zero_ull(x: ULongLong) -> u32 = position(x.leading_ones(), 64)
+
+@export("stdc_first_leading_one_uc")
+stdc_first_leading_one_uc(x: u8) -> u32 = position(x.leading_zeros(), 8)
+
+@export("stdc_first_leading_one_us")
+stdc_first_leading_one_us(x: u16) -> u32 = position(x.leading_zeros(), 16)
+
+@export("stdc_first_leading_one_ui")
+stdc_first_leading_one_ui(x: u32) -> u32 = position(x.leading_zeros(), 32)
+
+@export("stdc_first_leading_one_ul")
+stdc_first_leading_one_ul(x: ULong) -> u32 = position(x.leading_zeros(), ULong::Max.count_ones())
+
+@export("stdc_first_leading_one_ull")
+stdc_first_leading_one_ull(x: ULongLong) -> u32 = position(x.leading_zeros(), 64)
+
+@export("stdc_first_trailing_zero_uc")
+stdc_first_trailing_zero_uc(x: u8) -> u32 = position(x.trailing_ones(), 8)
+
+@export("stdc_first_trailing_zero_us")
+stdc_first_trailing_zero_us(x: u16) -> u32 = position(x.trailing_ones(), 16)
+
+@export("stdc_first_trailing_zero_ui")
+stdc_first_trailing_zero_ui(x: u32) -> u32 = position(x.trailing_ones(), 32)
+
+@export("stdc_first_trailing_zero_ul")
+stdc_first_trailing_zero_ul(x: ULong) -> u32 = position(x.trailing_ones(), ULong::Max.count_ones())
+
+@export("stdc_first_trailing_zero_ull")
+stdc_first_trailing_zero_ull(x: ULongLong) -> u32 = position(x.trailing_ones(), 64)
+
+@export("stdc_first_trailing_one_uc")
+stdc_first_trailing_one_uc(x: u8) -> u32 = position(x.trailing_zeros(), 8)
+
+@export("stdc_first_trailing_one_us")
+stdc_first_trailing_one_us(x: u16) -> u32 = position(x.trailing_zeros(), 16)
+
+@export("stdc_first_trailing_one_ui")
+stdc_first_trailing_one_ui(x: u32) -> u32 = position(x.trailing_zeros(), 32)
+
+@export("stdc_first_trailing_one_ul")
+stdc_first_trailing_one_ul(x: ULong) -> u32 = position(x.trailing_zeros(), ULong::Max.count_ones())
+
+@export("stdc_first_trailing_one_ull")
+stdc_first_trailing_one_ull(x: ULongLong) -> u32 = position(x.trailing_zeros(), 64)
+
+@export("stdc_count_zeros_uc")
+stdc_count_zeros_uc(x: u8) -> u32 = x.count_zeros()
+
+@export("stdc_count_zeros_us")
+stdc_count_zeros_us(x: u16) -> u32 = x.count_zeros()
+
+@export("stdc_count_zeros_ui")
+stdc_count_zeros_ui(x: u32) -> u32 = x.count_zeros()
+
+@export("stdc_count_zeros_ul")
+stdc_count_zeros_ul(x: ULong) -> u32 = x.count_zeros()
+
+@export("stdc_count_zeros_ull")
+stdc_count_zeros_ull(x: ULongLong) -> u32 = x.count_zeros()
+
+@export("stdc_count_ones_uc")
+stdc_count_ones_uc(x: u8) -> u32 = x.count_ones()
+
+@export("stdc_count_ones_us")
+stdc_count_ones_us(x: u16) -> u32 = x.count_ones()
+
+@export("stdc_count_ones_ui")
+stdc_count_ones_ui(x: u32) -> u32 = x.count_ones()
+
+@export("stdc_count_ones_ul")
+stdc_count_ones_ul(x: ULong) -> u32 = x.count_ones()
+
+@export("stdc_count_ones_ull")
+stdc_count_ones_ull(x: ULongLong) -> u32 = x.count_ones()
+
+@export("stdc_has_single_bit_uc")
+stdc_has_single_bit_uc(x: u8) -> bool = x.count_ones() == 1
+
+@export("stdc_has_single_bit_us")
+stdc_has_single_bit_us(x: u16) -> bool = x.count_ones() == 1
+
+@export("stdc_has_single_bit_ui")
+stdc_has_single_bit_ui(x: u32) -> bool = x.count_ones() == 1
+
+@export("stdc_has_single_bit_ul")
+stdc_has_single_bit_ul(x: ULong) -> bool = x.count_ones() == 1
+
+@export("stdc_has_single_bit_ull")
+stdc_has_single_bit_ull(x: ULongLong) -> bool = x.count_ones() == 1
+
+@export("stdc_bit_width_uc")
+stdc_bit_width_uc(x: u8) -> u32 = 8 - x.leading_zeros()
+
+@export("stdc_bit_width_us")
+stdc_bit_width_us(x: u16) -> u32 = 16 - x.leading_zeros()
+
+@export("stdc_bit_width_ui")
+stdc_bit_width_ui(x: u32) -> u32 = 32 - x.leading_zeros()
+
+@export("stdc_bit_width_ul")
+stdc_bit_width_ul(x: ULong) -> u32 = ULong::Max.count_ones() - x.leading_zeros()
+
+@export("stdc_bit_width_ull")
+stdc_bit_width_ull(x: ULongLong) -> u32 = 64 - x.leading_zeros()
+
+@export("stdc_bit_floor_uc")
+stdc_bit_floor_uc(x: u8) -> u8 = u8(floor64(u64(x)))
+
+@export("stdc_bit_floor_us")
+stdc_bit_floor_us(x: u16) -> u16 = u16(floor64(u64(x)))
+
+@export("stdc_bit_floor_ui")
+stdc_bit_floor_ui(x: u32) -> u32 = u32(floor64(u64(x)))
+
+@export("stdc_bit_floor_ul")
+stdc_bit_floor_ul(x: ULong) -> ULong = ULong(floor64(u64(x)))
+
+@export("stdc_bit_floor_ull")
+stdc_bit_floor_ull(x: ULongLong) -> ULongLong = ULongLong(floor64(u64(x)))
+
+@export("stdc_bit_ceil_uc")
+stdc_bit_ceil_uc(x: u8) -> u8 = u8(ceil64(u64(x), 8))
+
+@export("stdc_bit_ceil_us")
+stdc_bit_ceil_us(x: u16) -> u16 = u16(ceil64(u64(x), 16))
+
+@export("stdc_bit_ceil_ui")
+stdc_bit_ceil_ui(x: u32) -> u32 = u32(ceil64(u64(x), 32))
+
+@export("stdc_bit_ceil_ul")
+stdc_bit_ceil_ul(x: ULong) -> ULong = ULong(ceil64(u64(x), ULong::Max.count_ones()))
+
+@export("stdc_bit_ceil_ull")
+stdc_bit_ceil_ull(x: ULongLong) -> ULongLong = ULongLong(ceil64(u64(x), 64))

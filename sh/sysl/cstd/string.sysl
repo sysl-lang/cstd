@@ -252,4 +252,144 @@ private message(code: i32) -> string = code match
     EOPNOTSUPP -> "Operation not supported"
     EAFNOSUPPORT -> "Address family not supported by protocol"
     ETIMEDOUT -> "Connection timed out"
-    _ -> "Unknown error"
+    _ -> UNKNOWN_ERROR
+
+private val UNKNOWN_ERROR: string = "Unknown error"
+
+// The reentrant `strerror`: the same message, copied into the caller's buffer. A message that does
+// not fit is cut to what does, still terminated, and the answer is `ERANGE`; a code `errno.h` does not
+// define gets `Unknown error` and the answer `EINVAL`, as the standard's rationale suggests. `errno`
+// is left alone, since the answer carries the error.
+@export("strerror_r")
+strerror_r(code: i32, buf: *u8, size: usize) -> i32
+    val text = message(code)
+    if strlcpy(buf, as_ptr(text.bytes), size) >= size then return ERANGE
+    if text == UNKNOWN_ERROR then EINVAL else 0
+
+// Only the C locale exists, so the locale changes nothing and the message is `strerror`'s.
+@export("strerror_l")
+strerror_l(code: i32, locale: *u8) -> *u8 = strerror(code)
+
+// The text for a signal number: one for each signal `signal.h` defines, in glibc's words, and the
+// fixed text `Unknown signal` for any other number. POSIX leaves the words to the implementation.
+@export("strsignal")
+strsignal(sig: i32) -> *u8 = as_ptr(signal_text(sig).bytes)
+
+// The numbers are `signal.h`'s, which are Linux's.
+private signal_text(sig: i32) -> string = sig match
+    1 -> "Hangup"
+    2 -> "Interrupt"
+    3 -> "Quit"
+    4 -> "Illegal instruction"
+    5 -> "Trace/breakpoint trap"
+    6 -> "Aborted"
+    7 -> "Bus error"
+    8 -> "Floating point exception"
+    9 -> "Killed"
+    10 -> "User defined signal 1"
+    11 -> "Segmentation fault"
+    12 -> "User defined signal 2"
+    13 -> "Broken pipe"
+    14 -> "Alarm clock"
+    15 -> "Terminated"
+    17 -> "Child exited"
+    _ -> "Unknown signal"
+
+// `strcpy` that answers the address of the terminator it wrote, so a chain of copies never has to
+// find the end again.
+@export("stpcpy")
+stpcpy(dst: *u8, src: *u8) -> *u8
+    var i: usize = 0
+    loop
+        dst[i] = src[i]
+        if src[i] == 0 then return &dst[i]
+        i += 1
+
+// `strncpy` that answers where the copy ended: the first NUL it padded with, or `&dst[n]` when `src`
+// filled all `n` bytes and left `dst` unterminated.
+@export("stpncpy")
+stpncpy(dst: *u8, src: *u8, n: usize) -> *u8
+    var i: usize = 0
+    while i < n && src[i] != 0
+        dst[i] = src[i]
+        i += 1
+    val end = &dst[i]
+    while i < n
+        dst[i] = 0
+        i += 1
+    end
+
+// Copies as much of `src` as fits in `size` bytes and terminates it, unless `size` is 0, when nothing
+// is written. The answer is the whole length of `src`, so an answer of `size` or more says the copy
+// was cut short.
+@export("strlcpy")
+strlcpy(dst: *u8, src: *u8, size: usize) -> usize
+    val len = strlen(src)
+    if size > 0
+        val n = if len < size then len else size - 1
+        memcpy(dst, src, n)
+        dst[n] = 0
+    len
+
+// Appends as much of `src` as fits in `dst`'s `size` bytes and terminates it. The answer is the
+// length it tried to make, `strnlen(dst, size) + strlen(src)`. A `dst` with no NUL in its first
+// `size` bytes is left exactly as it was.
+@export("strlcat")
+strlcat(dst: *u8, src: *u8, size: usize) -> usize
+    val have = strnlen(dst, size)
+    if have == size then return size + strlen(src)
+    have + strlcpy(&dst[have], src, size - have)
+
+// The first place the `nlen` bytes of `needle` occur in the `hlen` bytes of `haystack`. An empty
+// needle is found at the start; a needle longer than the haystack is found nowhere.
+@export("memmem")
+memmem(haystack: *u8, hlen: usize, needle: *u8, nlen: usize) -> *u8
+    if nlen == 0 then return haystack
+    if hlen < nlen then return null
+    val starts = hlen - nlen + 1
+    for i in 0..<starts
+        if memcmp(&haystack[i], needle, nlen) == 0 then return &haystack[i]
+    null
+
+// The program supplies `malloc`: the Linux half's, a board's, or the host's in the tests.
+@needs(os)
+private extern "malloc" c_malloc(n: usize) -> *u8
+
+// A new string holding the `len` bytes at `s` and a terminator, or null with `ENOMEM` when the
+// allocation fails. `errno` is set here because a board's `malloc` need not set it.
+private duplicate(s: *u8, len: usize) -> *u8
+    val copy = c_malloc(len + 1)
+    if copy == null
+        errno = ENOMEM
+        return null
+    memcpy(copy, s, len)
+    copy[len] = 0
+    copy
+
+@export("strdup")
+strdup(s: *u8) -> *u8 = duplicate(s, strlen(s))
+
+// At most `size` bytes of `s`, terminated. It reads no further than `size` bytes, so `s` need not be
+// terminated, and it allocates only what the copy needs.
+@export("strndup")
+strndup(s: *u8, size: usize) -> *u8 = duplicate(s, strnlen(s, size))
+
+// Only the C locale exists, and its collating order is the order of the bytes as `unsigned char`, so
+// collating is comparing and a transformed string is the string itself.
+@export("strcoll")
+strcoll(a: *u8, b: *u8) -> i32 = strcmp(a, b)
+
+@export("strcoll_l")
+strcoll_l(a: *u8, b: *u8, locale: *u8) -> i32 = strcmp(a, b)
+
+// The transform of `src`, which in the C locale is `src`, copied with its terminator when it fits in
+// `n` bytes. When it does not, `dst` is left untouched (the standard leaves it unspecified), so `dst`
+// may be null when `n` is 0. The answer is the transform's length either way.
+@export("strxfrm")
+strxfrm(dst: *u8, src: *u8, n: usize) -> usize
+    val len = strlen(src)
+    if len < n then memcpy(dst, src, len + 1)
+    len
+
+@export("strxfrm_l")
+strxfrm_l(dst: *u8, src: *u8, n: usize, locale: *u8) -> usize = strxfrm(dst, src, n)

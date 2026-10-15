@@ -1,0 +1,68 @@
+module sh.sysl.cstd
+
+import sysl.math.ByteOrder
+
+// `<endian.h>` of POSIX.1-2024: the twelve conversions between the host's byte order and the
+// big-endian and little-endian orders, for 16, 32 and 64 bits.
+//
+// A conversion to an order and a conversion from it are the same reversal (or the same no-op), so
+// `htobe32` and `be32toh` share one body; both are exported because C names both.
+//
+// **Nothing here assumes the host is little-endian.** The host's order is read off the bytes of a
+// `u16` holding 1, and `convert*` takes it as an argument, so the reversal rule — swap when the
+// host's order is not the wanted one — is checked in the tests under both orders, although every
+// machine this library runs on is little-endian. As in `string.sysl`, every function is exported
+// under its C name.
+
+// Whether the byte of lowest address in a `u16` holding 1 is that 1, which is what little-endian means.
+private host_little() -> bool
+    var one: u16 = 1
+    val first: *u8 = ptr_cast(&one)
+    first[0] == 1
+
+// The value `x` converted between the host's order and the wanted one: unchanged when they agree,
+// bytes reversed when they do not.
+private[cstd] convert16(x: u16, host_is_little: bool, want_big: bool) -> u16 =
+    if host_is_little == want_big then x.swap_bytes() else x
+
+private[cstd] convert32(x: u32, host_is_little: bool, want_big: bool) -> u32 =
+    if host_is_little == want_big then x.swap_bytes() else x
+
+private[cstd] convert64(x: u64, host_is_little: bool, want_big: bool) -> u64 =
+    if host_is_little == want_big then x.swap_bytes() else x
+
+@export("htobe16")
+htobe16(x: u16) -> u16 = convert16(x, host_little(), true)
+
+@export("htobe32")
+htobe32(x: u32) -> u32 = convert32(x, host_little(), true)
+
+@export("htobe64")
+htobe64(x: u64) -> u64 = convert64(x, host_little(), true)
+
+@export("htole16")
+htole16(x: u16) -> u16 = convert16(x, host_little(), false)
+
+@export("htole32")
+htole32(x: u32) -> u32 = convert32(x, host_little(), false)
+
+@export("htole64")
+htole64(x: u64) -> u64 = convert64(x, host_little(), false)
+
+@export("be16toh")
+be16toh(x: u16) -> u16 = convert16(x, host_little(), true)
+
+@export("be32toh")
+be32toh(x: u32) -> u32 = convert32(x, host_little(), true)
+
+@export("be64toh")
+be64toh(x: u64) -> u64 = convert64(x, host_little(), true)
+
+@export("le16toh")
+le16toh(x: u16) -> u16 = convert16(x, host_little(), false)
+
+@export("le32toh")
+le32toh(x: u32) -> u32 = convert32(x, host_little(), false)
+
+@export("le64toh")
+le64toh(x: u64) -> u64 = convert64(x, host_little(), false)

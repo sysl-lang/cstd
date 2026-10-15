@@ -68,3 +68,42 @@ What should happen: in a C runtime's archive, `extern "main"` also takes the thr
 `(int, **byte, **byte) -> int`. The workaround not taken: loading x2 with `envp` in `_start`'s asm
 before branching, or calling the two-argument form and leaving three-argument programs broken.
 `linux/sh/sysl/cstd_linux/crt0.sysl` was written in the wanted form and did not compile until then.
+
+## 3. Nothing an `asm` arm or `#if` can test tells an Arm target with a floating-point unit from one without (gap)
+
+Found writing `setjmp` (sysl 0.1.0-alpha.12). On a Cortex-M with a unit, s16–s31 are callee-saved
+whatever the float ABI, so `setjmp` must store them, and on a part without one the same instructions
+do not assemble. `thumb-freestanding`, `thumb-freestanding-softfp` and `thumbv7em-freestanding` have a
+unit; `thumb-freestanding-soft`, `thumbv6m-`, `thumbv7m-` and `thumbv7em-freestanding-soft` do not. All
+seven select the one `[thumb]` arm, and `#if`'s vocabulary has `thumb` and nothing finer, so one
+archive cannot carry the right `setjmp` for its target. The target row knows (`fpu`, `no_fpu` in
+`target.sysl`, which is also what decides `__ARM_FP` for C):
+
+    #if thumb && fpu
+    asm
+        [thumb]
+            "vstmia r0!, {{s16-s31}}"
+            ...
+    #endif
+
+    $ sysl build-c . --target thumb-freestanding -o probe.a
+    error: 'fpu' is not something a target says about itself — sysl knows aarch64, android, bsd,
+    craft, freestanding, hosted, linux, macos, posix, riscv32, riscv64, thumb, wasi, wasm32, windows,
+    x86, x86_64. A feature this package's manifest declares is named 'feature_fpu'
+
+A manifest feature is the consumer's choice, not the target's, so it would let a hard-float build
+forget to ask for it — the silent loss this is meant to prevent.
+
+What should happen: a symbol for it (`fpu`, or `arm_fp`, by analogy with `__ARM_FP`), or an arm
+qualifier such as `[thumb+fpu]`. The same question will come back for riscv64's F/D
+(`riscv64-linux` has D, `riscv64-freestanding` does not), where `#if linux` happens to answer it.
+
+The workaround not taken: both variants in the archive, the floating one assembled under a local
+`.arch armv7e-m` / `.fpu fpv4-sp-d16`, and `include/setjmp.h` picking a symbol by `__ARM_FP`. Instead
+`setjmp.sysl`'s thumb arm saves the core registers only, which is right without a unit, and
+`include/setjmp.h` stops with `#error` wherever `__ARM_FP` is defined, so no build silently loses
+s16–s31.
+
+**Status: accepted for alpha.14** (sysl branch `target-fpu`): the target-derived symbols `fpu`,
+`fpu_dp`, `hardfloat` and `softfp`, defined true or false on every target, usable in `#if` and in `asm`
+arm selection. On alpha.14 the s16–s31 save becomes one `#if fpu` arm and the header's `#error` goes.

@@ -16,19 +16,20 @@ c type
     ULongLong = "unsigned long long"
 
 // What reading a number out of text found, before it is narrowed to the type asked for.
-private struct Scan
+private[cstd] struct Scan
     magnitude: u64     // the digits' value, clamped where they ran past the limit
     negative: bool
     overflowed: bool
-    end: *u8           // one past the last digit, or the start when nothing was converted
+    end: usize         // the offset one past the last digit, or 0 when nothing was converted
     converted: bool
     bad_base: bool
 
-// A byte's value as a digit in any base up to 36, or 36 when it is no digit at all.
-private digit_value(b: u8) -> u64
-    if b >= u8('0') && b <= u8('9') then return u64(b - u8('0'))
+// A character's value as a digit in any base up to 36, or 36 when it is no digit at all. A wide
+// character past ASCII is no digit.
+private digit_value(b: u32) -> u64
+    if b >= u32('0') && b <= u32('9') then return u64(b - u32('0'))
     val lower = b | 0x20
-    if lower >= u8('a') && lower <= u8('z') then return u64(lower - u8('a')) + 10
+    if lower >= u32('a') && lower <= u32('z') then return u64(lower - u32('a')) + 10
     36
 
 // The reading every `strto*` shares: leading white space, one sign, a base of 0 settled by the
@@ -38,28 +39,31 @@ private digit_value(b: u8) -> u64
 //
 // `0x` counts as a prefix only when a hex digit follows it, so `"0x"` and `"0xg"` read as the
 // number 0 ending at the `x`.
-private scan(text: *u8, base_asked: i32, positive_limit: u64, negative_limit: u64) -> Scan
+//
+// It is generic over the character type: a `char` string is read as `u8` and a `wchar_t` string by
+// `wcstoimax` as `u32`, with the same rules. In the C locale only ASCII is white space or a digit.
+private[cstd] scan[T](text: *T, base_asked: i32, positive_limit: u64, negative_limit: u64) -> Scan
     if base_asked < 0 || base_asked == 1 || base_asked > 36
-        return Scan(0, false, false, text, false, true)
+        return Scan(0, false, false, 0, false, true)
     var i: usize = 0
-    while isspace(i32(text[i])) != 0 do i += 1
+    while u32(text[i]) < 128 && isspace(i32(text[i])) != 0 do i += 1
     var negative = false
-    if text[i] == u8('-') || text[i] == u8('+')
-        negative = text[i] == u8('-')
+    if u32(text[i]) == u32('-') || u32(text[i]) == u32('+')
+        negative = u32(text[i]) == u32('-')
         i += 1
     var base = u64(base_asked)
-    val hex_prefix = text[i] == u8('0') && (text[i + 1] | 0x20) == u8('x') && digit_value(text[i + 2]) < 16
+    val hex_prefix = u32(text[i]) == u32('0') && (u32(text[i + 1]) | 0x20) == u32('x') && digit_value(u32(text[i + 2])) < 16
     if (base == 0 || base == 16) && hex_prefix
         base = 16
         i += 2
     elif base == 0
-        base = if text[i] == u8('0') then 8 else 10
+        base = if u32(text[i]) == u32('0') then 8 else 10
     val limit = if negative then negative_limit else positive_limit
     var magnitude: u64 = 0
     var converted = false
     var overflowed = false
     loop
-        val d = digit_value(text[i])
+        val d = digit_value(u32(text[i]))
         if d >= base then break
         converted = true
         if overflowed || magnitude > (limit - d) / base
@@ -68,13 +72,13 @@ private scan(text: *u8, base_asked: i32, positive_limit: u64, negative_limit: u6
         else
             magnitude = magnitude * base + d
         i += 1
-    Scan(magnitude, negative, overflowed, if converted then &text[i] else text, converted, false)
+    Scan(magnitude, negative, overflowed, if converted then i else 0, converted, false)
 
 // Hands `endptr` its answer and sets `errno`: `EINVAL` for a base C does not define and for text
 // with no number in it, as the BSD libcs do (C leaves that case's `errno` unspecified), and
 // `ERANGE` for a number past the type. A successful reading leaves `errno` alone.
-private settle(s: Scan, endptr: **u8)
-    if endptr != null then *endptr = s.end
+private[cstd] settle[T](text: *T, s: Scan, endptr: **T)
+    if endptr != null then *endptr = &text[s.end]
     if s.bad_base || !s.converted
         errno = EINVAL
     elif s.overflowed
@@ -83,14 +87,14 @@ private settle(s: Scan, endptr: **u8)
 @export("strtol")
 strtol(text: *u8, endptr: **u8, base: i32) -> Long
     val s = scan(text, base, u64(Long::Max), u64(Long::Max) + 1)
-    settle(s, endptr)
+    settle(text, s, endptr)
     if s.overflowed then return if s.negative then Long::Min else Long::Max
     if s.negative then -Long(s.magnitude) else Long(s.magnitude)
 
 @export("strtoll")
 strtoll(text: *u8, endptr: **u8, base: i32) -> LongLong
     val s = scan(text, base, u64(LongLong::Max), u64(LongLong::Max) + 1)
-    settle(s, endptr)
+    settle(text, s, endptr)
     if s.overflowed then return if s.negative then LongLong::Min else LongLong::Max
     if s.negative then -LongLong(s.magnitude) else LongLong(s.magnitude)
 
@@ -99,14 +103,14 @@ strtoll(text: *u8, endptr: **u8, base: i32) -> LongLong
 @export("strtoul")
 strtoul(text: *u8, endptr: **u8, base: i32) -> ULong
     val s = scan(text, base, u64(ULong::Max), u64(ULong::Max))
-    settle(s, endptr)
+    settle(text, s, endptr)
     if s.overflowed then return ULong::Max
     if s.negative then 0 - ULong(s.magnitude) else ULong(s.magnitude)
 
 @export("strtoull")
 strtoull(text: *u8, endptr: **u8, base: i32) -> ULongLong
     val s = scan(text, base, u64(ULongLong::Max), u64(ULongLong::Max))
-    settle(s, endptr)
+    settle(text, s, endptr)
     if s.overflowed then return ULongLong::Max
     if s.negative then 0 - ULongLong(s.magnitude) else ULongLong(s.magnitude)
 

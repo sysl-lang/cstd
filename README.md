@@ -17,13 +17,44 @@ require, exported under its C name with `@export`.
 
 | header | functions |
 |---|---|
-| `string.h` | `strlen` `strnlen` `strcmp` `strncmp` `strcpy` `strncpy` `strcat` `strncat` `strchr` `strrchr` `strstr` `strspn` `strcspn` `strpbrk` `strtok` `strtok_r` `strerror` `memcpy` `memmove` `memset` `memcmp` `memchr` |
-| `ctype.h` | `isalnum` `isalpha` `isblank` `iscntrl` `isdigit` `isgraph` `islower` `isprint` `ispunct` `isspace` `isupper` `isxdigit` `tolower` `toupper`, for the C locale |
+| `string.h` | `strlen` `strnlen` `strcmp` `strncmp` `strcpy` `strncpy` `strcat` `strncat` `strchr` `strrchr` `strstr` `strspn` `strcspn` `strpbrk` `strtok` `strtok_r` `strerror` `strerror_r` `strerror_l` `strsignal` `stpcpy` `stpncpy` `strlcpy` `strlcat` `strdup` `strndup` `strcoll` `strcoll_l` `strxfrm` `strxfrm_l` `memcpy` `memmove` `memset` `memcmp` `memchr` `memmem` — all of POSIX.1-2024's base `<string.h>` |
+| `ctype.h` | `isalnum` `isalpha` `isblank` `iscntrl` `isdigit` `isgraph` `islower` `isprint` `ispunct` `isspace` `isupper` `isxdigit` `tolower` `toupper`, and the `_l` variant of each, for the C locale |
+| `locale.h` | `setlocale` `localeconv` `newlocale` `duplocale` `freelocale` `uselocale` `getlocalename_l`, for the C locale |
 | `stdlib.h` | `atoi` `atol` `atof` `strtol` `strtoul` `strtoll` `strtoull` `strtod` `strtof` `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch` |
+| `inttypes.h` | every `PRI*`/`SCN*` macro for the target's `<stdint.h>` types, `imaxdiv_t`, `imaxabs` `imaxdiv` `strtoimax` `strtoumax` `wcstoimax` `wcstoumax` |
+| `strings.h` | `strcasecmp` `strncasecmp` `strcasecmp_l` `strncasecmp_l` (ASCII folding, C locale), `ffs` `ffsl` `ffsll` |
+| `assert.h` | `assert` (honours `NDEBUG` at each inclusion; failure writes `Assertion failed: expr (file: func: line)` to descriptor 2, then `abort`), `static_assert` |
+| `endian.h` | POSIX.1-2024's `BYTE_ORDER` `LITTLE_ENDIAN` `BIG_ENDIAN` and `be16toh` `be32toh` `be64toh` `htobe16` `htobe32` `htobe64` `htole16` `htole32` `htole64` `le16toh` `le32toh` `le64toh` |
+| `stdbit.h` | ISO C23's 14 families (`stdc_leading_zeros` `stdc_leading_ones` `stdc_trailing_zeros` `stdc_trailing_ones` `stdc_first_leading_zero` `stdc_first_leading_one` `stdc_first_trailing_zero` `stdc_first_trailing_one` `stdc_count_zeros` `stdc_count_ones` `stdc_has_single_bit` `stdc_bit_width` `stdc_bit_floor` `stdc_bit_ceil`), each as `_uc` `_us` `_ui` `_ul` `_ull` functions and as a type-generic macro, with `__STDC_ENDIAN_*__` and `__STDC_VERSION_STDBIT_H__` |
 | `errno.h` | `errno` (one global, defined by the library), Linux's codes from `EPERM` to `ETIMEDOUT` |
 | `stdio.h` | `printf` `dprintf` `sprintf` `snprintf` `vprintf` `vdprintf` `vsprintf` `vsnprintf` |
+| `setjmp.h` | `setjmp` `longjmp` `sigsetjmp` `siglongjmp` |
 | `math.h` | all 57 functions of POSIX.1-2024 in `double` and `float`, and in `long double` where it is a `double`; the classification and comparison macros, `HUGE_VAL`, `INFINITY`, `NAN`, the `FP_` and `MATH_` constants and `M_PI` and friends |
 
+- **`setjmp` is assembly per processor** (`sh/sysl/cstd/setjmp.sysl`): aarch64 (x19–x30, sp,
+  d8–d15; x18 left alone), thumb in Armv6-M's instructions so every Cortex-M runs it (r4–r11, sp,
+  lr), and riscv32 (ra, sp, s0–s11). `<setjmp.h>` refuses to compile anywhere else, and on a thumb
+  build with a floating-point unit (`__ARM_FP`: `thumb-freestanding`, `thumb-freestanding-softfp`,
+  `thumbv7em-freestanding`), because s16–s31 are not saved yet: an asm arm cannot tell those
+  targets from the ones without a unit. `longjmp` with 0 makes `setjmp` return 1.
+- `sigjmp_buf` is `jmp_buf`, and `siglongjmp` is `longjmp`. `sigsetjmp` with a non-zero `savemask`
+  reads the mask, and puts it back after a `siglongjmp`, through an external `sigprocmask` that the
+  platform supplies, as it supplies `write`. `sigsetjmp` sits in a section of its own, so a board
+  that links only `setjmp` with `--gc-sections` needs no `sigprocmask`.
+
+- **`endian.h`'s byte order is the compiler's** (`__BYTE_ORDER__`), and the conversions do not assume
+  it: the host's order is read off the bytes of a `u16` holding 1, and the rule (swap when the host's
+  order is not the wanted one) is a function of that order, which `endian_tests.sysl` drives under
+  both. Every target runs little-endian, so the big-endian half of the rule is tested at the sysl
+  level and not by running on a big-endian machine. The twelve are functions only, which the page allows.
+- **`stdbit.h` is cstd's alone: clang does not ship one.** Neither Apple clang 21's resource directory
+  nor Homebrew's LLVM 23.1's carries it (both have `stdckdint.h` and no `stdbit.h`; the header is left
+  to the C library), so cstd must supply it, and the 70 functions behind it exist in the archive. Were a
+  clang to add one, `-I <cstd>/include` is searched before `-isystem <resource>/include`, so cstd's
+  would still be the one included. `unsigned long` is measured, so it is 32 bits on a
+  Cortex-M. `stdc_bit_ceil` of a value past the largest power of two the type holds is undefined in
+  C; here it is 0. The generic macros accept the five unsigned types and refuse anything else at
+  compile time.
 - The printf family takes C99's `%d %i %u %o %x %X %c %s %p %n %%` and `%f %F %e %E %g %G %a %A`,
   the flags `- + space # 0`, a width and a precision as a number or `*`, and the lengths
   `hh h l ll j z t`. There is no `long double`, so `L` is not taken and `%Lf` is copied out as
@@ -56,6 +87,14 @@ require, exported under its C name with `@export`.
 - `strerror` knows `0` and every code `errno.h` defines, in glibc's words; any other code answers
   the fixed text `Unknown error`, because formatting the number in would need a formatter.
 - `strtok` keeps one save pointer for the whole program, as C does; `strtok_r` keeps it in the caller's hands.
+- `strdup` and `strndup` call an external `malloc` that the program supplies (the Linux half's, a
+  board's, or the host's), and set `ENOMEM` themselves when it answers null. `strndup` reads at most
+  `n` bytes and allocates only what it copies.
+- Only the C locale exists: `locale_t` is an opaque pointer the `_l` functions ignore, `strcoll` is
+  `strcmp`, and `strxfrm` copies its source when it fits (and touches nothing when it does not).
+- `strerror_r` is POSIX's `int` form: a message cut to fit is still terminated and answers `ERANGE`,
+  an unknown code answers `EINVAL` with `Unknown error` in the buffer. `strsignal` gives glibc's
+  words for each signal `signal.h` defines and `Unknown signal` for any other number.
 - Text with no number in it, or a base C does not define, sets `EINVAL`, as the BSD libcs do. C
   leaves that case unspecified.
 
@@ -190,7 +229,20 @@ guard byte on each side, NULs included. The cases cover:
 - not-found answers
 - overlapping `memmove` in both directions
 - `strncpy`'s padding and its missing terminator
-- every `<ctype.h>` function over EOF and 0–255
+- `n = 0`, exact-fit and one-short buffers for `strlcpy`, `strlcat`, `stpncpy`, `strxfrm` and
+  `strerror_r`, and `errno` left alone where the function promises it
+- `strdup`/`strndup` against a `malloc` the case supplies in its prelude: the size asked for, and
+  `ENOMEM` from a refusal
+- `memmem` with an empty needle, a needle longer than the haystack, and a match at the very end
+- every `<ctype.h>` function over EOF and 0–255, and each `_l` variant agreeing with its plain twin
+  there, given a locale object and given `LC_GLOBAL_LOCALE`
+- the names `setlocale` and `newlocale` accept and refuse, `newlocale`'s `ENOENT` and `EINVAL`,
+  every `localeconv` field, and `uselocale` handing back the locale it replaced
+- every `<stdbit.h>` function, through the function and the type-generic macro, over all 256 `unsigned
+  char` values and a spread of patterns at each wider width, against a bit-by-bit reference written in
+  the test, plus hand-worked tables of the edge values (0, all ones, the top bit alone, `bit_ceil`
+  past the top)
+- `<endian.h>` as the bytes memory holds, and its reversal rule under both host orders
 - every base from 2 to 36
 - `EINVAL` for a bad base or no digits
 - overflow in each `strto*` with `ERANGE`
@@ -207,6 +259,9 @@ case's clang, so the archive and every program are instrumented together. Two te
 this mode:
 - `nm -u` of the archive must show `__asan_report_load1` and `__asan_report_store1`.
 - `strlen` over a buffer with no NUL must be reported as a `stack-buffer-overflow` in `strlen`.
+
+And one ordinary case earns its keep here: `strnlen` and `strndup` over an unterminated array within
+their `n` must not read past it, which only ASan can see.
 
 **The mathematics is judged by MPFR**, which computes every function correctly rounded at any
 precision (`sh/sysl/cstd/math_oracle.sysl`; the suite needs Homebrew's `mpfr` and `gmp` under
@@ -226,20 +281,39 @@ The freestanding builds are checked with:
 
 ```
 sysl build-lib . --target thumb-freestanding-softfp
+sysl build-lib . --target thumb-freestanding
+sysl build-lib . --target thumbv7em-freestanding
+sysl build-lib . --target thumbv6m-freestanding
+sysl build-lib . --target riscv32-freestanding
 sysl build-lib . --target aarch64-freestanding
 ```
+
+The `setjmp` cases run on the host, which is aarch64: a jump across frames, 0 becoming 1, volatile
+locals, x19–x28 and d8–d15 overwritten by the skipped frames and put back, nested buffers, a
+hundred thousand jumps with the stack where it was, and `sigsetjmp`'s mask through the host's
+`sigprocmask`. The thumb and riscv32 arms run on QEMU (`microbit`, a Cortex-M0; `mps2-an385`, a
+Cortex-M3; `virt`, RV32): `tests/qemu/setjmp.c` is linked against cstd built for the target by
+`tests/qemu/archive` and reports through semihosting. Those three cases need `qemu-system-arm`,
+`qemu-system-riscv32`, `ld.lld` and Homebrew's LLVM clang, skip where any is missing, and skip
+under ASan, whose flags would reach the bare-metal build. Under ASan a C caller of `longjmp` calls
+`__asan_handle_no_return` itself, because the prototype is `noreturn`, so the skipped frames'
+shadow is cleared without cstd doing anything.
 
 ## What is deliberately absent, and why
 
 - **Allocation and `exit` in the portable half.** Where memory comes from and how a process ends are
   the platform's: `linux/` answers both for Linux's ABI; a board's arena is still to come.
-- **`FILE` and the rest of stdio, `setjmp`.** Buffered streams are not written yet.
+- **`FILE` and the rest of stdio.** Buffered streams are not written yet.
 - **`long double` beyond binary64: `strtold`, `%Lf`, and the `l` functions of `<math.h>` where
   `long double` is binary128.** cstd's floats are `double` and `float`; where `long double` is a
   `double` the `<math.h>` `l` functions are offered as their `double` counterparts, and where it is
   binary128 a quad-precision argument reduction, polynomials and tables are still to be written.
   A `double` answer widened would be wrong in its last 60 bits, so nothing is offered there.
-- **Locales.** Only the C locale exists: every byte from 0x80 up is in no class.
+- **Locales other than C.** Only the C locale exists: every byte from 0x80 up is in no class,
+  `setlocale` and `newlocale` accept only "C", "POSIX" and "" (which is the C locale here), and the
+  `_l` functions answer as the C locale whatever `locale_t` they are given. A locale's data would
+  have to come from somewhere, and nothing cstd runs on has it. The current locale `uselocale`
+  installs is one per program, like `errno`.
 - **A per-thread `errno`.** Nothing this library serves has threads yet.
 
 ## License

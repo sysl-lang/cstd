@@ -1,0 +1,465 @@
+module sh.sysl.cstd
+
+@tests
+
+// The `<string.h>` functions POSIX adds to ISO C, called from C.
+//
+// As in `string_tests.sysl`, a function that writes memory is checked on every byte of the buffer it
+// was given, with a guard byte either side, so a write one past the end or one short shows. Where a
+// function promises not to touch `errno`, the case sets it to 77 first and prints it after.
+
+@test("stpcpy copies through the NUL and answers the address of the NUL, so copies chain")
+stpcpy_bytes()
+    c_case(raw"""
+        char t[] = "<......>";
+        say_off(stpcpy(t + 1, "abc"), t);
+        say_bytes(t, sizeof t);
+        say_off(stpcpy(t + 1, ""), t);
+        say_bytes(t, sizeof t);
+        char u[] = "<....>";
+        say_off(stpcpy(u + 1, "\xff\x80"), u);
+        say_bytes(u, sizeof u);
+        char w[] = "<.......>";
+        char *e = stpcpy(w + 1, "ab");
+        e = stpcpy(e, "cd");
+        say_off(stpcpy(e, "e"), w);
+        say_bytes(w, sizeof w);
+        """, raw"""
+        4
+        <abc[00]..>[00]
+        1
+        <[00]bc[00]..>[00]
+        3
+        <[ff][80][00].>[00]
+        6
+        <abcde[00].>[00]
+        """)
+
+@test("stpncpy pads with NULs and answers the first of them, or &dst[n] when nothing terminates")
+stpncpy_bytes()
+    c_case(raw"""
+        char t[] = "<......>";
+        say_off(stpncpy(t + 1, "ab", 5), t);
+        say_bytes(t, sizeof t);
+        char u[] = "<......>";
+        say_off(stpncpy(u + 1, "abcdefgh", 4), u);
+        say_bytes(u, sizeof u);
+        say_off(stpncpy(u + 1, "wxyz", 4), u);
+        say_bytes(u, sizeof u);
+        say_off(stpncpy(u + 1, "abc", 4), u);
+        say_bytes(u, sizeof u);
+        say_off(stpncpy(u + 1, "q", 0), u);
+        say_bytes(u, sizeof u);
+        char v[] = "<....>";
+        say_off(stpncpy(v + 1, "", 3), v);
+        say_bytes(v, sizeof v);
+        char x[] = "<...>";
+        say_off(stpncpy(x + 1, "\x80\xff", 3), x);
+        say_bytes(x, sizeof x);
+        """, raw"""
+        3
+        <ab[00][00][00].>[00]
+        5
+        <abcd..>[00]
+        5
+        <wxyz..>[00]
+        4
+        <abc[00]..>[00]
+        1
+        <abc[00]..>[00]
+        1
+        <[00][00][00].>[00]
+        3
+        <[80][ff][00]>[00]
+        """)
+
+@test("strlcpy copies what fits, always terminates unless size is 0, answers strlen(src), keeps errno")
+strlcpy_bytes()
+    c_case(raw"""
+        char t[] = "<.....>";
+        errno = 77;
+        say_uint(strlcpy(t + 1, "abc", 5));
+        say_bytes(t, sizeof t);
+        say_uint(strlcpy(t + 1, "wxyz", 5));
+        say_bytes(t, sizeof t);
+        say_uint(strlcpy(t + 1, "12345", 5));
+        say_bytes(t, sizeof t);
+        say_uint(strlcpy(t + 1, "abcdefghij", 5));
+        say_bytes(t, sizeof t);
+        say_uint(strlcpy(t + 1, "q", 1));
+        say_bytes(t, sizeof t);
+        say_uint(strlcpy(t + 1, "zz", 0));
+        say_bytes(t, sizeof t);
+        say_uint(strlcpy(t + 1, "\xff\x80", 3));
+        say_bytes(t, sizeof t);
+        say_uint(strlcpy(t + 1, "", 5));
+        say_bytes(t, sizeof t);
+        say_int(errno);
+        """, raw"""
+        3
+        <abc[00].>[00]
+        4
+        <wxyz[00]>[00]
+        5
+        <1234[00]>[00]
+        10
+        <abcd[00]>[00]
+        1
+        <[00]bcd[00]>[00]
+        2
+        <[00]bcd[00]>[00]
+        2
+        <[ff][80][00]d[00]>[00]
+        0
+        <[00][80][00]d[00]>[00]
+        77
+        """)
+
+@test("strlcat appends what fits, answers strnlen(dst, size) + strlen(src), and leaves an unterminated dst alone")
+strlcat_bytes()
+    c_case(raw"""
+        char t[] = "<ab\0....>";
+        errno = 77;
+        say_uint(strlcat(t + 1, "cd", 7));
+        say_bytes(t, sizeof t);
+        say_uint(strlcat(t + 1, "ef", 7));
+        say_bytes(t, sizeof t);
+        say_uint(strlcat(t + 1, "g", 7));
+        say_bytes(t, sizeof t);
+        char u[] = "<x\0...>";
+        say_uint(strlcat(u + 1, "abcdef", 5));
+        say_bytes(u, sizeof u);
+        say_uint(strlcat(u + 1, "z", 5));
+        say_bytes(u, sizeof u);
+        say_uint(strlcat(u + 1, "z", 0));
+        say_bytes(u, sizeof u);
+        say_uint(strlcat(u + 1, "", 5));
+        say_bytes(u, sizeof u);
+        char v[] = "<abc>";
+        say_uint(strlcat(v + 1, "zz", 3));
+        say_bytes(v, sizeof v);
+        char w[] = "<\x80\0..>";
+        say_uint(strlcat(w + 1, "\xff", 4));
+        say_bytes(w, sizeof w);
+        say_int(errno);
+        """, raw"""
+        4
+        <abcd[00]..>[00]
+        6
+        <abcdef[00]>[00]
+        7
+        <abcdef[00]>[00]
+        7
+        <xabc[00]>[00]
+        5
+        <xabc[00]>[00]
+        1
+        <xabc[00]>[00]
+        4
+        <xabc[00]>[00]
+        5
+        <abc>[00]
+        2
+        <[80][ff][00].>[00]
+        77
+        """)
+
+@test("memmem finds the first match, one at the very end, past NULs, and an empty needle at the start")
+memmem_edges()
+    c_case(raw"""
+        const char h[] = "abcabd";
+        say_off(memmem(h, 6, "abd", 3), h);
+        say_off(memmem(h, 6, "abc", 3), h);
+        say_off(memmem(h, 6, "d", 1), h);
+        say_off(memmem(h, 6, "bd", 2), h);
+        say_off(memmem(h, 5, "abd", 3), h);
+        say_off(memmem(h, 6, "abda", 4), h);
+        say_off(memmem(h, 6, h, 6), h);
+        say_off(memmem(h, 6, "", 0), h);
+        say_off(memmem(h, 0, "", 0), h);
+        say_off(memmem(h, 0, "a", 1), h);
+        say_off(memmem(h, 2, "abc", 3), h);
+        const char z[] = {'x', 0, '\xff', 0, 'y'};
+        say_off(memmem(z, 5, "\0y", 2), z);
+        say_off(memmem(z, 5, "\xff\0", 2), z);
+        say_off(memmem(z, 5, "\x80", 1), z);
+        """, raw"""
+        3
+        0
+        5
+        4
+        NULL
+        NULL
+        0
+        0
+        0
+        NULL
+        NULL
+        3
+        2
+        NULL
+        """)
+
+@test("strdup and strndup copy into the program's malloc, strndup at most n bytes, always terminated")
+strdup_copies()
+    c_case(raw"""
+        char *d = strdup("hello\xff");
+        say_bytes(d, 7);
+        free(d);
+        d = strdup("");
+        say_bytes(d, 1);
+        free(d);
+        char src[] = "abcdef";
+        d = strndup(src, 3);
+        say_bytes(d, 4);
+        free(d);
+        d = strndup(src, 6);
+        say_bytes(d, 7);
+        free(d);
+        d = strndup(src, 100);
+        say_bytes(d, 7);
+        free(d);
+        d = strndup(src, 0);
+        say_bytes(d, 1);
+        free(d);
+        """, raw"""
+        hello[ff][00]
+        [00]
+        abc[00]
+        abcdef[00]
+        abcdef[00]
+        [00]
+        """)
+
+// A `malloc` of the case's own: it records the size it was asked for and hands out a fixed arena, or
+// refuses, so a case sees exactly what `strdup` and `strndup` asked for and what they do on a refusal.
+private val counting_malloc: string = raw"""
+    static size_t asked;
+    static int refuse;
+    static _Alignas(16) char arena[16];
+    void *malloc(size_t n) {
+        asked = n;
+        if (refuse) return NULL;
+        for (size_t i = 0; i < sizeof arena; i++) arena[i] = '.';
+        return arena;
+    }
+    """
+
+@test("strndup allocates only what it copies, and both answer NULL with ENOMEM when malloc refuses")
+strdup_allocates_and_fails()
+    c_case(raw"""
+        char src[] = "abcdef";
+        say_off(strndup(src, 3), arena);
+        say_uint(asked);
+        say_bytes(arena, 6);
+        say_off(strndup(src, 100), arena);
+        say_uint(asked);
+        say_bytes(arena, 8);
+        say_off(strdup("xy"), arena);
+        say_uint(asked);
+        say_bytes(arena, 4);
+        refuse = 1;
+        errno = 0;
+        say_str(strdup("xy"));
+        say_int(errno);
+        errno = 0;
+        say_str(strndup(src, 2));
+        say_int(errno);
+        say_uint(asked);
+        """, raw"""
+        0
+        4
+        abc[00]..
+        0
+        7
+        abcdef[00].
+        0
+        3
+        xy[00].
+        NULL
+        12
+        NULL
+        12
+        3
+        """, counting_malloc)
+
+// Under AddressSanitizer this is the case that can fail: neither function may look at `b[3]`, which
+// is outside the array.
+@test("strnlen and strndup read no further than n into an unterminated buffer")
+strndup_stays_in_bounds()
+    c_case(raw"""
+        char b[3] = {'a', 'b', 'c'};
+        say_uint(strnlen(b, 3));
+        char *d = strndup(b, 3);
+        say_bytes(d, 4);
+        free(d);
+        d = strndup(b + 1, 2);
+        say_bytes(d, 3);
+        free(d);
+        """, raw"""
+        3
+        abc[00]
+        bc[00]
+        """)
+
+@test("strerror_r copies the message, cuts and terminates it with ERANGE, and answers EINVAL for an unknown code")
+strerror_r_bytes()
+    c_case(raw"""
+        char t[] = "<.........>";
+        errno = 77;
+        say_int(strerror_r(0, t + 1, 9));
+        say_bytes(t, sizeof t);
+        memset(t + 1, '.', 9);
+        say_int(strerror_r(0, t + 1, 8));
+        say_bytes(t, sizeof t);
+        memset(t + 1, '.', 9);
+        say_int(strerror_r(0, t + 1, 7));
+        say_bytes(t, sizeof t);
+        memset(t + 1, '.', 9);
+        say_int(strerror_r(0, t + 1, 0));
+        say_bytes(t, sizeof t);
+        say_int(strerror_r(EIO, t + 1, 9));
+        say_bytes(t, sizeof t);
+        memset(t + 1, '.', 9);
+        say_int(strerror_r(9999, t + 1, 5));
+        say_bytes(t, sizeof t);
+        char u[] = "<...............>";
+        say_int(strerror_r(9999, u + 1, 15));
+        say_bytes(u, sizeof u);
+        memset(u + 1, '.', 15);
+        say_int(strerror_r(-1, u + 1, 15));
+        say_bytes(u, sizeof u);
+        memset(u + 1, '.', 15);
+        say_int(strerror_r(ERANGE, u + 1, 15));
+        say_bytes(u, sizeof u);
+        say_int(errno);
+        """, raw"""
+        0
+        <Success[00].>[00]
+        0
+        <Success[00].>[00]
+        34
+        <Succes[00]..>[00]
+        34
+        <.........>[00]
+        34
+        <Input/ou[00]>[00]
+        34
+        <Unkn[00]....>[00]
+        22
+        <Unknown error[00].>[00]
+        22
+        <Unknown error[00].>[00]
+        34
+        <Numerical resu[00]>[00]
+        77
+        """)
+
+@test("strerror_l answers strerror's message whatever the locale, and keeps errno")
+strerror_l_is_strerror()
+    c_case(raw"""
+        errno = 77;
+        say_str(strerror_l(EINVAL, (locale_t)0));
+        say_ptr_eq(strerror_l(ENOENT, (locale_t)0), strerror(ENOENT));
+        say_str(strerror_l(9999, (locale_t)0));
+        say_int(errno);
+        """, raw"""
+        Invalid argument
+        1
+        Unknown error
+        77
+        """)
+
+@test("strsignal names each signal signal.h defines, and answers fixed text for any other number")
+strsignal_texts()
+    c_case(raw"""
+        for (int s = 0; s <= 18; s++) say_str(strsignal(s));
+        say_str(strsignal(-1));
+        say_str(strsignal(1000));
+        say_str(strsignal(SIGSEGV));
+        say_str(strsignal(SIGCHLD));
+        """, raw"""
+        Unknown signal
+        Hangup
+        Interrupt
+        Quit
+        Illegal instruction
+        Trace/breakpoint trap
+        Aborted
+        Bus error
+        Floating point exception
+        Killed
+        User defined signal 1
+        Segmentation fault
+        User defined signal 2
+        Broken pipe
+        Alarm clock
+        Terminated
+        Unknown signal
+        Child exited
+        Unknown signal
+        Unknown signal
+        Unknown signal
+        Segmentation fault
+        Child exited
+        """, "#include <signal.h>")
+
+@test("strcoll and strcoll_l order by unsigned byte, as the C locale collates, and keep errno")
+strcoll_is_byte_order()
+    c_case(raw"""
+        errno = 77;
+        say_sign(strcoll("abc", "abd"));
+        say_sign(strcoll("abd", "abc"));
+        say_sign(strcoll("abc", "abc"));
+        say_sign(strcoll("ab", "abc"));
+        say_sign(strcoll("\x80", "a"));
+        say_sign(strcoll("", ""));
+        say_sign(strcoll_l("\xff", "\x7f", (locale_t)0));
+        say_sign(strcoll_l("a", "b", (locale_t)0));
+        say_int(errno);
+        """, raw"""
+        -1
+        1
+        0
+        -1
+        1
+        0
+        1
+        -1
+        77
+        """)
+
+@test("strxfrm copies the string when it fits in n, touches nothing when it does not, and answers its length")
+strxfrm_bytes()
+    c_case(raw"""
+        char t[] = "<.....>";
+        errno = 77;
+        say_uint(strxfrm(t + 1, "abc", 5));
+        say_bytes(t, sizeof t);
+        memset(t + 1, '.', 5);
+        say_uint(strxfrm(t + 1, "abcd", 5));
+        say_bytes(t, sizeof t);
+        memset(t + 1, '.', 5);
+        say_uint(strxfrm(t + 1, "abcde", 5));
+        say_bytes(t, sizeof t);
+        say_uint(strxfrm(NULL, "abc", 0));
+        say_uint(strxfrm(t + 1, "", 1));
+        say_bytes(t, sizeof t);
+        memset(t + 1, '.', 5);
+        say_uint(strxfrm_l(t + 1, "\xff\x80", 5, (locale_t)0));
+        say_bytes(t, sizeof t);
+        say_int(errno);
+        """, raw"""
+        3
+        <abc[00].>[00]
+        4
+        <abcd[00]>[00]
+        5
+        <.....>[00]
+        3
+        0
+        <[00]....>[00]
+        2
+        <[ff][80][00]..>[00]
+        77
+        """)

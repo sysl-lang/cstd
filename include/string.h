@@ -5,6 +5,11 @@
 
 #include <stddef.h>
 
+#ifndef __CSTD_LOCALE_T
+#define __CSTD_LOCALE_T
+typedef struct __cstd_locale *locale_t;
+#endif
+
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -26,7 +31,21 @@ char *strpbrk(const char *s, const char *accept);
 char *strtok(char *__restrict s, const char *__restrict delim);
 char *strtok_r(char *__restrict s, const char *__restrict delim, char **__restrict save);
 char *strerror(int code);
+int strerror_r(int code, char *buf, size_t size);
+char *strerror_l(int code, locale_t locale);
+char *strsignal(int sig);
+char *stpcpy(char *__restrict dst, const char *__restrict src);
+char *stpncpy(char *__restrict dst, const char *__restrict src, size_t n);
+size_t strlcpy(char *__restrict dst, const char *__restrict src, size_t size);
+size_t strlcat(char *__restrict dst, const char *__restrict src, size_t size);
+char *strdup(const char *s);
+char *strndup(const char *s, size_t size);
+int strcoll(const char *a, const char *b);
+int strcoll_l(const char *a, const char *b, locale_t locale);
+size_t strxfrm(char *__restrict dst, const char *__restrict src, size_t n);
+size_t strxfrm_l(char *__restrict dst, const char *__restrict src, size_t n, locale_t locale);
 
+void *memmem(const void *haystack, size_t haystack_len, const void *needle, size_t needle_len);
 void *memcpy(void *__restrict dst, const void *__restrict src, size_t n);
 void *memmove(void *dst, const void *src, size_t n);
 void *memset(void *dst, int c, size_t n);

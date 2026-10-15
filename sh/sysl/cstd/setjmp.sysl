@@ -1,0 +1,293 @@
+module sh.sysl.cstd
+
+// `<setjmp.h>`: `setjmp` and `longjmp`, and POSIX's `sigsetjmp` and `siglongjmp`.
+//
+// These are the functions a compiler cannot write. `setjmp` records the registers the calling
+// convention says a callee must preserve, the stack pointer and the return address; `longjmp` puts
+// them back and returns from that `setjmp` a second time, with a value that is not 0. Both are
+// assembly at the top of the file, one arm per processor, laid out to match the `jmp_buf` that
+// `include/setjmp.h` declares for it:
+//
+// | processor | saved, in order | bytes before the mask |
+// |---|---|---|
+// | aarch64 | x19–x30, sp, d8–d15; two words for `sigsetjmp` | 192 |
+// | thumb | r4–r11, sp, lr; s16–s31's place; two words for `sigsetjmp` | 112 |
+// | riscv32 | ra, sp, s0–s11; two words for `sigsetjmp` | 64 |
+//
+// Each `jmp_buf` ends in 128 bytes for a signal mask, as musl's does, so that `sigjmp_buf` is the
+// same type and `siglongjmp` is `longjmp` under a second name.
+//
+// - **aarch64 leaves x18 alone.** It is the platform register: macOS reserves it, and Linux's
+//   convention makes it a temporary nobody may assume survives a call. macOS also names a C symbol
+//   with a leading underscore, which a label at the top of a file must spell out.
+// - **thumb is written in Armv6-M's instructions**, which every Cortex-M executes: `stm` and `ldm`
+//   reach r0–r7 only, so r8–r11, sp and lr travel through low registers. It saves no floating
+//   register, which is correct for a part built without a unit. A part with one keeps s16–s31
+//   across calls, and nothing a `[thumb]` arm can test tells the two apart, so `include/setjmp.h`
+//   refuses to compile where `__ARM_FP` is defined rather than lose them silently.
+// - **riscv32 saves no floating register**: `riscv32-freestanding` is built without F and D.
+//
+// The other processors have no arm that can be selected: both blocks are behind `#if`, and
+// `include/setjmp.h` refuses to compile there, naming what it is written for.
+//
+// **`sigsetjmp` with a non-zero `savemask`** keeps the caller's return address and one callee-saved
+// register in the buffer's two spare words, calls `setjmp` with the buffer in that register, and
+// ends in `sigsetjmp_tail`. The tail runs on both returns: straight after `setjmp`, it reads the
+// signal mask into the buffer; after a `siglongjmp`, it puts the mask back. With `savemask` 0 it is
+// `setjmp`, and the tail never runs.
+//
+// `sigsetjmp` is a block and a section of its own, so a board that links `setjmp` alone with
+// `--gc-sections` drops it, and with it the reference to `sigprocmask`.
+
+#if aarch64 || thumb || riscv32
+#if !macos
+@section(".text.setjmp")
+#endif
+asm
+    [aarch64]
+        ".p2align 2"
+#if macos
+        ".globl _setjmp"
+        "_setjmp:"
+#else
+        ".globl setjmp"
+        ".type setjmp, %function"
+        "setjmp:"
+#endif
+        "stp x19, x20, [x0, #0]"
+        "stp x21, x22, [x0, #16]"
+        "stp x23, x24, [x0, #32]"
+        "stp x25, x26, [x0, #48]"
+        "stp x27, x28, [x0, #64]"
+        "stp x29, x30, [x0, #80]"
+        "mov x2, sp"
+        "str x2, [x0, #96]"
+        "stp d8, d9, [x0, #104]"
+        "stp d10, d11, [x0, #120]"
+        "stp d12, d13, [x0, #136]"
+        "stp d14, d15, [x0, #152]"
+        "mov x0, #0"
+        "ret"
+#if macos
+        ".globl _longjmp"
+        ".globl _siglongjmp"
+        "_longjmp:"
+        "_siglongjmp:"
+#else
+        ".globl longjmp"
+        ".type longjmp, %function"
+        ".globl siglongjmp"
+        ".type siglongjmp, %function"
+        "longjmp:"
+        "siglongjmp:"
+#endif
+        "ldp x19, x20, [x0, #0]"
+        "ldp x21, x22, [x0, #16]"
+        "ldp x23, x24, [x0, #32]"
+        "ldp x25, x26, [x0, #48]"
+        "ldp x27, x28, [x0, #64]"
+        "ldp x29, x30, [x0, #80]"
+        "ldr x2, [x0, #96]"
+        "mov sp, x2"
+        "ldp d8, d9, [x0, #104]"
+        "ldp d10, d11, [x0, #120]"
+        "ldp d12, d13, [x0, #136]"
+        "ldp d14, d15, [x0, #152]"
+        "cmp w1, #0"
+        "csinc w0, w1, wzr, ne"     // val, or 0 + 1 where val is 0
+        "ret"
+    [thumb]
+        ".syntax unified"
+        ".p2align 2"
+        ".thumb_func"
+        ".globl setjmp"
+        ".type setjmp, %function"
+        "setjmp:"
+        "stmia r0!, {{r4-r7}}"
+        "mov r1, r8"
+        "mov r2, r9"
+        "mov r3, r10"
+        "stmia r0!, {{r1-r3}}"
+        "mov r1, r11"
+        "mov r2, sp"
+        "mov r3, lr"
+        "stmia r0!, {{r1-r3}}"
+        "movs r0, #0"
+        "bx lr"
+        ".thumb_func"
+        ".globl longjmp"
+        ".type longjmp, %function"
+        ".globl siglongjmp"
+        ".type siglongjmp, %function"
+        "longjmp:"
+        "siglongjmp:"
+        "mov r12, r1"
+        "adds r0, #16"
+        "ldmia r0!, {{r1-r3}}"
+        "mov r8, r1"
+        "mov r9, r2"
+        "mov r10, r3"
+        "ldmia r0!, {{r1-r3}}"
+        "mov r11, r1"
+        "mov sp, r2"
+        "mov lr, r3"
+        "subs r0, #40"
+        "ldmia r0!, {{r4-r7}}"
+        "mov r0, r12"
+        "cmp r0, #0"
+        "bne 1f"
+        "movs r0, #1"
+        "1:"
+        "bx lr"
+    [riscv32]
+        ".p2align 2"
+        ".globl setjmp"
+        ".type setjmp, %function"
+        "setjmp:"
+        "sw ra, 0(a0)"
+        "sw sp, 4(a0)"
+        "sw s0, 8(a0)"
+        "sw s1, 12(a0)"
+        "sw s2, 16(a0)"
+        "sw s3, 20(a0)"
+        "sw s4, 24(a0)"
+        "sw s5, 28(a0)"
+        "sw s6, 32(a0)"
+        "sw s7, 36(a0)"
+        "sw s8, 40(a0)"
+        "sw s9, 44(a0)"
+        "sw s10, 48(a0)"
+        "sw s11, 52(a0)"
+        "li a0, 0"
+        "ret"
+        ".globl longjmp"
+        ".type longjmp, %function"
+        ".globl siglongjmp"
+        ".type siglongjmp, %function"
+        "longjmp:"
+        "siglongjmp:"
+        "lw ra, 0(a0)"
+        "lw sp, 4(a0)"
+        "lw s0, 8(a0)"
+        "lw s1, 12(a0)"
+        "lw s2, 16(a0)"
+        "lw s3, 20(a0)"
+        "lw s4, 24(a0)"
+        "lw s5, 28(a0)"
+        "lw s6, 32(a0)"
+        "lw s7, 36(a0)"
+        "lw s8, 40(a0)"
+        "lw s9, 44(a0)"
+        "lw s10, 48(a0)"
+        "lw s11, 52(a0)"
+        "seqz a0, a1"
+        "add a0, a0, a1"            // val, or 1 where val is 0
+        "ret"
+    [x86_64, riscv64, craft, wasm32] unavailable "cstd's setjmp is written for aarch64, thumb and riscv32"
+
+#if !macos
+@section(".text.sigsetjmp")
+#endif
+asm
+    [aarch64]
+        ".p2align 2"
+#if macos
+        ".globl _sigsetjmp"
+        "_sigsetjmp:"
+        "cbnz w1, 1f"
+        "b _setjmp"
+        "1:"
+#else
+        ".globl sigsetjmp"
+        ".type sigsetjmp, %function"
+        "sigsetjmp:"
+        "cbnz w1, 1f"
+        "b setjmp"
+        "1:"
+#endif
+        "str x30, [x0, #168]"
+        "str x19, [x0, #176]"
+        "mov x19, x0"
+#if macos
+        "bl _setjmp"
+#else
+        "bl setjmp"
+#endif
+        "mov w1, w0"
+        "mov x0, x19"
+        "ldr x30, [x0, #168]"
+        "ldr x19, [x0, #176]"
+        "add x0, x0, #192"          // the mask
+#if macos
+        "b _cstd_sigsetjmp_tail"
+#else
+        "b cstd_sigsetjmp_tail"
+#endif
+    [thumb]
+        ".syntax unified"
+        ".p2align 2"
+        ".thumb_func"
+        ".globl sigsetjmp"
+        ".type sigsetjmp, %function"
+        "sigsetjmp:"
+        "cmp r1, #0"
+        "bne 1f"
+        "ldr r3, =setjmp"           // Armv6-M's `b` reaches 2 KiB, and setjmp is in another section
+        "bx r3"
+        "1:"
+        "mov r2, lr"
+        "str r2, [r0, #104]"
+        "str r4, [r0, #108]"
+        "mov r4, r0"
+        "bl setjmp"
+        "mov r1, r0"
+        "mov r0, r4"
+        "ldr r2, [r0, #104]"
+        "mov lr, r2"
+        "ldr r4, [r0, #108]"
+        "adds r0, #112"             // the mask
+        "ldr r3, =cstd_sigsetjmp_tail"
+        "bx r3"
+        ".ltorg"
+    [riscv32]
+        ".p2align 2"
+        ".globl sigsetjmp"
+        ".type sigsetjmp, %function"
+        "sigsetjmp:"
+        "bnez a1, 1f"
+        "tail setjmp"
+        "1:"
+        "sw ra, 56(a0)"
+        "sw s1, 60(a0)"
+        "mv s1, a0"
+        "call setjmp"
+        "mv a1, a0"
+        "mv a0, s1"
+        "lw ra, 56(a0)"
+        "lw s1, 60(a0)"
+        "addi a0, a0, 64"           // the mask
+        "tail cstd_sigsetjmp_tail"
+    [x86_64, riscv64, craft, wasm32] unavailable "cstd's setjmp is written for aarch64, thumb and riscv32"
+#endif
+
+// The signal mask is the operating system's, so it is read and set through `sigprocmask`, which
+// the platform supplies as it supplies `write`.
+@needs(os)
+private extern "sigprocmask" c_sigprocmask(how: i32, set: *u8, old: *u8) -> i32
+
+// `SIG_SETMASK`, which is not the same number everywhere.
+#if macos
+private const SIG_SETMASK: i32 = 3
+#else
+private const SIG_SETMASK: i32 = 2
+#endif
+
+// The end of `sigsetjmp`, on both of its returns. `ret` is what `setjmp` answered: 0 the first time,
+// when the mask is read into the buffer; anything else after `siglongjmp`, when it is put back.
+@export("cstd_sigsetjmp_tail")
+sigsetjmp_tail(mask: *u8, ret: i32) -> i32
+    if ret == 0
+        c_sigprocmask(SIG_SETMASK, null, mask)
+    else
+        c_sigprocmask(SIG_SETMASK, mask, null)
+    ret

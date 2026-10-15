@@ -1,0 +1,46 @@
+module sh.sysl.cstd
+
+// The functions of `<inttypes.h>`: `imaxabs`, `imaxdiv` and the four string conversions.
+//
+// `intmax_t` is 64 bits on every target C runs on (`long` on an LP64 machine, `long long` on a
+// Cortex-M), so the functions are spelled over `i64` and `u64`; the ABI is the same either way. The
+// narrow conversions are `strtoll` and `strtoull` of `stdlib.sysl`, and the wide ones run the same
+// `scan` over a `wchar_t` string, so the two families cannot disagree.
+//
+// A `wchar_t` is 32 bits on every target cstd builds for, signed on Linux and unsigned on a
+// Cortex-M; it is read as `u32` here. In the C locale only ASCII characters are white space or
+// digits.
+
+// What `imaxdiv` answers. The fields are in C's order, as `LLDivT`'s are.
+struct ImaxDivT
+    quot: i64
+    rem: i64
+
+// `imaxabs(INT64_MIN)` is undefined in C; here it is `INT64_MIN`, the two's-complement wrap.
+@export("imaxabs")
+imaxabs(n: i64) -> i64 = if n < 0 then -n else n
+
+// Division truncates toward zero, so the remainder takes the dividend's sign. A zero divisor is
+// undefined in C and traps here.
+@export("imaxdiv")
+imaxdiv(n: i64, d: i64) -> ImaxDivT = ImaxDivT(n / d, n % d)
+
+@export("strtoimax")
+strtoimax(text: *u8, endptr: **u8, base: i32) -> i64 = i64(strtoll(text, endptr, base))
+
+@export("strtoumax")
+strtoumax(text: *u8, endptr: **u8, base: i32) -> u64 = u64(strtoull(text, endptr, base))
+
+@export("wcstoimax")
+wcstoimax(text: *u32, endptr: **u32, base: i32) -> i64
+    val s = scan(text, base, u64(i64::Max), u64(i64::Max) + 1)
+    settle(text, s, endptr)
+    if s.overflowed then return if s.negative then i64::Min else i64::Max
+    if s.negative then -i64(s.magnitude) else i64(s.magnitude)
+
+@export("wcstoumax")
+wcstoumax(text: *u32, endptr: **u32, base: i32) -> u64
+    val s = scan(text, base, u64::Max, u64::Max)
+    settle(text, s, endptr)
+    if s.overflowed then return u64::Max
+    if s.negative then 0 - s.magnitude else s.magnitude
