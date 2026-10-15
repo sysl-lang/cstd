@@ -1,0 +1,412 @@
+module sh.sysl.cstd
+
+@tests
+
+// `<locale.h>`, and `<ctype.h>`'s `_l` variants, called from C.
+//
+// The C locale is the only one, so what is checked is that it is offered under every name POSIX
+// gives it and refused under every other, that its conventions are the C locale's, and that the
+// locale objects behave as POSIX's protocol says: what `uselocale` hands back, what `newlocale`
+// refuses and with which `errno`.
+
+@test("every _l classifier answers as its plain twin, given a locale newlocale made")
+locale_classifiers_with_an_object()
+    c_case(raw"""
+        locale_t l = newlocale(LC_ALL_MASK, "C", (locale_t)0);
+        say_class_l(isdigit_l, isdigit, l);
+        say_class_l(isxdigit_l, isxdigit, l);
+        say_class_l(isupper_l, isupper, l);
+        say_class_l(islower_l, islower, l);
+        say_class_l(isalpha_l, isalpha, l);
+        say_class_l(isalnum_l, isalnum, l);
+        say_class_l(isspace_l, isspace, l);
+        say_class_l(isblank_l, isblank, l);
+        say_class_l(iscntrl_l, iscntrl, l);
+        say_class_l(isprint_l, isprint, l);
+        say_class_l(isgraph_l, isgraph, l);
+        say_class_l(ispunct_l, ispunct, l);
+        say_mapping_l(tolower_l, tolower, l);
+        say_mapping_l(toupper_l, toupper, l);
+        freelocale(l);
+        """, raw"""
+        48-57
+        same
+        48-57,65-70,97-102
+        same
+        65-90
+        same
+        97-122
+        same
+        65-90,97-122
+        same
+        48-57,65-90,97-122
+        same
+        9-13,32
+        same
+        9,32
+        same
+        0-31,127
+        same
+        32-126
+        same
+        33-126
+        same
+        33-47,58-64,91-96,123-126
+        same
+        65-90:+32
+        same
+        97-122:-32
+        same
+        """)
+
+@test("every _l classifier answers as its plain twin, given LC_GLOBAL_LOCALE")
+locale_classifiers_with_the_global_locale()
+    c_case(raw"""
+        locale_t g = LC_GLOBAL_LOCALE;
+        say_class_l(isdigit_l, isdigit, g);
+        say_class_l(isxdigit_l, isxdigit, g);
+        say_class_l(isupper_l, isupper, g);
+        say_class_l(islower_l, islower, g);
+        say_class_l(isalpha_l, isalpha, g);
+        say_class_l(isalnum_l, isalnum, g);
+        say_class_l(isspace_l, isspace, g);
+        say_class_l(isblank_l, isblank, g);
+        say_class_l(iscntrl_l, iscntrl, g);
+        say_class_l(isprint_l, isprint, g);
+        say_class_l(isgraph_l, isgraph, g);
+        say_class_l(ispunct_l, ispunct, g);
+        say_mapping_l(tolower_l, tolower, g);
+        say_mapping_l(toupper_l, toupper, g);
+        say_int(tolower_l(-1, g));
+        say_int(toupper_l(0xe0, g));
+        """, raw"""
+        48-57
+        same
+        48-57,65-70,97-102
+        same
+        65-90
+        same
+        97-122
+        same
+        65-90,97-122
+        same
+        48-57,65-90,97-122
+        same
+        9-13,32
+        same
+        9,32
+        same
+        0-31,127
+        same
+        32-126
+        same
+        33-126
+        same
+        33-47,58-64,91-96,123-126
+        same
+        65-90:+32
+        same
+        97-122:-32
+        same
+        -1
+        224
+        """)
+
+@test("the categories and masks have their documented values")
+locale_macros()
+    c_case(raw"""
+        say_int(LC_CTYPE);
+        say_int(LC_NUMERIC);
+        say_int(LC_TIME);
+        say_int(LC_COLLATE);
+        say_int(LC_MONETARY);
+        say_int(LC_MESSAGES);
+        say_int(LC_ALL);
+        say_int(LC_CTYPE_MASK | LC_NUMERIC_MASK << 8 | LC_TIME_MASK << 16 | LC_COLLATE_MASK << 24);
+        say_int(LC_MONETARY_MASK | LC_MESSAGES_MASK << 8);
+        say_int(LC_ALL_MASK);
+        say_int(LC_GLOBAL_LOCALE == (locale_t)0);
+        """, raw"""
+        0
+        1
+        2
+        3
+        4
+        5
+        6
+        134480385
+        8208
+        63
+        0
+        """)
+
+@test("setlocale accepts C, POSIX and the empty name in every category, and answers C")
+locale_setlocale_accepts()
+    c_case(raw"""
+        int cats[] = { LC_ALL, LC_CTYPE, LC_NUMERIC, LC_TIME, LC_COLLATE, LC_MONETARY, LC_MESSAGES };
+        for (int i = 0; i < 7; i++) {
+            say_str(setlocale(cats[i], NULL));
+            say_str(setlocale(cats[i], "C"));
+            say_str(setlocale(cats[i], "POSIX"));
+            say_str(setlocale(cats[i], ""));
+        }
+        """, raw"""
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        """)
+
+@test("setlocale refuses every other name and every other category, and the locale stays C")
+locale_setlocale_refuses()
+    c_case(raw"""
+        say_str(setlocale(LC_ALL, "fr_FR"));
+        say_str(setlocale(LC_CTYPE, "C.UTF-8"));
+        say_str(setlocale(LC_ALL, "c"));
+        say_str(setlocale(LC_ALL, "posix"));
+        say_str(setlocale(LC_ALL, "POSI"));
+        say_str(setlocale(LC_ALL, "POSIXX"));
+        say_str(setlocale(LC_ALL, "CC"));
+        say_str(setlocale(LC_ALL, " "));
+        say_str(setlocale(7, "C"));
+        say_str(setlocale(-1, NULL));
+        say_str(setlocale(LC_ALL, NULL));
+        """, raw"""
+        NULL
+        NULL
+        NULL
+        NULL
+        NULL
+        NULL
+        NULL
+        NULL
+        NULL
+        NULL
+        C
+        """)
+
+@test("localeconv answers the C locale's conventions, in the one structure every call returns")
+locale_localeconv()
+    c_case(raw"""
+        struct lconv *lc = localeconv();
+        say_bytes(lc->decimal_point, strlen(lc->decimal_point) + 1);
+        say_bytes(lc->thousands_sep, strlen(lc->thousands_sep) + 1);
+        say_bytes(lc->grouping, strlen(lc->grouping) + 1);
+        say_bytes(lc->int_curr_symbol, strlen(lc->int_curr_symbol) + 1);
+        say_bytes(lc->currency_symbol, strlen(lc->currency_symbol) + 1);
+        say_bytes(lc->mon_decimal_point, strlen(lc->mon_decimal_point) + 1);
+        say_bytes(lc->mon_thousands_sep, strlen(lc->mon_thousands_sep) + 1);
+        say_bytes(lc->mon_grouping, strlen(lc->mon_grouping) + 1);
+        say_bytes(lc->positive_sign, strlen(lc->positive_sign) + 1);
+        say_bytes(lc->negative_sign, strlen(lc->negative_sign) + 1);
+        char nums[14] = {
+            lc->int_frac_digits, lc->frac_digits, lc->p_cs_precedes, lc->p_sep_by_space,
+            lc->n_cs_precedes, lc->n_sep_by_space, lc->p_sign_posn, lc->n_sign_posn,
+            lc->int_p_cs_precedes, lc->int_n_cs_precedes, lc->int_p_sep_by_space,
+            lc->int_n_sep_by_space, lc->int_p_sign_posn, lc->int_n_sign_posn
+        };
+        int all_max = 1;
+        for (int i = 0; i < 14; i++) if (nums[i] != CHAR_MAX) all_max = 0;
+        say_int(all_max);
+        say_ptr_eq(localeconv(), lc);
+        say_int(sizeof(struct lconv) == 10 * sizeof(char *) + 16);
+        """, raw"""
+        .[00]
+        [00]
+        [00]
+        [00]
+        [00]
+        [00]
+        [00]
+        [00]
+        [00]
+        [00]
+        1
+        1
+        1
+        """)
+
+@test("newlocale makes a locale for C, POSIX and the empty name, under any mask and any base")
+locale_newlocale_accepts()
+    c_case(raw"""
+        locale_t l = newlocale(LC_ALL_MASK, "C", (locale_t)0);
+        say_int(l != (locale_t)0 && l != LC_GLOBAL_LOCALE);
+        int masks[] = { LC_CTYPE_MASK, LC_NUMERIC_MASK, LC_TIME_MASK, LC_COLLATE_MASK,
+                        LC_MONETARY_MASK, LC_MESSAGES_MASK, LC_CTYPE_MASK | LC_TIME_MASK };
+        for (int i = 0; i < 7; i++) {
+            locale_t m = newlocale(masks[i], "POSIX", (locale_t)0);
+            say_int(m != (locale_t)0 && m != LC_GLOBAL_LOCALE);
+            freelocale(m);
+        }
+        locale_t e = newlocale(LC_ALL_MASK, "", (locale_t)0);
+        say_int(e != (locale_t)0);
+        locale_t b = newlocale(LC_NUMERIC_MASK, "C", e);
+        say_int(b != (locale_t)0 && b != LC_GLOBAL_LOCALE);
+        say_int(isalpha_l('a', b));
+        say_str(getlocalename_l(LC_NUMERIC, b));
+        locale_t none = newlocale(0, "fr_FR", (locale_t)0);
+        say_int(none != (locale_t)0);
+        freelocale(none);
+        freelocale(b);
+        freelocale(l);
+        """, raw"""
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        C
+        1
+        """)
+
+@test("newlocale refuses another locale's name with ENOENT and a bad mask with EINVAL, leaving base alone")
+locale_newlocale_refuses()
+    c_case(raw"""
+        locale_t base = newlocale(LC_ALL_MASK, "C", (locale_t)0);
+        errno = 0;
+        say_int(newlocale(LC_ALL_MASK, "fr_FR", (locale_t)0) == (locale_t)0);
+        say_int(errno);
+        errno = 0;
+        say_int(newlocale(LC_CTYPE_MASK, "C.UTF-8", base) == (locale_t)0);
+        say_int(errno);
+        errno = 0;
+        say_int(newlocale(LC_ALL_MASK, "posix", (locale_t)0) == (locale_t)0);
+        say_int(errno);
+        errno = 0;
+        say_int(newlocale(1 << 6, "C", (locale_t)0) == (locale_t)0);
+        say_int(errno);
+        errno = 0;
+        say_int(newlocale(LC_ALL_MASK | 1 << 30, "fr_FR", (locale_t)0) == (locale_t)0);
+        say_int(errno);
+        errno = 0;
+        say_int(newlocale(LC_ALL_MASK, NULL, (locale_t)0) == (locale_t)0);
+        say_int(errno);
+        say_int(isdigit_l('7', base));
+        say_str(getlocalename_l(LC_ALL, base));
+        freelocale(base);
+        """, raw"""
+        1
+        2
+        1
+        2
+        1
+        2
+        1
+        22
+        1
+        22
+        1
+        22
+        1
+        C
+        """)
+
+@test("uselocale installs a locale, answers the one it replaced, and LC_GLOBAL_LOCALE uninstalls it")
+locale_uselocale_round_trip()
+    c_case(raw"""
+        say_int(uselocale((locale_t)0) == LC_GLOBAL_LOCALE);
+        locale_t l = newlocale(LC_ALL_MASK, "C", (locale_t)0);
+        locale_t d = duplocale(l);
+        say_int(uselocale(l) == LC_GLOBAL_LOCALE);
+        say_ptr_eq(uselocale((locale_t)0), l);
+        say_ptr_eq(uselocale(d), l);
+        say_ptr_eq(uselocale((locale_t)0), d);
+        say_ptr_eq(uselocale(LC_GLOBAL_LOCALE), d);
+        say_int(uselocale((locale_t)0) == LC_GLOBAL_LOCALE);
+        say_int(uselocale(LC_GLOBAL_LOCALE) == LC_GLOBAL_LOCALE);
+        say_int(uselocale((locale_t)0) == LC_GLOBAL_LOCALE);
+        freelocale(d);
+        freelocale(l);
+        """, raw"""
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        1
+        """)
+
+@test("duplocale copies a locale or the global one, and freelocale leaves errno alone")
+locale_duplocale_freelocale()
+    c_case(raw"""
+        locale_t l = newlocale(LC_ALL_MASK, "C", (locale_t)0);
+        locale_t d = duplocale(l);
+        say_int(d != (locale_t)0 && d != LC_GLOBAL_LOCALE);
+        locale_t g = duplocale(LC_GLOBAL_LOCALE);
+        say_int(g != (locale_t)0 && g != LC_GLOBAL_LOCALE);
+        say_int(isupper_l('Q', g));
+        errno = 99;
+        freelocale(g);
+        freelocale(d);
+        freelocale(l);
+        say_int(errno);
+        """, raw"""
+        1
+        1
+        1
+        99
+        """)
+
+@test("getlocalename_l names C for every category of any locale, and nothing for another category")
+locale_getlocalename_l()
+    c_case(raw"""
+        locale_t l = newlocale(LC_ALL_MASK, "C", (locale_t)0);
+        int cats[] = { LC_ALL, LC_CTYPE, LC_NUMERIC, LC_TIME, LC_COLLATE, LC_MONETARY, LC_MESSAGES };
+        for (int i = 0; i < 7; i++) {
+            say_str(getlocalename_l(cats[i], l));
+            say_str(getlocalename_l(cats[i], LC_GLOBAL_LOCALE));
+        }
+        say_str(getlocalename_l(7, l));
+        say_str(getlocalename_l(-1, LC_GLOBAL_LOCALE));
+        freelocale(l);
+        """, raw"""
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        C
+        NULL
+        NULL
+        """)

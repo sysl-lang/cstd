@@ -38,7 +38,7 @@ design question below.
 
 ## `<ctype.h>`
 
-All 14 C functions are done in the core. The page says they "shall be declared as functions and may also
+All 28 functions are done in the core. The page says they "shall be declared as functions and may also
 be defined as macros"; cstd declares them as functions only, which satisfies it.
 
 | function | codes | status | needs | half |
@@ -57,20 +57,43 @@ be defined as macros"; cstd declares them as functions only, which satisfies it.
 | isxdigit | | done (core) | | core |
 | tolower | | done (core) | | core |
 | toupper | | done (core) | | core |
-| isalnum_l | CX | missing | locale | core |
-| isalpha_l | CX | missing | locale | core |
-| isblank_l | CX | missing | locale | core |
-| iscntrl_l | CX | missing | locale | core |
-| isdigit_l | CX | missing | locale | core |
-| isgraph_l | CX | missing | locale | core |
-| islower_l | CX | missing | locale | core |
-| isprint_l | CX | missing | locale | core |
-| ispunct_l | CX | missing | locale | core |
-| isspace_l | CX | missing | locale | core |
-| isupper_l | CX | missing | locale | core |
-| isxdigit_l | CX | missing | locale | core |
-| tolower_l | CX | missing | locale | core |
-| toupper_l | CX | missing | locale | core |
+| isalnum_l | CX | done (core) | | core |
+| isalpha_l | CX | done (core) | | core |
+| isblank_l | CX | done (core) | | core |
+| iscntrl_l | CX | done (core) | | core |
+| isdigit_l | CX | done (core) | | core |
+| isgraph_l | CX | done (core) | | core |
+| islower_l | CX | done (core) | | core |
+| isprint_l | CX | done (core) | | core |
+| ispunct_l | CX | done (core) | | core |
+| isspace_l | CX | done (core) | | core |
+| isupper_l | CX | done (core) | | core |
+| isxdigit_l | CX | done (core) | | core |
+| tolower_l | CX | done (core) | | core |
+| toupper_l | CX | done (core) | | core |
+
+Out of scope: none. The header defines `locale_t` as `<locale.h>` does, and each `_l` variant answers
+as its plain twin whatever locale it is given, since every locale is the C locale.
+
+## `<locale.h>`
+
+The C locale is the only locale. `setlocale` and `newlocale` accept "C", "POSIX" and "" (the native
+locale, which is the C locale here) and refuse any other name; `setlocale` answers "C". `localeconv`
+answers the C locale's conventions (`decimal_point` ".", every other string "", every `char` member
+`CHAR_MAX`). Every locale object is one static object, so nothing allocates and `freelocale` releases
+nothing; `LC_GLOBAL_LOCALE` is `(locale_t)-1`. The current locale is one per program, not per thread.
+The header also defines `struct lconv`, `LC_ALL`, `LC_COLLATE`, `LC_CTYPE`, `LC_MONETARY`,
+`LC_NUMERIC`, `LC_TIME`, `LC_MESSAGES`, the seven `LC_*_MASK` and `NULL`.
+
+| function | codes | status | needs | half |
+|---|---|---|---|---|
+| duplocale | CX | done (core) | | core |
+| freelocale | CX | done (core) | | core |
+| getlocalename_l | CX | done (core) | | core |
+| localeconv | | done (core) | | core |
+| newlocale | CX | done (core) | | core |
+| setlocale | | done (core) | | core |
+| uselocale | CX | done (core) | | core |
 
 Out of scope: none.
 
@@ -336,39 +359,43 @@ Out of scope:
 | memchr | | done (core) | | core |
 | memcmp | | done (core) | | core |
 | memcpy | | done (core) | | core |
-| memmem | CX | missing | pure | core |
+| memmem | CX | done (core) | | core |
 | memmove | | done (core) | | core |
 | memset | | done (core) | | core |
-| stpcpy | CX | missing | pure | core |
-| stpncpy | CX | missing | pure | core |
+| stpcpy | CX | done (core) | | core |
+| stpncpy | CX | done (core) | | core |
 | strcat | | done (core) | | core |
 | strchr | | done (core) | | core |
 | strcmp | | done (core) | | core |
-| strcoll | | missing | locale | core |
-| strcoll_l | CX | missing | locale | core |
+| strcoll | | done (core) | | core |
+| strcoll_l | CX | done (core) | | core |
 | strcpy | | done (core) | | core |
 | strcspn | | done (core) | | core |
-| strdup | CX | missing | heap | either |
+| strdup | CX | done (core) | | core |
 | strerror | | done (core) | | core |
-| strerror_l | CX | missing | locale | core |
-| strerror_r | CX | missing | pure | core |
-| strlcat | CX | missing | pure | core |
-| strlcpy | CX | missing | pure | core |
+| strerror_l | CX | done (core) | | core |
+| strerror_r | CX | done (core) | | core |
+| strlcat | CX | done (core) | | core |
+| strlcpy | CX | done (core) | | core |
 | strlen | | done (core) | | core |
 | strncat | | done (core) | | core |
 | strncmp | | done (core) | | core |
 | strncpy | | done (core) | | core |
-| strndup | CX | missing | heap | either |
+| strndup | CX | done (core) | | core |
 | strnlen | CX | done (core) | | core |
 | strpbrk | | done (core) | | core |
 | strrchr | | done (core) | | core |
-| strsignal | CX | missing | pure | core |
+| strsignal | CX | done (core) | | core |
 | strspn | | done (core) | | core |
 | strstr | | done (core) | | core |
 | strtok | | done (core) | | core |
 | strtok_r | CX | done (core) | | core |
-| strxfrm | | missing | locale | core |
-| strxfrm_l | CX | missing | locale | core |
+| strxfrm | | done (core) | | core |
+| strxfrm_l | CX | done (core) | | core |
+
+`strdup` and `strndup` call an external `malloc` the program supplies (the Linux half's, a board's,
+or the host's). `strcoll`, `strxfrm` and the `_l` forms collate as the C locale does, by byte;
+`locale_t` is an opaque pointer, defined under the guard `__CSTD_LOCALE_T` so `locale.h` agrees.
 
 Out of scope:
 
@@ -565,19 +592,20 @@ In-scope functions only.
 
 | header | required | done | missing | pure | locale | heap | os | time | stdio streams |
 |---|---|---|---|---|---|---|---|---|---|
-| `ctype.h` | 28 | 14 | 14 | | 14 | | | | |
+| `ctype.h` | 28 | 28 | 0 | | | | | | |
 | `endian.h` | 12 | 12 | 0 | | | | | | |
 | `errno.h` | 0 | 0 | 0 | | | | | | |
 | `fcntl.h` | 4 | 2 | 2 | | | | 2 | | |
+| `locale.h` | 7 | 7 | 0 | | | | | | |
 | `signal.h` | 22 | 1 | 21 | 7 | | | 14 | | |
 | `stdio.h` | 67 | 8 | 59 | 3 | | 2 | 3 | | 51 |
 | `stdlib.h` | 49 | 25 | 24 | 6 | 5 | 2 | 11 | | |
-| `string.h` | 36 | 22 | 14 | 7 | 5 | 2 | | | |
+| `string.h` | 36 | 36 | 0 | | | | | | |
 | `sys/stat.h` | 14 | 3 | 11 | | | | 11 | | |
 | `sys/types.h` | 0 | 0 | 0 | | | | | | |
 | `time.h` | 22 | 2 | 20 | 4 | 1 | | 11 | 4 | |
 | `unistd.h` | 75 | 14 | 61 | 2 | | | 58 | 1 | |
-| **total** | **329** | **103** | **226** | **29** | **25** | **6** | **110** | **5** | **51** |
+| **total** | **336** | **138** | **198** | **22** | **6** | **4** | **110** | **5** | **51** |
 
 Out of scope, all missing: 51 functions (`fcntl.h` 2, `signal.h` 2, `stdio.h` 1, `stdlib.h` 23,
 `string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15).
@@ -590,7 +618,8 @@ cstd's. `<sys/types.h>` is included by `time.h`, `fcntl.h`, `signal.h`, `unistd.
 `<time.h>` by `sys/stat.h`. Both are offered.
 
 **Headers the standard's pages make the offered ones depend on.** `ctype.h`, `string.h` and `time.h`
-must define `locale_t` "as described in `<locale.h>`", which cstd does not offer. `time.h` declares
+must define `locale_t` "as described in `<locale.h>`"; `locale.h`, `ctype.h` and `string.h` define
+it, each under the guard `__CSTD_LOCALE_T`, and `time.h` does not yet. `time.h` declares
 `struct sigevent` as defined in `<signal.h>`, whose types (`sigset_t`, `siginfo_t`, `struct sigaction`,
 `union sigval`, `stack_t`, `pthread_t`) cstd's `signal.h` does not define.
 
@@ -604,7 +633,7 @@ not POSIX. POSIX.1-2024 is aligned with C17 and does not list it. It is held to 
 rest, that a header offered is complete: it declares and implements all 14 families in each of the five
 unsigned types (70 functions), and the 14 type-generic macros, `__STDC_VERSION_STDBIT_H__`,
 `__STDC_ENDIAN_LITTLE__`, `__STDC_ENDIAN_BIG__` and `__STDC_ENDIAN_NATIVE__`. These 70 are not counted in
-the Summary, which covers POSIX alone. The other twelve headers are POSIX headers.
+the Summary, which covers POSIX alone. The other thirteen headers are POSIX headers.
 
 ## Declarations that disagree
 
@@ -622,9 +651,8 @@ the Summary, which covers POSIX alone. The other twelve headers are POSIX header
 2. Where `heap` functions (`strdup`, `strndup`, `asprintf`, `vasprintf`, `aligned_alloc`, `reallocarray`)
    live: in the core, calling an external `malloc` that the Linux half or a board supplies, or only in
    the Linux half.
-3. Locale with only the C locale: what `locale_t` is, whether `<locale.h>` (`newlocale`, `uselocale`,
-   `freelocale`) is offered so a program can obtain one, and whether the `_l` variants simply ignore
-   their argument.
+3. Locale with only the C locale: settled. `locale_t` is an opaque pointer, `<locale.h>` is offered,
+   and the `_l` variants answer as the C locale whatever they are given.
 4. The `FILE` layer: its buffering, where `stdin`/`stdout`/`stderr` come from on a board, whether
    `printf`/`vprintf` become `fprintf(stdout, …)` while `dprintf` stays over `write`, and whether the
    memory-only parts (`sscanf`, `fmemopen`, `open_memstream`) sit in the core.

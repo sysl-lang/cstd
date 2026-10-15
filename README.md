@@ -17,8 +17,9 @@ require, exported under its C name with `@export`.
 
 | header | functions |
 |---|---|
-| `string.h` | `strlen` `strnlen` `strcmp` `strncmp` `strcpy` `strncpy` `strcat` `strncat` `strchr` `strrchr` `strstr` `strspn` `strcspn` `strpbrk` `strtok` `strtok_r` `strerror` `memcpy` `memmove` `memset` `memcmp` `memchr` |
-| `ctype.h` | `isalnum` `isalpha` `isblank` `iscntrl` `isdigit` `isgraph` `islower` `isprint` `ispunct` `isspace` `isupper` `isxdigit` `tolower` `toupper`, for the C locale |
+| `string.h` | `strlen` `strnlen` `strcmp` `strncmp` `strcpy` `strncpy` `strcat` `strncat` `strchr` `strrchr` `strstr` `strspn` `strcspn` `strpbrk` `strtok` `strtok_r` `strerror` `strerror_r` `strerror_l` `strsignal` `stpcpy` `stpncpy` `strlcpy` `strlcat` `strdup` `strndup` `strcoll` `strcoll_l` `strxfrm` `strxfrm_l` `memcpy` `memmove` `memset` `memcmp` `memchr` `memmem` — all of POSIX.1-2024's base `<string.h>` |
+| `ctype.h` | `isalnum` `isalpha` `isblank` `iscntrl` `isdigit` `isgraph` `islower` `isprint` `ispunct` `isspace` `isupper` `isxdigit` `tolower` `toupper`, and the `_l` variant of each, for the C locale |
+| `locale.h` | `setlocale` `localeconv` `newlocale` `duplocale` `freelocale` `uselocale` `getlocalename_l`, for the C locale |
 | `stdlib.h` | `atoi` `atol` `atof` `strtol` `strtoul` `strtoll` `strtoull` `strtod` `strtof` `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch` |
 | `endian.h` | POSIX.1-2024's `BYTE_ORDER` `LITTLE_ENDIAN` `BIG_ENDIAN` and `be16toh` `be32toh` `be64toh` `htobe16` `htobe32` `htobe64` `htole16` `htole32` `htole64` `le16toh` `le32toh` `le64toh` |
 | `stdbit.h` | ISO C23's 14 families (`stdc_leading_zeros` `stdc_leading_ones` `stdc_trailing_zeros` `stdc_trailing_ones` `stdc_first_leading_zero` `stdc_first_leading_one` `stdc_first_trailing_zero` `stdc_first_trailing_one` `stdc_count_zeros` `stdc_count_ones` `stdc_has_single_bit` `stdc_bit_width` `stdc_bit_floor` `stdc_bit_ceil`), each as `_uc` `_us` `_ui` `_ul` `_ull` functions and as a type-generic macro, with `__STDC_ENDIAN_*__` and `__STDC_VERSION_STDBIT_H__` |
@@ -70,6 +71,14 @@ require, exported under its C name with `@export`.
 - `strerror` knows `0` and every code `errno.h` defines, in glibc's words; any other code answers
   the fixed text `Unknown error`, because formatting the number in would need a formatter.
 - `strtok` keeps one save pointer for the whole program, as C does; `strtok_r` keeps it in the caller's hands.
+- `strdup` and `strndup` call an external `malloc` that the program supplies (the Linux half's, a
+  board's, or the host's), and set `ENOMEM` themselves when it answers null. `strndup` reads at most
+  `n` bytes and allocates only what it copies.
+- Only the C locale exists: `locale_t` is an opaque pointer the `_l` functions ignore, `strcoll` is
+  `strcmp`, and `strxfrm` copies its source when it fits (and touches nothing when it does not).
+- `strerror_r` is POSIX's `int` form: a message cut to fit is still terminated and answers `ERANGE`,
+  an unknown code answers `EINVAL` with `Unknown error` in the buffer. `strsignal` gives glibc's
+  words for each signal `signal.h` defines and `Unknown signal` for any other number.
 - Text with no number in it, or a base C does not define, sets `EINVAL`, as the BSD libcs do. C
   leaves that case unspecified.
 
@@ -139,7 +148,15 @@ guard byte on each side, NULs included. The cases cover:
 - not-found answers
 - overlapping `memmove` in both directions
 - `strncpy`'s padding and its missing terminator
-- every `<ctype.h>` function over EOF and 0–255
+- `n = 0`, exact-fit and one-short buffers for `strlcpy`, `strlcat`, `stpncpy`, `strxfrm` and
+  `strerror_r`, and `errno` left alone where the function promises it
+- `strdup`/`strndup` against a `malloc` the case supplies in its prelude: the size asked for, and
+  `ENOMEM` from a refusal
+- `memmem` with an empty needle, a needle longer than the haystack, and a match at the very end
+- every `<ctype.h>` function over EOF and 0–255, and each `_l` variant agreeing with its plain twin
+  there, given a locale object and given `LC_GLOBAL_LOCALE`
+- the names `setlocale` and `newlocale` accept and refuse, `newlocale`'s `ENOENT` and `EINVAL`,
+  every `localeconv` field, and `uselocale` handing back the locale it replaced
 - every `<stdbit.h>` function, through the function and the type-generic macro, over all 256 `unsigned
   char` values and a spread of patterns at each wider width, against a bit-by-bit reference written in
   the test, plus hand-worked tables of the edge values (0, all ones, the top bit alone, `bit_ceil`
@@ -162,6 +179,9 @@ this mode:
 - `nm -u` of the archive must show `__asan_report_load1` and `__asan_report_store1`.
 - `strlen` over a buffer with no NUL must be reported as a `stack-buffer-overflow` in `strlen`.
 
+And one ordinary case earns its keep here: `strnlen` and `strndup` over an unterminated array within
+their `n` must not read past it, which only ASan can see.
+
 The freestanding builds are checked with:
 
 ```
@@ -175,7 +195,11 @@ sysl build-lib . --target aarch64-freestanding
   the platform's: `linux/` answers both for Linux's ABI; a board's arena is still to come.
 - **`FILE` and the rest of stdio, `setjmp`.** Buffered streams are not written yet.
 - **`long double`, `strtold` and `%Lf`.** cstd's floats are `double` and `float` only.
-- **Locales.** Only the C locale exists: every byte from 0x80 up is in no class.
+- **Locales other than C.** Only the C locale exists: every byte from 0x80 up is in no class,
+  `setlocale` and `newlocale` accept only "C", "POSIX" and "" (which is the C locale here), and the
+  `_l` functions answer as the C locale whatever `locale_t` they are given. A locale's data would
+  have to come from somewhere, and nothing cstd runs on has it. The current locale `uselocale`
+  installs is one per program, like `errno`.
 - **A per-thread `errno`.** Nothing this library serves has threads yet.
 
 ## License
