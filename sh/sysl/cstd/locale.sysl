@@ -1,0 +1,136 @@
+module sh.sysl.cstd
+@include("<limits.h>")
+
+// `<locale.h>` for a library with one locale: the C locale, which POSIX also calls "POSIX".
+//
+// **There is nothing to switch between, so every function answers for the C locale.** `setlocale`
+// and `newlocale` accept the names "C" and "POSIX", and "" too: the empty name asks for the
+// environment's native locale, and with no other locale to name the C locale is the native one. Any
+// other name is refused, as a library refuses a locale it has no data for.
+//
+// A `locale_t` is a pointer to a locale object, and there is one object, `c_locale_object` below:
+// every locale `newlocale` and `duplocale` make is that one, so nothing is allocated and `freelocale`
+// has nothing to release. `LC_GLOBAL_LOCALE` is `(locale_t)-1`, as in musl and glibc, an address no
+// object can have.
+//
+// The current locale is one per program rather than one per thread, for the reason `errno` is:
+// nothing this library serves has threads yet.
+//
+// As in `string.sysl`, every function is exported under its C name, and a C `char *` is a `*u8`.
+
+// Plain `char` is signed on some targets and unsigned on others, so both its width and its largest
+// value are the C compiler's answer.
+c type
+    Char = "char"
+
+c const
+    CHAR_MAX: Char = "CHAR_MAX"
+
+// The categories and their masks. The numbers are musl's and glibc's for the six categories, so a
+// program built against either reads the same; `LC_ALL_MASK` is exactly the six bits, so a mask with
+// any other bit names a category that does not exist.
+const LC_CTYPE: i32 = 0
+const LC_NUMERIC: i32 = 1
+const LC_TIME: i32 = 2
+const LC_COLLATE: i32 = 3
+const LC_MONETARY: i32 = 4
+const LC_MESSAGES: i32 = 5
+const LC_ALL: i32 = 6
+const LC_ALL_MASK: i32 = 0x3f
+
+private var c_locale_object: u8 = 0
+
+// The locale this program last installed with `uselocale`, or null while it uses the global one.
+private var installed: *u8 = null
+
+private global_locale() -> *u8 = ptr_cast(~usize(0))
+
+private is_category(category: i32) -> bool = category >= LC_CTYPE && category <= LC_ALL
+
+private is_c_name(name: *u8) -> bool =
+    name[0] == 0 || strcmp(name, c"C") == 0 || strcmp(name, c"POSIX") == 0
+
+private c_name() -> *u8 = c"C"
+
+@export("setlocale")
+setlocale(category: i32, name: *u8) -> *u8
+    if !is_category(category) then return null
+    if name == null || is_c_name(name) then c_name() else null
+
+// The C locale's conventions: a `.` for the decimal point, and every other text empty and every
+// other number `CHAR_MAX`, which is C's way of saying the locale does not say.
+struct Lconv
+    decimal_point: *u8
+    thousands_sep: *u8
+    grouping: *u8
+    int_curr_symbol: *u8
+    currency_symbol: *u8
+    mon_decimal_point: *u8
+    mon_thousands_sep: *u8
+    mon_grouping: *u8
+    positive_sign: *u8
+    negative_sign: *u8
+    int_frac_digits: Char
+    frac_digits: Char
+    p_cs_precedes: Char
+    p_sep_by_space: Char
+    n_cs_precedes: Char
+    n_sep_by_space: Char
+    p_sign_posn: Char
+    n_sign_posn: Char
+    int_p_cs_precedes: Char
+    int_n_cs_precedes: Char
+    int_p_sep_by_space: Char
+    int_n_sep_by_space: Char
+    int_p_sign_posn: Char
+    int_n_sign_posn: Char
+
+private var conventions: Lconv
+
+// The structure is filled in on every call, so a program that wrote into it, which C forbids, still
+// reads the C locale's values from the next call.
+@export("localeconv")
+localeconv() -> *Lconv
+    val empty = c""
+    val none = CHAR_MAX
+    conventions = Lconv(
+        decimal_point = c".", thousands_sep = empty, grouping = empty,
+        int_curr_symbol = empty, currency_symbol = empty, mon_decimal_point = empty,
+        mon_thousands_sep = empty, mon_grouping = empty, positive_sign = empty, negative_sign = empty,
+        int_frac_digits = none, frac_digits = none, p_cs_precedes = none, p_sep_by_space = none,
+        n_cs_precedes = none, n_sep_by_space = none, p_sign_posn = none, n_sign_posn = none,
+        int_p_cs_precedes = none, int_n_cs_precedes = none, int_p_sep_by_space = none,
+        int_n_sep_by_space = none, int_p_sign_posn = none, int_n_sign_posn = none)
+    &conventions
+
+// A mask naming no category asks for nothing, so its name is never looked up; a mask with a bit
+// that is no category is `EINVAL`, and a name other than the C locale's is `ENOENT`. `base` is
+// never changed, since the locale it names is already the only one there is.
+@export("newlocale")
+newlocale(mask: i32, name: *u8, base: *u8) -> *u8
+    if mask & ~LC_ALL_MASK != 0 || name == null
+        errno = EINVAL
+        return null
+    if mask != 0 && !is_c_name(name)
+        errno = ENOENT
+        return null
+    &c_locale_object
+
+@export("duplocale")
+duplocale(loc: *u8) -> *u8 = &c_locale_object
+
+@export("freelocale")
+freelocale(loc: *u8)
+    return
+
+@export("uselocale")
+uselocale(loc: *u8) -> *u8
+    val previous = if installed == null then global_locale() else installed
+    if loc == global_locale()
+        installed = null
+    else if loc != null
+        installed = loc
+    previous
+
+@export("getlocalename_l")
+getlocalename_l(category: i32, loc: *u8) -> *u8 = if is_category(category) then c_name() else null

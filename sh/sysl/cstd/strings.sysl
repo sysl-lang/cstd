@@ -1,0 +1,53 @@
+module sh.sysl.cstd
+
+// `<strings.h>`: case-insensitive comparison and bit search.
+//
+// Only the C locale exists, so the `_l` forms take a locale and ignore it, and case folding is
+// ASCII: `A` to `Z` fold to `a` to `z` and every other byte, 0x80 up included, is its own folding.
+// Bytes are compared as `unsigned char`, as `strcmp` does. A comparison answers the difference of
+// the two folded bytes at the first place they differ.
+
+private fold(b: u8) -> i32 = if b >= u8('A') && b <= u8('Z') then i32(b) + 32 else i32(b)
+
+@export("strcasecmp")
+strcasecmp(a: *u8, b: *u8) -> i32
+    var i: usize = 0
+    loop
+        val d = fold(a[i]) - fold(b[i])
+        if d != 0 || a[i] == 0 then return d
+        i += 1
+
+@export("strncasecmp")
+strncasecmp(a: *u8, b: *u8, n: usize) -> i32
+    for i in 0..<n
+        val d = fold(a[i]) - fold(b[i])
+        if d != 0 || a[i] == 0 then return d
+    0
+
+// The locale is a `locale_t`, an opaque pointer; there is only one locale to name.
+@export("strcasecmp_l")
+strcasecmp_l(a: *u8, b: *u8, locale: *u8) -> i32 = strcasecmp(a, b)
+
+@export("strncasecmp_l")
+strncasecmp_l(a: *u8, b: *u8, n: usize, locale: *u8) -> i32 = strncasecmp(a, b, n)
+
+// The index of the least significant set bit, counting the least significant as 1; 0 for 0.
+private first_set(bits: u64) -> i32
+    if bits == 0 then return 0
+    var n: i32 = 1
+    var rest = bits
+    while rest & 1 == 0
+        rest = rest >> 1
+        n += 1
+    n
+
+// `long` is measured, as in `stdlib.sysl`: 32 bits on a Cortex-M, 64 on an LP64 machine. A negative
+// number is widened by its bit pattern, so the answer does not depend on the sign.
+@export("ffs")
+ffs(i: i32) -> i32 = first_set(u64(u32(i)))
+
+@export("ffsl")
+ffsl(i: Long) -> i32 = first_set(u64(ULong(i)))
+
+@export("ffsll")
+ffsll(i: LongLong) -> i32 = first_set(u64(ULongLong(i)))

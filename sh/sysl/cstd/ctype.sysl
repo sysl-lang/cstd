@@ -1,6 +1,6 @@
 module sh.sysl.cstd
 
-// `<ctype.h>` for the C locale, which is the only locale this library has.
+// `<ctype.h>` for the C locale, which is the only locale this library has (`locale.sysl`).
 //
 // C hands each of these an `int` that is either `EOF` (-1) or a byte read as `unsigned char`, and
 // in the C locale only the ASCII bytes belong to any class: every byte from 0x80 up answers no to
@@ -57,3 +57,48 @@ tolower(c: i32) -> i32 = if isupper(c) != 0 then c + 32 else c
 
 @export("toupper")
 toupper(c: i32) -> i32 = if islower(c) != 0 then c - 32 else c
+
+// The `_l` variants ask the same questions of a given locale. Every locale is the C locale here
+// (`locale.sysl`), so each answers exactly as its plain twin, whatever `loc` it is handed.
+
+@export("isalnum_l")
+isalnum_l(c: i32, loc: *u8) -> i32 = isalnum(c)
+
+@export("isalpha_l")
+isalpha_l(c: i32, loc: *u8) -> i32 = isalpha(c)
+
+@export("isblank_l")
+isblank_l(c: i32, loc: *u8) -> i32 = isblank(c)
+
+@export("iscntrl_l")
+iscntrl_l(c: i32, loc: *u8) -> i32 = iscntrl(c)
+
+@export("isdigit_l")
+isdigit_l(c: i32, loc: *u8) -> i32 = isdigit(c)
+
+@export("isgraph_l")
+isgraph_l(c: i32, loc: *u8) -> i32 = isgraph(c)
+
+@export("islower_l")
+islower_l(c: i32, loc: *u8) -> i32 = islower(c)
+
+@export("isprint_l")
+isprint_l(c: i32, loc: *u8) -> i32 = isprint(c)
+
+@export("ispunct_l")
+ispunct_l(c: i32, loc: *u8) -> i32 = ispunct(c)
+
+@export("isspace_l")
+isspace_l(c: i32, loc: *u8) -> i32 = isspace(c)
+
+@export("isupper_l")
+isupper_l(c: i32, loc: *u8) -> i32 = isupper(c)
+
+@export("isxdigit_l")
+isxdigit_l(c: i32, loc: *u8) -> i32 = isxdigit(c)
+
+@export("tolower_l")
+tolower_l(c: i32, loc: *u8) -> i32 = tolower(c)
+
+@export("toupper_l")
+toupper_l(c: i32, loc: *u8) -> i32 = toupper(c)

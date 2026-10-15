@@ -1,0 +1,134 @@
+module sh.sysl.cstd
+
+@tests
+
+// `<endian.h>`. The C cases state the bytes memory holds, which is the same on any host; the
+// integer values they print are the little-endian host's, which is what this suite runs on. The
+// sysl cases drive the reversal rule under both host orders, since no big-endian machine is at hand.
+
+// Prints the `n` bytes at `p` in decimal, in address order.
+private val prelude: string = raw"""
+#include <endian.h>
+
+static void show(const void *p, unsigned n) {
+    const unsigned char *b = p;
+    for (unsigned i = 0; i < n; i++) {
+        if (i) say_ch(' ');
+        put_u(b[i]);
+    }
+    say_end();
+}
+"""
+
+@test("the constants: distinct, the host's is one of them, and usable in #if")
+endian_constants()
+    c_case(raw"""
+        say_int(LITTLE_ENDIAN != BIG_ENDIAN);
+        say_int(BYTE_ORDER == LITTLE_ENDIAN || BYTE_ORDER == BIG_ENDIAN);
+        say_int(BYTE_ORDER == LITTLE_ENDIAN);
+        #if BYTE_ORDER == LITTLE_ENDIAN
+        say_str("little");
+        #elif BYTE_ORDER == BIG_ENDIAN
+        say_str("big");
+        #endif
+        """, raw"""
+        1
+        1
+        1
+        little
+        """, prelude)
+
+@test("host to big-endian and to little-endian leave the right bytes in memory")
+endian_to_bytes()
+    c_case(raw"""
+        uint16_t a = htobe16(0x0102), b = htole16(0x0102);
+        uint32_t c = htobe32(0x01020304u), d = htole32(0x01020304u);
+        uint64_t e = htobe64(0x0102030405060708ull), f = htole64(0x0102030405060708ull);
+        show(&a, 2); show(&b, 2);
+        show(&c, 4); show(&d, 4);
+        show(&e, 8); show(&f, 8);
+        """, raw"""
+        1 2
+        2 1
+        1 2 3 4
+        4 3 2 1
+        1 2 3 4 5 6 7 8
+        8 7 6 5 4 3 2 1
+        """, prelude)
+
+@test("big-endian and little-endian bytes read back as the value they spell")
+endian_from_bytes()
+    c_case(raw"""
+        unsigned char two[2] = {1, 2};
+        unsigned char four[4] = {1, 2, 3, 4};
+        unsigned char eight[8] = {1, 2, 3, 4, 5, 6, 7, 8};
+        uint16_t a; uint32_t b; uint64_t c;
+        memcpy(&a, two, 2); memcpy(&b, four, 4); memcpy(&c, eight, 8);
+        say_uint(be16toh(a)); say_uint(le16toh(a));
+        say_uint(be32toh(b)); say_uint(le32toh(b));
+        say_uint(be64toh(c)); say_uint(le64toh(c));
+        """, raw"""
+        258
+        513
+        16909060
+        67305985
+        72623859790382856
+        578437695752307201
+        """, prelude)
+
+@test("zero, all ones and the top bit survive the conversions; each is its own inverse")
+endian_edges()
+    c_case(raw"""
+        say_uint(htobe16(0)); say_uint(htole64(0));
+        say_uint(htobe16(0xffff)); say_uint(htobe32(0xffffffffu)); say_uint(htobe64(~0ull));
+        say_uint(htobe16(0x8000)); say_uint(htobe32(0x80000000u)); say_uint(htobe64(1ull << 63));
+        say_uint(be16toh(htobe16(0xabcd))); say_uint(be32toh(htobe32(0xdeadbeefu)));
+        say_uint(be64toh(htobe64(0x0123456789abcdefull)));
+        say_uint(le16toh(htole16(0xabcd))); say_uint(le32toh(htole32(0xdeadbeefu)));
+        say_uint(le64toh(htole64(0x0123456789abcdefull)));
+        """, raw"""
+        0
+        0
+        65535
+        4294967295
+        18446744073709551615
+        128
+        128
+        128
+        43981
+        3735928559
+        81985529216486895
+        43981
+        3735928559
+        81985529216486895
+        """, prelude)
+
+@test("the rule swaps when the host's order is not the wanted one, under both host orders")
+endian_rule_under_both_orders()
+    // A little-endian host: big wanted reverses, little wanted does not.
+    assert_eq(convert16(0x0102, true, true), 0x0201)
+    assert_eq(convert16(0x0102, true, false), 0x0102)
+    assert_eq(convert32(0x01020304, true, true), 0x04030201)
+    assert_eq(convert32(0x01020304, true, false), 0x01020304)
+    assert_eq(convert64(0x0102030405060708, true, true), 0x0807060504030201)
+    assert_eq(convert64(0x0102030405060708, true, false), 0x0102030405060708)
+    // A big-endian host: the mirror.
+    assert_eq(convert16(0x0102, false, true), 0x0102)
+    assert_eq(convert16(0x0102, false, false), 0x0201)
+    assert_eq(convert32(0x01020304, false, true), 0x01020304)
+    assert_eq(convert32(0x01020304, false, false), 0x04030201)
+    assert_eq(convert64(0x0102030405060708, false, true), 0x0102030405060708)
+    assert_eq(convert64(0x0102030405060708, false, false), 0x0807060504030201)
+
+@test("the exported functions are the rule applied with this host's order")
+endian_exports_use_the_host_order()
+    // The host's order, asked another way than the library asks it: the byte of lowest address.
+    var probe: u32 = 0x01020304
+    val first: *u8 = ptr_cast(&probe)
+    val little = first[0] == 4
+    assert_eq(htobe32(0x01020304), convert32(0x01020304, little, true))
+    assert_eq(be32toh(0x01020304), convert32(0x01020304, little, true))
+    assert_eq(htole32(0x01020304), convert32(0x01020304, little, false))
+    assert_eq(le32toh(0x01020304), convert32(0x01020304, little, false))
+    assert_eq(htobe16(0x0102), convert16(0x0102, little, true))
+    assert_eq(le64toh(0x0102030405060708), convert64(0x0102030405060708, little, false))

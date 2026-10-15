@@ -1,0 +1,55 @@
+module sh.sysl.cstd
+
+// The failure path of `<assert.h>`. The `assert` macro itself is in the header; it calls this with
+// the text of the expression and the `__func__`, `__FILE__` and `__LINE__` of the failing call.
+//
+// The diagnostic goes to descriptor 2 through `write`, which the platform supplies as it does for
+// `printf`, and is musl's form, since keel targets musl compatibility:
+//
+//     Assertion failed: x > 0 (prog.c: main: 12)
+//
+// Then `abort`, which the platform supplies too (cstd's Linux half defines it; a hosted libc has
+// its own).
+
+import sysl.slices.as_ptr
+
+@needs(os)
+private extern "write" assert_write(fd: i32, bytes: *u8, n: usize) -> isize
+@needs(os)
+private extern "abort" assert_abort() -> never
+
+private put_literal(text: string)
+    assert_write(2, as_ptr(text.bytes), text.bytes.len)
+
+private put(text: *u8)
+    var n: usize = 0
+    while text[n] != 0 do n += 1
+    assert_write(2, text, n)
+
+private put_number(n: i32)
+    var digits: [12]u8
+    var at: usize = 12
+    var rest = u32(n)
+    if n < 0 then rest = 0 - rest
+    loop
+        at -= 1
+        digits[at] = u8('0') + u8(rest % 10)
+        rest /= 10
+        if rest == 0 then break
+    if n < 0
+        at -= 1
+        digits[at] = u8('-')
+    assert_write(2, &digits[at], 12 - at)
+
+@export("__cstd_assert_fail")
+assert_fail(expr: *u8, func: *u8, file: *u8, line: i32) -> never
+    put_literal("Assertion failed: ")
+    put(expr)
+    put_literal(" (")
+    put(file)
+    put_literal(": ")
+    put(func)
+    put_literal(": ")
+    put_number(line)
+    put_literal(")\n")
+    assert_abort()
