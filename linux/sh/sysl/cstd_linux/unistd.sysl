@@ -91,6 +91,13 @@ stat(path: *u8, st: *u8) -> i32 = i32(checked(call(SYS_NEWFSTATAT, u64(AT_FDCWD)
 @export("kill")
 kill(pid: i32, sig: i32) -> i32 = i32(checked(call(SYS_KILL, u64(pid), u64(sig))))
 
+// The kernel's signal set is one 64-bit word on aarch64 (the last argument is its size, 8), and
+// `SIG_BLOCK`, `SIG_UNBLOCK`, `SIG_SETMASK` are 0, 1, 2, as the call takes them. Either set may be
+// null: no change, or no answer wanted. `sigsetjmp` reaches the mask through this.
+@export("sigprocmask")
+sigprocmask(how: i32, set: *u8, old: *u8) -> i32 =
+    i32(checked(call(SYS_RT_SIGPROCMASK, u64(how), addr(set), addr(old), 8)))
+
 // `struct timespec` is two 64-bit words, seconds and nanoseconds.
 @export("nanosleep")
 nanosleep(req: *u8, rem: *u8) -> i32 = i32(checked(call(SYS_NANOSLEEP, addr(req), addr(rem))))
