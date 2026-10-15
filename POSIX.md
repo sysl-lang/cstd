@@ -74,6 +74,30 @@ be defined as macros"; cstd declares them as functions only, which satisfies it.
 
 Out of scope: none.
 
+## `<endian.h>`
+
+New in Issue 8. The page has no margin codes. It requires the macros `BYTE_ORDER`, `LITTLE_ENDIAN` and
+`BIG_ENDIAN` (distinct values, usable in `#if`; cstd takes them from the compiler's `__BYTE_ORDER__`, so
+the header is right on a big-endian target too) and the twelve conversions, which "shall be declared as
+functions, or defined as macros, or both"; cstd declares them as functions only.
+
+| function | codes | status | needs | half |
+|---|---|---|---|---|
+| be16toh | | done (core) | | core |
+| be32toh | | done (core) | | core |
+| be64toh | | done (core) | | core |
+| htobe16 | | done (core) | | core |
+| htobe32 | | done (core) | | core |
+| htobe64 | | done (core) | | core |
+| htole16 | | done (core) | | core |
+| htole32 | | done (core) | | core |
+| htole64 | | done (core) | | core |
+| le16toh | | done (core) | | core |
+| le32toh | | done (core) | | core |
+| le64toh | | done (core) | | core |
+
+Out of scope: none.
+
 ## `<errno.h>`
 
 Declares no functions. See "Declarations that disagree" for `errno` itself.
@@ -542,6 +566,7 @@ In-scope functions only.
 | header | required | done | missing | pure | locale | heap | os | time | stdio streams |
 |---|---|---|---|---|---|---|---|---|---|
 | `ctype.h` | 28 | 14 | 14 | | 14 | | | | |
+| `endian.h` | 12 | 12 | 0 | | | | | | |
 | `errno.h` | 0 | 0 | 0 | | | | | | |
 | `fcntl.h` | 4 | 2 | 2 | | | | 2 | | |
 | `signal.h` | 22 | 1 | 21 | 7 | | | 14 | | |
@@ -552,7 +577,7 @@ In-scope functions only.
 | `sys/types.h` | 0 | 0 | 0 | | | | | | |
 | `time.h` | 22 | 2 | 20 | 4 | 1 | | 11 | 4 | |
 | `unistd.h` | 75 | 14 | 61 | 2 | | | 58 | 1 | |
-| **total** | **317** | **91** | **226** | **29** | **25** | **6** | **110** | **5** | **51** |
+| **total** | **329** | **103** | **226** | **29** | **25** | **6** | **110** | **5** | **51** |
 
 Out of scope, all missing: 51 functions (`fcntl.h` 2, `signal.h` 2, `stdio.h` 1, `stdlib.h` 23,
 `string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15).
@@ -574,7 +599,12 @@ names are not POSIX functions at all: `brk` and `sbrk` (declared in `unistd.h`, 
 half's `malloc.sysl`). `cstd_start` is the Linux half's internal entry; `errno` and `environ` are
 variables.
 
-**Headers in `include/` that POSIX does not define.** None: all eleven are POSIX headers.
+**Headers in `include/` that POSIX does not define.** One: `stdbit.h`, which is ISO C23 (section 7.18),
+not POSIX. POSIX.1-2024 is aligned with C17 and does not list it. It is held to the same rule as the
+rest, that a header offered is complete: it declares and implements all 14 families in each of the five
+unsigned types (70 functions), and the 14 type-generic macros, `__STDC_VERSION_STDBIT_H__`,
+`__STDC_ENDIAN_LITTLE__`, `__STDC_ENDIAN_BIG__` and `__STDC_ENDIAN_NATIVE__`. These 70 are not counted in
+the Summary, which covers POSIX alone. The other twelve headers are POSIX headers.
 
 ## Declarations that disagree
 

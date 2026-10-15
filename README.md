@@ -20,9 +20,24 @@ require, exported under its C name with `@export`.
 | `string.h` | `strlen` `strnlen` `strcmp` `strncmp` `strcpy` `strncpy` `strcat` `strncat` `strchr` `strrchr` `strstr` `strspn` `strcspn` `strpbrk` `strtok` `strtok_r` `strerror` `memcpy` `memmove` `memset` `memcmp` `memchr` |
 | `ctype.h` | `isalnum` `isalpha` `isblank` `iscntrl` `isdigit` `isgraph` `islower` `isprint` `ispunct` `isspace` `isupper` `isxdigit` `tolower` `toupper`, for the C locale |
 | `stdlib.h` | `atoi` `atol` `atof` `strtol` `strtoul` `strtoll` `strtoull` `strtod` `strtof` `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch` |
+| `endian.h` | POSIX.1-2024's `BYTE_ORDER` `LITTLE_ENDIAN` `BIG_ENDIAN` and `be16toh` `be32toh` `be64toh` `htobe16` `htobe32` `htobe64` `htole16` `htole32` `htole64` `le16toh` `le32toh` `le64toh` |
+| `stdbit.h` | ISO C23's 14 families (`stdc_leading_zeros` `stdc_leading_ones` `stdc_trailing_zeros` `stdc_trailing_ones` `stdc_first_leading_zero` `stdc_first_leading_one` `stdc_first_trailing_zero` `stdc_first_trailing_one` `stdc_count_zeros` `stdc_count_ones` `stdc_has_single_bit` `stdc_bit_width` `stdc_bit_floor` `stdc_bit_ceil`), each as `_uc` `_us` `_ui` `_ul` `_ull` functions and as a type-generic macro, with `__STDC_ENDIAN_*__` and `__STDC_VERSION_STDBIT_H__` |
 | `errno.h` | `errno` (one global, defined by the library), Linux's codes from `EPERM` to `ETIMEDOUT` |
 | `stdio.h` | `printf` `dprintf` `sprintf` `snprintf` `vprintf` `vdprintf` `vsprintf` `vsnprintf` |
 
+- **`endian.h`'s byte order is the compiler's** (`__BYTE_ORDER__`), and the conversions do not assume
+  it: the host's order is read off the bytes of a `u16` holding 1, and the rule (swap when the host's
+  order is not the wanted one) is a function of that order, which `endian_tests.sysl` drives under
+  both. Every target runs little-endian, so the big-endian half of the rule is tested at the sysl
+  level and not by running on a big-endian machine. The twelve are functions only, which the page allows.
+- **`stdbit.h` is cstd's alone: clang does not ship one.** Neither Apple clang 21's resource directory
+  nor Homebrew's LLVM 23.1's carries it (both have `stdckdint.h` and no `stdbit.h`; the header is left
+  to the C library), so cstd must supply it, and the 70 functions behind it exist in the archive. Were a
+  clang to add one, `-I <cstd>/include` is searched before `-isystem <resource>/include`, so cstd's
+  would still be the one included. `unsigned long` is measured, so it is 32 bits on a
+  Cortex-M. `stdc_bit_ceil` of a value past the largest power of two the type holds is undefined in
+  C; here it is 0. The generic macros accept the five unsigned types and refuse anything else at
+  compile time.
 - The printf family takes C99's `%d %i %u %o %x %X %c %s %p %n %%` and `%f %F %e %E %g %G %a %A`,
   the flags `- + space # 0`, a width and a precision as a number or `*`, and the lengths
   `hh h l ll j z t`. There is no `long double`, so `L` is not taken and `%Lf` is copied out as
@@ -125,6 +140,11 @@ guard byte on each side, NULs included. The cases cover:
 - overlapping `memmove` in both directions
 - `strncpy`'s padding and its missing terminator
 - every `<ctype.h>` function over EOF and 0–255
+- every `<stdbit.h>` function, through the function and the type-generic macro, over all 256 `unsigned
+  char` values and a spread of patterns at each wider width, against a bit-by-bit reference written in
+  the test, plus hand-worked tables of the edge values (0, all ones, the top bit alone, `bit_ceil`
+  past the top)
+- `<endian.h>` as the bytes memory holds, and its reversal rule under both host orders
 - every base from 2 to 36
 - `EINVAL` for a bad base or no digits
 - overflow in each `strto*` with `ERANGE`
