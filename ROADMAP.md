@@ -31,8 +31,13 @@ How it is checked:
    `timegm`), `signal.h`.
 4. **`brk`/`sbrk` out of `unistd.h`**, into a header of cstd's own.
 5. **The headers busybox adds**, in the order a trial build asks for them.
-6. **The busybox build itself:** a minimal applet set first (`echo`, `cat`, `ls`, `sh`), then the
-   defconfig, with the musl-linked busybox as the oracle.
+6. **busybox from source against musl first.** keel's milestone 18 runs Alpine's prebuilt
+   `busybox-static` package, unmodified (pinned by SHA-256 in keel's boot test); nothing builds busybox
+   from source yet. So the first step is a reproducible from-source build: busybox 1.37 cross-compiled
+   with clang to static aarch64 Linux against musl, which must pass keel's milestone-18 transcript as
+   Alpine's binary does. That gives the build recipe and the oracle.
+7. **The same build against cstd:** a minimal applet set first (`echo`, `cat`, `ls`, `sh`), then the
+   defconfig, each applet's output compared with the musl build's on keel.
 
 ## Meanwhile
 
