@@ -1,0 +1,217 @@
+module sh.sysl.cstd
+
+@tests
+
+// The exact half of `<math.h>`, against MPFR: every one of these has a single right answer, and the
+// oracle holds cstd's to the bit (`judge(..., 0.0, ...)`), `errno` included. Each case runs a
+// function over the special values, over any bit pattern at all, and over the places its algorithm
+// has edges -- halves for the roundings, the subnormal range for the scalings, near-cancellation for
+// `fma`, perfect squares for `sqrt`.
+
+// The special values and `n` arbitrary bit patterns, for a double function of one argument.
+private[cstd] unary_d(f: string, n: int) -> string = f"""
+    for (int i = 0; i < DSPECIALS; i++) D1($f, dfrom(dspecial[i]));
+    for (int i = 0; i < $n; i++) D1($f, any_d());
+    """
+
+private[cstd] unary_f(f: string, n: int) -> string = f"""
+    for (int i = 0; i < FSPECIALS; i++) F1($f, ffrom(fspecial[i]));
+    for (int i = 0; i < $n; i++) F1($f, any_f());
+    """
+
+// Every pair of special values, and `n` pairs of arbitrary bit patterns.
+private[cstd] binary_d(f: string, n: int) -> string = f"""
+    for (int i = 0; i < DSPECIALS; i++)
+        for (int j = 0; j < DSPECIALS; j++) D2($f, dfrom(dspecial[i]), dfrom(dspecial[j]));
+    for (int i = 0; i < $n; i++) D2($f, any_d(), any_d());
+    """
+
+private[cstd] binary_f(f: string, n: int) -> string = f"""
+    for (int i = 0; i < FSPECIALS; i++)
+        for (int j = 0; j < FSPECIALS; j++) F2($f, ffrom(fspecial[i]), ffrom(fspecial[j]));
+    for (int i = 0; i < $n; i++) F2($f, any_f(), any_f());
+    """
+
+// Halves and their neighbours, small and near 2^52 (2^23 for float), where rounding to an integer
+// has its edges.
+private rounding_d(f: string) -> string = unary_d(f, 20000) + f"""
+    for (int i = 0; i < 4000; i++) D1($f, uni_d(-10, 10));
+    for (int i = -40; i <= 40; i++) { D1($f, i * 0.5); D1($f, near_d(i * 0.5, 1)); }
+    for (int i = 0; i < 4000; i++) D1($f, sgn_d(near_d((double)(rbits() % 100000) + 0.5, 2)));
+    for (int i = 0; i < 4000; i++) D1($f, sgn_d(mag_d(50, 54)));
+    """
+
+private rounding_f(f: string) -> string = unary_f(f, 20000) + f"""
+    for (int i = 0; i < 4000; i++) F1($f, uni_f(-10, 10));
+    for (int i = -40; i <= 40; i++) { F1($f, i * 0.5f); F1($f, near_f(i * 0.5f, 1)); }
+    for (int i = 0; i < 4000; i++) F1($f, sgn_f(near_f((float)(rbits() % 1000) + 0.5f, 2)));
+    for (int i = 0; i < 4000; i++) F1($f, sgn_f(mag_f(21, 25)));
+    """
+
+@test("floor, ceil, trunc, round, rint and nearbyint are exact, signed zeros and all")
+math_roundings_double()
+    for f in ["floor", "ceil", "trunc", "round", "rint", "nearbyint"]
+        judge(f, 53, 0.0, rounding_d(f))
+
+@test("floorf, ceilf, truncf, roundf, rintf and nearbyintf are exact")
+math_roundings_float()
+    for f in ["floor", "ceil", "trunc", "round", "rint", "nearbyint"]
+        judge(f, 24, 0.0, rounding_f(f + "f"))
+
+@test("lrint, llrint, lround and llround round as rint and round do, and saturate past the type")
+math_integer_roundings()
+    for f in ["lrint", "llrint", "lround", "llround"]
+        judge(f, 53, 0.0, f"""
+            for (int i = 0; i < DSPECIALS; i++) DINT($f, dfrom(dspecial[i]));
+            for (int i = 0; i < 20000; i++) DINT($f, any_d());
+            for (int i = -40; i <= 40; i++) DINT($f, i * 0.5);
+            for (int i = 0; i < 4000; i++) DINT($f, sgn_d(mag_d(-2, 66)));
+            """)
+        judge(f, 24, 0.0, f"""
+            for (int i = 0; i < FSPECIALS; i++) FINT(${f}f, ffrom(fspecial[i]));
+            for (int i = 0; i < 20000; i++) FINT(${f}f, any_f());
+            for (int i = -40; i <= 40; i++) FINT(${f}f, i * 0.5f);
+            for (int i = 0; i < 4000; i++) FINT(${f}f, sgn_f(mag_f(-2, 66)));
+            """)
+
+@test("sqrt and sqrtf are correctly rounded, exact on perfect squares, and EDOM below zero")
+math_sqrt()
+    judge("sqrt", 53, 0.0, unary_d("sqrt", 30000) + """
+        for (int i = 0; i < 4000; i++) { double k = (double)(rbits() >> 38); D1(sqrt, k * k); }
+        for (int i = 0; i < 4000; i++) { double k = (double)(rbits() >> 38); D1(sqrt, near_d(k * k, 1)); }
+        for (int i = 0; i < 4000; i++) D1(sqrt, mag_d(-1074, -1000));
+        for (int i = 0; i < 4000; i++) D1(sqrt, uni_d(0, 4));
+        """)
+    judge("sqrt", 24, 0.0, unary_f("sqrtf", 30000) + """
+        for (int i = 0; i < 4000; i++) { float k = (float)(rbits() >> 52); F1(sqrtf, k * k); }
+        for (int i = 0; i < 4000; i++) { float k = (float)(rbits() >> 52); F1(sqrtf, near_f(k * k, 1)); }
+        for (int i = 0; i < 4000; i++) F1(sqrtf, mag_f(-149, -100));
+        """)
+
+// The software root is what a board without the instruction runs; the host holds it to the
+// instruction, which IEEE 754 requires to be correctly rounded.
+@test("the integer square root agrees with the machine's to the bit")
+math_soft_sqrt()
+    var state: u64 = 0x2545f4914f6cdd1d
+    var x: real = 0.0
+    for i in 0..<200000
+        state = state ^ (state >> 12)
+        state = state ^ (state << 25)
+        state = state ^ (state >> 27)
+        val bits = (state * 0x2545f4914f6cdd1d) & 0x7fffffffffffffff
+        x = real.from_bits(if i % 4 == 0 then bits >> 12 else bits)
+        if x == x then assert_eq(soft_sqrt(x).bits(), sqrt(x).bits())
+    for b in [0u64, 1, 2, 0x000fffffffffffff, 0x0010000000000000, 0x3ff0000000000000, 0x4010000000000000,
+              0x7fefffffffffffff, 0x7ff0000000000000]
+        assert_eq(soft_sqrt(real.from_bits(b)).bits(), sqrt(real.from_bits(b)).bits())
+    assert(soft_sqrt(-1.0) != soft_sqrt(-1.0))
+
+@test("fmod, remainder and remquo are exact, with EDOM for a zero divisor or an infinite dividend")
+math_remainders()
+    val extra_d = """
+        for (int i = 0; i < 6000; i++) F(sgn_d(mag_d(-20, 20)), sgn_d(mag_d(-20, 20)));
+        for (int i = 0; i < 3000; i++) F(sgn_d(mag_d(-1074, 1023)), sgn_d(mag_d(-1074, -1000)));
+        for (int i = 0; i < 3000; i++) F(sgn_d(mag_d(900, 1023)), sgn_d(mag_d(-10, 10)));
+        for (int i = 0; i < 2000; i++) { double y = sgn_d(mag_d(-5, 5)); F((double)(rbits() % 64) * y + y * 0.5, y); }
+        """
+    val extra_f = """
+        for (int i = 0; i < 6000; i++) F(sgn_f(mag_f(-20, 20)), sgn_f(mag_f(-20, 20)));
+        for (int i = 0; i < 3000; i++) F(sgn_f(mag_f(-149, 127)), sgn_f(mag_f(-149, -120)));
+        for (int i = 0; i < 2000; i++) { float y = sgn_f(mag_f(-5, 5)); F((float)(rbits() % 64) * y + y * 0.5f, y); }
+        """
+    for f in ["fmod", "remainder"]
+        judge(f, 53, 0.0, binary_d(f, 20000) + f"#define F(a, b) D2($f, a, b)\n" + extra_d)
+        judge(f, 24, 0.0, binary_f(f + "f", 20000) + f"#define F(a, b) F2(${f}f, a, b)\n" + extra_f)
+    judge("remquo", 53, 0.0, """
+        for (int i = 0; i < DSPECIALS; i++)
+            for (int j = 0; j < DSPECIALS; j++) DREMQUO(remquo, dfrom(dspecial[i]), dfrom(dspecial[j]));
+        for (int i = 0; i < 20000; i++) DREMQUO(remquo, any_d(), any_d());
+        #define F(a, b) DREMQUO(remquo, a, b)
+        """ + extra_d)
+    judge("remquo", 24, 0.0, """
+        for (int i = 0; i < FSPECIALS; i++)
+            for (int j = 0; j < FSPECIALS; j++) FREMQUO(remquof, ffrom(fspecial[i]), ffrom(fspecial[j]));
+        for (int i = 0; i < 20000; i++) FREMQUO(remquof, any_f(), any_f());
+        #define F(a, b) FREMQUO(remquof, a, b)
+        """ + extra_f)
+
+@test("fma and fmaf round once, through cancellation and the subnormal range")
+math_fma()
+    judge("fma", 53, 0.0, """
+        for (int i = 0; i < DSPECIALS; i++)
+            for (int j = 0; j < DSPECIALS; j++)
+                for (int k = 0; k < DSPECIALS; k += 5) D3(fma, dfrom(dspecial[i]), dfrom(dspecial[j]), dfrom(dspecial[k]));
+        for (int i = 0; i < 20000; i++) D3(fma, any_d(), any_d(), any_d());
+        for (int i = 0; i < 10000; i++) { double x = sgn_d(mag_d(-30, 30)), y = sgn_d(mag_d(-30, 30));
+            D3(fma, x, y, -near_d(x * y, 3)); }
+        for (int i = 0; i < 5000; i++) D3(fma, sgn_d(mag_d(-30, 30)), sgn_d(mag_d(-30, 30)), sgn_d(mag_d(-100, 100)));
+        for (int i = 0; i < 5000; i++) D3(fma, sgn_d(mag_d(-560, -500)), sgn_d(mag_d(-560, -500)), sgn_d(mag_d(-1074, -1000)));
+        for (int i = 0; i < 3000; i++) D3(fma, sgn_d(mag_d(500, 520)), sgn_d(mag_d(500, 520)), sgn_d(mag_d(1000, 1023)));
+        """)
+    judge("fma", 24, 0.0, """
+        for (int i = 0; i < FSPECIALS; i++)
+            for (int j = 0; j < FSPECIALS; j++)
+                for (int k = 0; k < FSPECIALS; k += 5) F3(fmaf, ffrom(fspecial[i]), ffrom(fspecial[j]), ffrom(fspecial[k]));
+        for (int i = 0; i < 20000; i++) F3(fmaf, any_f(), any_f(), any_f());
+        for (int i = 0; i < 10000; i++) { float x = sgn_f(mag_f(-20, 20)), y = sgn_f(mag_f(-20, 20));
+            F3(fmaf, x, y, -near_f(x * y, 3)); }
+        for (int i = 0; i < 5000; i++) F3(fmaf, sgn_f(mag_f(-80, -60)), sgn_f(mag_f(-80, -60)), sgn_f(mag_f(-149, -120)));
+        for (int i = 0; i < 5000; i++) F3(fmaf, sgn_f(mag_f(-80, -70)), sgn_f(mag_f(-70, -60)), sgn_f(mag_f(-149, -126)));
+        F3(fmaf, 0x1p-120f, 0x1p-120f, 0x1p-149f);
+        F3(fmaf, 0x1.000002p-75f, 0x1p-75f, -0x1p-149f);
+        """)
+
+@test("frexp, modf, ldexp, scalbn and scalbln take a double apart and put it together exactly")
+math_decompose()
+    judge("frexp", 53, 0.0, "for (int i = 0; i < DSPECIALS; i++) DFREXP(frexp, dfrom(dspecial[i]));\n" +
+        "for (int i = 0; i < 20000; i++) DFREXP(frexp, any_d());\n")
+    judge("frexp", 24, 0.0, "for (int i = 0; i < FSPECIALS; i++) FFREXP(frexpf, ffrom(fspecial[i]));\n" +
+        "for (int i = 0; i < 20000; i++) FFREXP(frexpf, any_f());\n")
+    judge("modf", 53, 0.0, "for (int i = 0; i < DSPECIALS; i++) DMODF(modf, dfrom(dspecial[i]));\n" +
+        "for (int i = 0; i < 20000; i++) DMODF(modf, any_d());\n" +
+        "for (int i = 0; i < 4000; i++) DMODF(modf, uni_d(-100, 100));\n")
+    judge("modf", 24, 0.0, "for (int i = 0; i < FSPECIALS; i++) FMODF(modff, ffrom(fspecial[i]));\n" +
+        "for (int i = 0; i < 20000; i++) FMODF(modff, any_f());\n" +
+        "for (int i = 0; i < 4000; i++) FMODF(modff, uni_f(-100, 100));\n")
+    for f in ["ldexp", "scalbn", "scalbln"]
+        judge(f, 53, 0.0, f"""
+            static const long ns[] = {0, 1, -1, 52, -52, 1023, -1022, 1024, -1074, -1075, 2046, -2098, 2100, -2200,
+                                      2147483647, -2147483647 - 1};
+            for (int i = 0; i < DSPECIALS; i++) for (int j = 0; j < 16; j++) DI($f, dfrom(dspecial[i]), ns[j]);
+            for (int i = 0; i < 20000; i++) DI($f, any_d(), (long)(rbits() % 4300) - 2150);
+            for (int i = 0; i < 6000; i++) DI($f, sgn_d(mag_d(-1074, 1023)), -(long)(rbits() % 1100));
+            """)
+        judge(f, 24, 0.0, f"""
+            static const long ns[] = {0, 1, -1, 23, -23, 127, -126, 128, -149, -150, 254, -277, 300, -300,
+                                      2147483647, -2147483647 - 1};
+            for (int i = 0; i < FSPECIALS; i++) for (int j = 0; j < 16; j++) FI(${f}f, ffrom(fspecial[i]), ns[j]);
+            for (int i = 0; i < 20000; i++) FI(${f}f, any_f(), (long)(rbits() % 600) - 300);
+            for (int i = 0; i < 6000; i++) FI(${f}f, sgn_f(mag_f(-149, 127)), -(long)(rbits() % 160));
+            """)
+
+@test("ilogb and logb read the exponent, subnormals included; logb(0) is a pole")
+math_exponents()
+    judge("ilogb", 53, 0.0, "for (int i = 0; i < DSPECIALS; i++) DINT(ilogb, dfrom(dspecial[i]));\n" +
+        "for (int i = 0; i < 20000; i++) DINT(ilogb, any_d());\n")
+    judge("ilogb", 24, 0.0, "for (int i = 0; i < FSPECIALS; i++) FINT(ilogbf, ffrom(fspecial[i]));\n" +
+        "for (int i = 0; i < 20000; i++) FINT(ilogbf, any_f());\n")
+    judge("logb", 53, 0.0, unary_d("logb", 20000))
+    judge("logb", 24, 0.0, unary_f("logbf", 20000))
+
+@test("nextafter and nexttoward step one unit, through zero and to infinity with ERANGE")
+math_neighbours()
+    for f in ["nextafter", "nexttoward"]
+        judge(f, 53, 0.0, binary_d(f, 20000) + f"""
+            for (int i = 0; i < 4000; i++) { double x = any_d(); D2($f, x, near_d(x, 2)); }
+            """)
+        judge(f, 24, 0.0, binary_f(f + "f", 20000) + f"""
+            for (int i = 0; i < 4000; i++) { float x = any_f(); F2(${f}f, x, near_f(x, 2)); }
+            """)
+
+@test("fabs, copysign, fdim, fmax and fmin, with NaN and the signs of zero")
+math_signs()
+    judge("fabs", 53, 0.0, unary_d("fabs", 5000))
+    judge("fabs", 24, 0.0, unary_f("fabsf", 5000))
+    for f in ["copysign", "fdim", "fmax", "fmin"]
+        judge(f, 53, 0.0, binary_d(f, 20000))
+        judge(f, 24, 0.0, binary_f(f + "f", 20000))

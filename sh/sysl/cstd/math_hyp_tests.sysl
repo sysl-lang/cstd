@@ -1,0 +1,86 @@
+module sh.sysl.cstd
+
+@tests
+
+// The inverse circular functions and the hyperbolic family against MPFR. The inputs concentrate on
+// the seams of each algorithm -- the interval edges of atan's reduction, |x| near 1/2 and 1 for asin
+// and acos, the branch points of the hyperbolic functions -- and on the domain edges: asin and acos
+// beyond ±1 are EDOM, atanh(±1) is a pole, and sinh and cosh overflow with ERANGE.
+
+@test("asin, acos and atan: within 1 ulp, EDOM outside [-1, 1]")
+math_inverse_trig()
+    for f in ["asin", "acos"]
+        judge(f, 53, 1.0, unary_d(f, 20000) + f"""
+            for (int i = 0; i < 20000; i++) D1($f, uni_d(-1, 1));
+            for (int i = 0; i < 4000; i++) D1($f, sgn_d(near_d(1.0, 2000)));
+            for (int i = 0; i < 4000; i++) D1($f, sgn_d(near_d(0.5, 2000)));
+            for (int i = 0; i < 4000; i++) D1($f, sgn_d(near_d(0.975, 2000)));
+            for (int i = 0; i < 4000; i++) D1($f, sgn_d(mag_d(-60, -1)));
+            """)
+        judge(f, 24, 0.501, unary_f(f + "f", 20000) + f"""
+            for (int i = 0; i < 20000; i++) F1(${f}f, uni_f(-1, 1));
+            for (int i = 0; i < 4000; i++) F1(${f}f, sgn_f(near_f(1.0f, 2000)));
+            """)
+    judge("atan", 53, 1.0, unary_d("atan", 20000) + """
+        for (int i = 0; i < 20000; i++) D1(atan, uni_d(-4, 4));
+        for (int i = 0; i < 10000; i++) D1(atan, sgn_d(mag_d(-30, 70)));
+        static const double edges[] = {0.4375, 0.6875, 1.1875, 2.4375, 0x1p66};
+        for (int e = 0; e < 5; e++) for (int i = 0; i < 400; i++) D1(atan, sgn_d(near_d(edges[e], 200)));
+        """)
+    judge("atan", 24, 0.501, unary_f("atanf", 20000) + """
+        for (int i = 0; i < 20000; i++) F1(atanf, uni_f(-4, 4));
+        """)
+
+@test("atan2: within 1 ulp in all four quadrants, C Annex F's zeros and infinities to the bit")
+math_atan2()
+    judge("atan2", 53, 1.0, binary_d("atan2", 20000) + """
+        for (int i = 0; i < 20000; i++) D2(atan2, uni_d(-10, 10), uni_d(-10, 10));
+        for (int i = 0; i < 10000; i++) D2(atan2, sgn_d(mag_d(-1074, 1023)), sgn_d(mag_d(-1074, 1023)));
+        for (int i = 0; i < 4000; i++) { double x = sgn_d(mag_d(-20, 20)); D2(atan2, near_d(x, 3), x); }
+        for (int i = 0; i < 4000; i++) { double x = sgn_d(mag_d(-1074, 1023)); D2(atan2, x * sgn_d(uni_d(0.01, 100)), x); }
+        for (int i = 0; i < 4000; i++) D2(atan2, sgn_d(mag_d(-1074, -1000)), sgn_d(mag_d(-1074, -1000)));
+        """)
+    judge("atan2", 24, 0.501, binary_f("atan2f", 20000) + """
+        for (int i = 0; i < 20000; i++) F2(atan2f, uni_f(-10, 10), uni_f(-10, 10));
+        """)
+
+@test("sinh, cosh and tanh: within bound, ERANGE when sinh and cosh overflow")
+math_hyperbolic()
+    for f in ["sinh", "cosh", "tanh"]
+        judge(f, 53, 1.0, unary_d(f, 20000) + f"""
+            for (int i = 0; i < 20000; i++) D1($f, uni_d(-30, 30));
+            for (int i = 0; i < 10000; i++) D1($f, sgn_d(mag_d(-60, 1)));
+            for (int i = 0; i < 4000; i++) D1($f, uni_d(-711, 711));
+            for (int i = 0; i < 2000; i++) D1($f, sgn_d(near_d(710.4758600739439, 100)));
+            for (int i = 0; i < 2000; i++) D1($f, sgn_d(near_d(709.782712893384, 100)));
+            static const double edges[] = {0.5493061443340548, 0.25541281188299536, 0.6931471805599453, 1.0, 20.0};
+            for (int e = 0; e < 5; e++) for (int i = 0; i < 400; i++) D1($f, sgn_d(near_d(edges[e], 200)));
+            """)
+        judge(f, 24, 0.501, unary_f(f + "f", 20000) + f"""
+            for (int i = 0; i < 20000; i++) F1(${f}f, uni_f(-90, 90));
+            for (int i = 0; i < 10000; i++) F1(${f}f, sgn_f(mag_f(-30, 1)));
+            """)
+
+@test("asinh, acosh and atanh: within bound, EDOM outside the domain, a pole at atanh(±1)")
+math_inverse_hyperbolic()
+    judge("asinh", 53, 1.0,unary_d("asinh", 20000) + """
+        for (int i = 0; i < 20000; i++) D1(asinh, uni_d(-4, 4));
+        for (int i = 0; i < 10000; i++) D1(asinh, sgn_d(mag_d(-30, 1023)));
+        for (int i = 0; i < 4000; i++) D1(asinh, uni_d(0.125, 0.5));
+        """)
+    judge("acosh", 53, 1.0,unary_d("acosh", 20000) + """
+        for (int i = 0; i < 20000; i++) D1(acosh, uni_d(1, 4));
+        for (int i = 0; i < 10000; i++) D1(acosh, mag_d(0, 1023));
+        for (int i = 0; i < 4000; i++) D1(acosh, near_d(1.0, 100000));
+        for (int i = 0; i < 4000; i++) D1(acosh, uni_d(1, 1.125));
+        """)
+    judge("atanh", 53, 1.0,unary_d("atanh", 20000) + """
+        for (int i = 0; i < 20000; i++) D1(atanh, uni_d(-1, 1));
+        for (int i = 0; i < 10000; i++) D1(atanh, sgn_d(mag_d(-60, -1)));
+        for (int i = 0; i < 4000; i++) D1(atanh, sgn_d(near_d(1.0, 100000)));
+        """)
+    for f in ["asinh", "acosh", "atanh"]
+        judge(f, 24, 0.501, unary_f(f + "f", 20000) + f"""
+            for (int i = 0; i < 20000; i++) F1(${f}f, uni_f(-4, 4));
+            for (int i = 0; i < 4000; i++) F1(${f}f, sgn_f(near_f(1.0f, 2000)));
+            """)

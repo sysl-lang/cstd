@@ -94,6 +94,211 @@ Out of scope:
 | posix_fadvise | ADV | missing |
 | posix_fallocate | ADV | missing |
 
+## `<math.h>`
+
+All 57 functions are done in the core in their `double` and `float` forms, 114 functions. The 57 `long
+double` (`l`) forms are counted missing: where `long double` is binary128 (AArch64 Linux, which keel's
+Linux half targets, and RISC-V) they need quad-precision algorithms that are not written. Where `long
+double` is binary64 (arm64 macOS, 32-bit Arm) cstd does export and declare each, as its `double`
+counterpart under the `l` name, exactly as accurate; `include/math.h` declares them only under
+`__LDBL_MANT_DIG__ == 53`, so a binary128 program calling one fails to compile instead of linking.
+`nexttoward` and `nexttowardf` take their long double direction at its own width on both kinds.
+
+The page's macros are all defined: `fpclassify`, `isfinite`, `isinf`, `isnan`, `isnormal`, `signbit`
+and the six quiet comparisons as the compiler's generic builtins; `HUGE_VAL`, `HUGE_VALF`,
+`HUGE_VALL`, `INFINITY`, `NAN`; `FP_INFINITE`, `FP_NAN`, `FP_NORMAL`, `FP_SUBNORMAL`, `FP_ZERO`,
+`FP_ILOGB0` and `FP_ILOGBNAN` (both `INT_MIN`); `MATH_ERRNO`, `MATH_ERREXCEPT`, and `math_errhandling`,
+which is `MATH_ERRNO`. `FP_FAST_FMA` is not defined: `fma` is computed in integer arithmetic. The types
+`float_t` and `double_t` are `float` and `double` (`FLT_EVAL_METHOD` 0 on every target). The [XSI]
+constants `M_E` to `M_SQRT1_3` and their `l` forms are defined too, though out of scope.
+
+| function | codes | status | needs | half |
+|---|---|---|---|---|
+| acos | | done (core) | | core |
+| acosf | | done (core) | | core |
+| acosl | | missing | pure | core |
+| acosh | | done (core) | | core |
+| acoshf | | done (core) | | core |
+| acoshl | | missing | pure | core |
+| asin | | done (core) | | core |
+| asinf | | done (core) | | core |
+| asinl | | missing | pure | core |
+| asinh | | done (core) | | core |
+| asinhf | | done (core) | | core |
+| asinhl | | missing | pure | core |
+| atan | | done (core) | | core |
+| atanf | | done (core) | | core |
+| atanl | | missing | pure | core |
+| atan2 | | done (core) | | core |
+| atan2f | | done (core) | | core |
+| atan2l | | missing | pure | core |
+| atanh | | done (core) | | core |
+| atanhf | | done (core) | | core |
+| atanhl | | missing | pure | core |
+| cbrt | | done (core) | | core |
+| cbrtf | | done (core) | | core |
+| cbrtl | | missing | pure | core |
+| ceil | | done (core) | | core |
+| ceilf | | done (core) | | core |
+| ceill | | missing | pure | core |
+| copysign | | done (core) | | core |
+| copysignf | | done (core) | | core |
+| copysignl | | missing | pure | core |
+| cos | | done (core) | | core |
+| cosf | | done (core) | | core |
+| cosl | | missing | pure | core |
+| cosh | | done (core) | | core |
+| coshf | | done (core) | | core |
+| coshl | | missing | pure | core |
+| erf | | done (core) | | core |
+| erff | | done (core) | | core |
+| erfl | | missing | pure | core |
+| erfc | | done (core) | | core |
+| erfcf | | done (core) | | core |
+| erfcl | | missing | pure | core |
+| exp | | done (core) | | core |
+| expf | | done (core) | | core |
+| expl | | missing | pure | core |
+| exp2 | | done (core) | | core |
+| exp2f | | done (core) | | core |
+| exp2l | | missing | pure | core |
+| expm1 | | done (core) | | core |
+| expm1f | | done (core) | | core |
+| expm1l | | missing | pure | core |
+| fabs | | done (core) | | core |
+| fabsf | | done (core) | | core |
+| fabsl | | missing | pure | core |
+| fdim | | done (core) | | core |
+| fdimf | | done (core) | | core |
+| fdiml | | missing | pure | core |
+| floor | | done (core) | | core |
+| floorf | | done (core) | | core |
+| floorl | | missing | pure | core |
+| fma | | done (core) | | core |
+| fmaf | | done (core) | | core |
+| fmal | | missing | pure | core |
+| fmax | | done (core) | | core |
+| fmaxf | | done (core) | | core |
+| fmaxl | | missing | pure | core |
+| fmin | | done (core) | | core |
+| fminf | | done (core) | | core |
+| fminl | | missing | pure | core |
+| fmod | | done (core) | | core |
+| fmodf | | done (core) | | core |
+| fmodl | | missing | pure | core |
+| frexp | | done (core) | | core |
+| frexpf | | done (core) | | core |
+| frexpl | | missing | pure | core |
+| hypot | | done (core) | | core |
+| hypotf | | done (core) | | core |
+| hypotl | | missing | pure | core |
+| ilogb | | done (core) | | core |
+| ilogbf | | done (core) | | core |
+| ilogbl | | missing | pure | core |
+| ldexp | | done (core) | | core |
+| ldexpf | | done (core) | | core |
+| ldexpl | | missing | pure | core |
+| lgamma | | done (core) | | core |
+| lgammaf | | done (core) | | core |
+| lgammal | | missing | pure | core |
+| llrint | | done (core) | | core |
+| llrintf | | done (core) | | core |
+| llrintl | | missing | pure | core |
+| llround | | done (core) | | core |
+| llroundf | | done (core) | | core |
+| llroundl | | missing | pure | core |
+| log | | done (core) | | core |
+| logf | | done (core) | | core |
+| logl | | missing | pure | core |
+| log10 | | done (core) | | core |
+| log10f | | done (core) | | core |
+| log10l | | missing | pure | core |
+| log1p | | done (core) | | core |
+| log1pf | | done (core) | | core |
+| log1pl | | missing | pure | core |
+| log2 | | done (core) | | core |
+| log2f | | done (core) | | core |
+| log2l | | missing | pure | core |
+| logb | | done (core) | | core |
+| logbf | | done (core) | | core |
+| logbl | | missing | pure | core |
+| lrint | | done (core) | | core |
+| lrintf | | done (core) | | core |
+| lrintl | | missing | pure | core |
+| lround | | done (core) | | core |
+| lroundf | | done (core) | | core |
+| lroundl | | missing | pure | core |
+| modf | | done (core) | | core |
+| modff | | done (core) | | core |
+| modfl | | missing | pure | core |
+| nan | | done (core) | | core |
+| nanf | | done (core) | | core |
+| nanl | | missing | pure | core |
+| nearbyint | | done (core) | | core |
+| nearbyintf | | done (core) | | core |
+| nearbyintl | | missing | pure | core |
+| nextafter | | done (core) | | core |
+| nextafterf | | done (core) | | core |
+| nextafterl | | missing | pure | core |
+| nexttoward | | done (core) | | core |
+| nexttowardf | | done (core) | | core |
+| nexttowardl | | missing | pure | core |
+| pow | | done (core) | | core |
+| powf | | done (core) | | core |
+| powl | | missing | pure | core |
+| remainder | | done (core) | | core |
+| remainderf | | done (core) | | core |
+| remainderl | | missing | pure | core |
+| remquo | | done (core) | | core |
+| remquof | | done (core) | | core |
+| remquol | | missing | pure | core |
+| rint | | done (core) | | core |
+| rintf | | done (core) | | core |
+| rintl | | missing | pure | core |
+| round | | done (core) | | core |
+| roundf | | done (core) | | core |
+| roundl | | missing | pure | core |
+| scalbln | | done (core) | | core |
+| scalblnf | | done (core) | | core |
+| scalblnl | | missing | pure | core |
+| scalbn | | done (core) | | core |
+| scalbnf | | done (core) | | core |
+| scalbnl | | missing | pure | core |
+| sin | | done (core) | | core |
+| sinf | | done (core) | | core |
+| sinl | | missing | pure | core |
+| sinh | | done (core) | | core |
+| sinhf | | done (core) | | core |
+| sinhl | | missing | pure | core |
+| sqrt | | done (core) | | core |
+| sqrtf | | done (core) | | core |
+| sqrtl | | missing | pure | core |
+| tan | | done (core) | | core |
+| tanf | | done (core) | | core |
+| tanl | | missing | pure | core |
+| tanh | | done (core) | | core |
+| tanhf | | done (core) | | core |
+| tanhl | | missing | pure | core |
+| tgamma | | done (core) | | core |
+| tgammaf | | done (core) | | core |
+| tgammal | | missing | pure | core |
+| trunc | | done (core) | | core |
+| truncf | | done (core) | | core |
+| truncl | | missing | pure | core |
+
+Out of scope:
+
+| function | codes | status |
+|---|---|---|
+| j0 | XSI | missing |
+| j1 | XSI | missing |
+| jn | XSI | missing |
+| y0 | XSI | missing |
+| y1 | XSI | missing |
+| yn | XSI | missing |
+
+The [XSI] variable `signgam`, which `lgamma` sets on an XSI system, is not defined.
+
 ## `<signal.h>`
 
 | function | codes | status | needs | half |
@@ -544,6 +749,7 @@ In-scope functions only.
 | `ctype.h` | 28 | 14 | 14 | | 14 | | | | |
 | `errno.h` | 0 | 0 | 0 | | | | | | |
 | `fcntl.h` | 4 | 2 | 2 | | | | 2 | | |
+| `math.h` | 171 | 114 | 57 | 57 | | | | | |
 | `signal.h` | 22 | 1 | 21 | 7 | | | 14 | | |
 | `stdio.h` | 67 | 8 | 59 | 3 | | 2 | 3 | | 51 |
 | `stdlib.h` | 49 | 25 | 24 | 6 | 5 | 2 | 11 | | |
@@ -552,10 +758,10 @@ In-scope functions only.
 | `sys/types.h` | 0 | 0 | 0 | | | | | | |
 | `time.h` | 22 | 2 | 20 | 4 | 1 | | 11 | 4 | |
 | `unistd.h` | 75 | 14 | 61 | 2 | | | 58 | 1 | |
-| **total** | **317** | **91** | **226** | **29** | **25** | **6** | **110** | **5** | **51** |
+| **total** | **488** | **205** | **283** | **86** | **25** | **6** | **110** | **5** | **51** |
 
-Out of scope, all missing: 51 functions (`fcntl.h` 2, `signal.h` 2, `stdio.h` 1, `stdlib.h` 23,
-`string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15).
+Out of scope, all missing: 57 functions (`fcntl.h` 2, `math.h` 6, `signal.h` 2, `stdio.h` 1,
+`stdlib.h` 23, `string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15).
 
 ## Other headers and functions
 
@@ -574,7 +780,7 @@ names are not POSIX functions at all: `brk` and `sbrk` (declared in `unistd.h`, 
 half's `malloc.sysl`). `cstd_start` is the Linux half's internal entry; `errno` and `environ` are
 variables.
 
-**Headers in `include/` that POSIX does not define.** None: all eleven are POSIX headers.
+**Headers in `include/` that POSIX does not define.** None: all twelve are POSIX headers.
 
 ## Declarations that disagree
 

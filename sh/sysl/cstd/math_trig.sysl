@@ -1,0 +1,434 @@
+module sh.sysl.cstd
+
+// `<math.h>`'s circular functions: `sin`, `cos` and `tan`, and their float forms.
+//
+// fdlibm's, as musl 1.2.6 carries them (`sin.c`, `cos.c`, `tan.c`, `__sin.c`, `__cos.c`, `__tan.c`,
+// `__rem_pio2.c`, `__rem_pio2_large.c`). The argument is reduced to y in [-pi/4, pi/4] with x = y +
+// n pi/2, carried as two doubles: by subtracting n × pi/2 in up to three parts of 33 bits each up to
+// |x| ~ 2^20 pi/2, and past that by Payne and Hanek's method, multiplying by as many of the bits of
+// 2/pi as the exponent needs (`ipio2`, 24 at a time) so that even sin(1e300) is reduced exactly.
+// Polynomial kernels then give sine, cosine and tangent on [-pi/4, pi/4]. Each is within 1 ulp.
+//
+// The float forms compute in double and round once.
+
+private val toint_rem: real = 6755399441055744.0                // 1.5 / DBL_EPSILON
+private val pio4: real = 0.7853981633974483                    // 0x1.921fb54442d18p-1
+private val invpio2: real = 6.36619772367581382433e-1           // 0x3FE45F30 0x6DC9C883
+private val pio2_1: real = 1.57079632673412561417e0             // 0x3FF921FB 0x54400000
+private val pio2_1t: real = 6.07710050650619224932e-11          // 0x3DD0B461 0x1A626331
+private val pio2_2: real = 6.07710050630396597660e-11           // 0x3DD0B461 0x1A600000
+private val pio2_2t: real = 2.02226624879595063154e-21          // 0x3BA3198A 0x2E037073
+private val pio2_3: real = 2.02226624871116645580e-21           // 0x3BA3198A 0x2E000000
+private val pio2_3t: real = 8.47842766036889956997e-32          // 0x397B839A 0x252049C1
+
+// x - n pi/2 for a small n, the subtraction in two parts: one rounding good to 85 bits.
+private reduce_by(x: real, n: i32) -> (i32, real, real)
+    val fn = real(n)
+    val z = x - fn * pio2_1
+    val y0 = z - fn * pio2_1t
+    (n, y0, (z - y0) - fn * pio2_1t)
+
+// x reduced: n, and y0 + y1 = x - n pi/2 with |y0 + y1| <= pi/4.
+private[cstd] rem_pio2(x: real) -> (i32, real, real)
+    val sign = sign_bit(x)
+    val ix = hi_word(x) & 0x7fffffff
+    var medium = false
+    if ix <= 0x400f6a7a
+        // |x| ~<= 5pi/4
+        if ix & 0xfffff == 0x921fb
+            // |x| ~= pi/2 or 2pi/2: cancellation, so the medium case.
+            medium = true
+        elif ix <= 0x4002d97c
+            // |x| ~<= 3pi/4
+            return reduce_by(x, if sign then -1 else 1)
+        else
+            return reduce_by(x, if sign then -2 else 2)
+    elif ix <= 0x401c463b
+        // |x| ~<= 9pi/4
+        if ix <= 0x4015fdbc
+            // |x| ~<= 7pi/4
+            if ix == 0x4012d97c
+                medium = true
+            else
+                return reduce_by(x, if sign then -3 else 3)
+        else
+            if ix == 0x401921fb
+                medium = true
+            else
+                return reduce_by(x, if sign then -4 else 4)
+    if medium || ix < 0x413921fb
+        // |x| ~< 2^20 pi/2: n = rint(x / (pi/2)).
+        var fn = x * invpio2 + toint_rem - toint_rem
+        var n = i32(fn)
+        var r = x - fn * pio2_1
+        // First round, good to 85 bits.
+        var w = fn * pio2_1t
+        // Matters with directed rounding.
+        if r - w < -pio4
+            n -= 1
+            fn -= 1.0
+            r = x - fn * pio2_1
+            w = fn * pio2_1t
+        elif r - w > pio4
+            n += 1
+            fn += 1.0
+            r = x - fn * pio2_1
+            w = fn * pio2_1t
+        var y0 = r - w
+        var ey = i32((y0.bits() >> 52) & 0x7ff)
+        val ex = i32(ix >> 20)
+        if ex - ey > 16
+            // Second round, good to 118 bits.
+            var t = r
+            w = fn * pio2_2
+            r = t - w
+            w = fn * pio2_2t - ((t - r) - w)
+            y0 = r - w
+            ey = i32((y0.bits() >> 52) & 0x7ff)
+            if ex - ey > 49
+                // Third round, good to 151 bits, which covers every case.
+                t = r
+                w = fn * pio2_3
+                r = t - w
+                w = fn * pio2_3t - ((t - r) - w)
+                y0 = r - w
+        return (n, y0, (r - y0) - w)
+
+    // Every larger argument.
+    if ix >= 0x7ff00000 then return (0, x - x, x - x)
+    // z = scalbn(|x|, -ilogb(x) + 23), cut into three 24-bit pieces.
+    var z = real.from_bits((x.bits() & (0xffffffffffffffffu64 >> 12)) | (u64(0x3ff + 23) << 52))
+    var tx: [3]real = [0.0, 0.0, 0.0]
+    for i in 0..<2
+        tx[i] = real(i32(z))
+        z = (z - tx[i]) * 16777216.0
+    tx[2] = z
+    // Skip the zero terms; the first is not zero.
+    var nx = 3
+    while tx[nx - 1] == 0.0 do nx -= 1
+    var ty: [2]real = [0.0, 0.0]
+    val n = rem_pio2_large(&tx[0], &ty[0], i32(ix >> 20) - (0x3ff + 23), nx)
+    if sign then return (-n, -ty[0], -ty[1])
+    (n, ty[0], ty[1])
+end rem_pio2
+
+// 2/pi to 1584 bits, 24 to an element.
+private val ipio2: [66]i32 = [
+    0xA2F983, 0x6E4E44, 0x1529FC, 0x2757D1, 0xF534DD, 0xC0DB62,
+    0x95993C, 0x439041, 0xFE5163, 0xABDEBB, 0xC561B7, 0x246E3A,
+    0x424DD2, 0xE00649, 0x2EEA09, 0xD1921C, 0xFE1DEB, 0x1CB129,
+    0xA73EE8, 0x8235F5, 0x2EBB44, 0x84E99C, 0x7026B4, 0x5F7E41,
+    0x3991D6, 0x398353, 0x39F49C, 0x845F8B, 0xBDF928, 0x3B1FF8,
+    0x97FFDE, 0x05980F, 0xEF2F11, 0x8B5A0A, 0x6D1F6D, 0x367ECF,
+    0x27CB09, 0xB74F46, 0x3F669E, 0x5FEA2D, 0x7527BA, 0xC7EBE5,
+    0xF17B3D, 0x0739F7, 0x8A5292, 0xEA6BFB, 0x5FB11F, 0x8D5D08,
+    0x560330, 0x46FC7B, 0x6BABF0, 0xCFBC20, 0x9AF436, 0x1DA9E3,
+    0x91615E, 0xE61B08, 0x659985, 0x5F14A0, 0x68408D, 0xFFD880,
+    0x4D7327, 0x310606, 0x1556CA, 0x73A8C9, 0x60E27B, 0xC08C6B,
+]
+
+// pi/2 in pieces of 24 bits.
+private val pio2_parts: [8]real = [
+    1.57079625129699707031e0,    // 0x3FF921FB 0x40000000
+    7.54978941586159635335e-8,   // 0x3E74442D 0x00000000
+    5.39030252995776476554e-15,  // 0x3CF84698 0x80000000
+    3.28200341580791294123e-22,  // 0x3B78CC51 0x60000000
+    1.27065575308067607349e-29,  // 0x39F01B83 0x80000000
+    1.22933308981111328932e-36,  // 0x387A2520 0x40000000
+    2.73370053816464559624e-44,  // 0x36E38222 0x80000000
+    2.16741683877804819444e-51,  // 0x3569F31D 0x00000000
+]
+
+/** Payne-Hanek reduction, fdlibm's `__kernel_rem_pio2` at double precision.
+ *
+ * `x` holds `nx` 24-bit pieces of the argument scaled by 2^-e0 (the first nonzero), and the answer
+ * goes to `y[0]` and `y[1]`; the result is n mod 8. The pieces of 2/pi taken are the ones the
+ * exponent needs, plus four for guard bits, plus more whenever the fraction left over is zero to all
+ * the bits computed -- the recomputation that keeps an argument near a multiple of pi/2 exact.
+ */
+private rem_pio2_large(x: *real, y: *real, e0: i32, nx: i32) -> i32
+    var iq: [20]i32 = [0; 20]
+    var f: [20]real = [0.0; 20]
+    var fq: [20]real = [0.0; 20]
+    var q: [20]real = [0.0; 20]
+    val jk: i32 = 4
+    val jp = jk
+
+    // jx, jv and q0; q0 < 3.
+    val jx = nx - 1
+    var jv = (e0 - 3) / 24
+    if jv < 0 then jv = 0
+    var q0 = e0 - 24 * (jv + 1)
+
+    // f[0] to f[jx + jk], where f[jx + jk] = ipio2[jv + jk].
+    var j = jv - jx
+    val m = jx + jk
+    for i in 0..m
+        f[i] = if j < 0 then 0.0 else real(ipio2[j])
+        j += 1
+
+    // q[0] to q[jk].
+    for i in 0..jk
+        var fw = 0.0
+        for jj in 0..jx do fw += x[jj] * f[jx + i - jj]
+        q[i] = fw
+
+    var jz = jk
+    var z = 0.0
+    var n: i32 = 0
+    var ih: i32 = 0
+    loop
+        // Distill q[] into iq[], reversed.
+        z = q[jz]
+        var i = 0
+        var jj = jz
+        while jj > 0
+            val fw = real(i32(5.9604644775390625e-8 * z))
+            iq[i] = i32(z - 16777216.0 * fw)
+            z = q[jj - 1] + fw
+            i += 1
+            jj -= 1
+
+        // n.
+        z = scalbn(z, q0)
+        // Trim off the integer part at and above 8.
+        z -= 8.0 * floor(z * 0.125)
+        n = i32(z)
+        z -= real(n)
+        ih = 0
+        if q0 > 0
+            // iq[jz - 1] is needed to settle n.
+            val top = iq[jz - 1] >> (24 - q0)
+            n += top
+            iq[jz - 1] -= top << (24 - q0)
+            ih = iq[jz - 1] >> (23 - q0)
+        elif q0 == 0
+            ih = iq[jz - 1] >> 23
+        elif z >= 0.5
+            ih = 2
+
+        if ih > 0
+            // q > 0.5: take 1 - q.
+            n += 1
+            var carry = 0
+            for k in 0..<jz
+                val v = iq[k]
+                if carry == 0
+                    if v != 0
+                        carry = 1
+                        iq[k] = 0x1000000 - v
+                else
+                    iq[k] = 0xffffff - v
+            if q0 > 0
+                // The rare case: one chance in twelve.
+                if q0 == 1 then iq[jz - 1] = iq[jz - 1] & 0x7fffff
+                if q0 == 2 then iq[jz - 1] = iq[jz - 1] & 0x3fffff
+            if ih == 2
+                z = 1.0 - z
+                if carry != 0 then z -= scalbn(1.0, q0)
+
+        // Is a recomputation needed?
+        if z != 0.0 then break
+        var any = 0
+        var k = jz - 1
+        while k >= jk
+            any = any | iq[k]
+            k -= 1
+        if any != 0 then break
+        // k = the number of terms needed.
+        var terms = 1
+        while iq[jk - terms] == 0 do terms += 1
+        for t in jz + 1..jz + terms
+            f[jx + t] = real(ipio2[jv + t])
+            var fw = 0.0
+            for jj2 in 0..jx do fw += x[jj2] * f[jx + t - jj2]
+            q[t] = fw
+        jz += terms
+
+    // Chop off the zero terms.
+    if z == 0.0
+        jz -= 1
+        q0 -= 24
+        while iq[jz] == 0
+            jz -= 1
+            q0 -= 24
+    else
+        // Break z into 24-bit pieces if it needs it.
+        z = scalbn(z, -q0)
+        if z >= 16777216.0
+            val fw = real(i32(5.9604644775390625e-8 * z))
+            iq[jz] = i32(z - 16777216.0 * fw)
+            jz += 1
+            q0 += 24
+            iq[jz] = i32(fw)
+        else
+            iq[jz] = i32(z)
+
+    // The integer pieces as doubles.
+    var fw = scalbn(1.0, q0)
+    var i = jz
+    while i >= 0
+        q[i] = fw * real(iq[i])
+        fw = fw * 5.9604644775390625e-8
+        i -= 1
+
+    // pio2_parts[0..jp] × q[jz..0].
+    i = jz
+    while i >= 0
+        fw = 0.0
+        var k = 0
+        while k <= jp && k <= jz - i
+            fw += pio2_parts[k] * q[i + k]
+            k += 1
+        fq[jz - i] = fw
+        i -= 1
+
+    // Compress fq[] into y[0] and y[1].
+    fw = 0.0
+    i = jz
+    while i >= 0
+        fw += fq[i]
+        i -= 1
+    y[0] = if ih == 0 then fw else -fw
+    fw = fq[0] - fw
+    for k in 1..jz do fw += fq[k]
+    y[1] = if ih == 0 then fw else -fw
+    n & 7
+end rem_pio2_large
+
+// The sine kernel on [-pi/4, pi/4]: x + y is the argument, y its tail; `tail_known` false says y is
+// zero. Polynomial error below 2^-58.
+private val s1: real = -1.66666666666666324348e-1   // 0xBFC55555 0x55555549
+private val s2: real = 8.33333333332248946124e-3    // 0x3F811111 0x1110F8A6
+private val s3: real = -1.98412698298579493134e-4   // 0xBF2A01A0 0x19C161D5
+private val s4: real = 2.75573137070700676789e-6    // 0x3EC71DE3 0x57B1FE7D
+private val s5: real = -2.50507602534068634195e-8   // 0xBE5AE5E6 0x8A2B9CEB
+private val s6: real = 1.58969099521155010221e-10   // 0x3DE5D93A 0x5ACFD57C
+
+private[cstd] k_sin(x: real, y: real, tail_known: bool) -> real
+    val z = x * x
+    val w = z * z
+    val r = s2 + z * (s3 + z * s4) + z * w * (s5 + z * s6)
+    val v = z * x
+    if !tail_known then return x + v * (s1 + z * r)
+    x - ((z * (0.5 * y - v * r) - y) - v * s1)
+
+// The cosine kernel on [-pi/4, pi/4].
+private val c1: real = 4.16666666666666019037e-2    // 0x3FA55555 0x5555554C
+private val c2: real = -1.38888888888741095749e-3   // 0xBF56C16C 0x16C15177
+private val c3: real = 2.48015872894767294178e-5    // 0x3EFA01A0 0x19CB1590
+private val c4: real = -2.75573143513906633035e-7   // 0xBE927E4F 0x809C52AD
+private val c5: real = 2.08757232129817482790e-9    // 0x3E21EE9E 0xBDB4B1C4
+private val c6: real = -1.13596475577881948265e-11  // 0xBDA8FAE9 0xBE8838D4
+
+private[cstd] k_cos(x: real, y: real) -> real
+    val z = x * x
+    var w = z * z
+    val r = z * (c1 + z * (c2 + z * c3)) + w * w * (c4 + z * (c5 + z * c6))
+    val hz = 0.5 * z
+    w = 1.0 - hz
+    w + (((1.0 - w) - hz) + (z * r - x * y))
+
+// The tangent kernel on [-pi/4, pi/4]; `odd` asks for -1/tan instead.
+private val tan_t: [13]real = [
+    3.33333333333334091986e-1,   // 3FD55555 55555563
+    1.33333333333201242699e-1,   // 3FC11111 1110FE7A
+    5.39682539762260521377e-2,   // 3FABA1BA 1BB341FE
+    2.18694882948595424599e-2,   // 3F9664F4 8406D637
+    8.86323982359930005737e-3,   // 3F8226E3 E96E8493
+    3.59207910759131235356e-3,   // 3F6D6D22 C9560328
+    1.45620945432529025516e-3,   // 3F57DBC8 FEE08315
+    5.88041240820264096874e-4,   // 3F4344D8 F2F26501
+    2.46463134818469906812e-4,   // 3F3026F7 1A8D1068
+    7.81794442939557092300e-5,   // 3F147E88 A03792A6
+    7.14072491382608190305e-5,   // 3F12B80F 32F0A7E9
+    -1.85586374855275456654e-5,  // BEF375CB DB605373
+    2.59073051863633712884e-5,   // 3EFB2A70 74BF7AD4
+]
+private val tan_pio4: real = 7.85398163397448278999e-1     // 3FE921FB 54442D18
+private val tan_pio4lo: real = 3.06161699786838301793e-17  // 3C81A626 33145C07
+
+private[cstd] k_tan(x_in: real, y_in: real, odd: bool) -> real
+    var x = x_in
+    var y = y_in
+    val hx = hi_word(x)
+    // |x| >= 0.6744: work with pi/4 - x instead.
+    val big = hx & 0x7fffffff >= 0x3fe59428
+    val sign = hx >> 31 != 0
+    if big
+        if sign
+            x = -x
+            y = -y
+        x = (tan_pio4 - x) + (tan_pio4lo - y)
+        y = 0.0
+    val z = x * x
+    var w = z * z
+    // x^5 (T[1] + x² T[2] + ...) as its odd and even halves in x^4.
+    var r = tan_t[1] + w * (tan_t[3] + w * (tan_t[5] + w * (tan_t[7] + w * (tan_t[9] + w * tan_t[11]))))
+    var v = z * (tan_t[2] + w * (tan_t[4] + w * (tan_t[6] + w * (tan_t[8] + w * (tan_t[10] + w * tan_t[12])))))
+    var s = z * x
+    r = y + z * (s * (r + v) + y) + s * tan_t[0]
+    w = x + r
+    if big
+        s = if odd then -1.0 else 1.0
+        v = s - 2.0 * (x + (r - w * w / (w + s)))
+        return if sign then -v else v
+    if !odd then return w
+    // -1/(x + r) has up to 2 ulp error, so it is computed carefully.
+    val w0 = with_lo_word(w, 0)
+    v = r - (w0 - x)
+    val a = -1.0 / w
+    val a0 = with_lo_word(a, 0)
+    a0 + a * (1.0 + a0 * w0 + a0 * v)
+end k_tan
+
+@export("sin")
+sin(x: real) -> real
+    val ix = hi_word(x) & 0x7fffffff
+    if ix <= 0x3fe921fb
+        // |x| ~< pi/4
+        if ix < 0x3e500000 then return x
+        return k_sin(x, 0.0, false)
+    // sin of an infinity is a domain error, of a NaN a NaN.
+    if ix >= 0x7ff00000 then return domain_error(x)
+    val (n, y0, y1) = rem_pio2(x)
+    val q = n & 3
+    if q == 0 then return k_sin(y0, y1, true)
+    if q == 1 then return k_cos(y0, y1)
+    if q == 2 then return -k_sin(y0, y1, true)
+    -k_cos(y0, y1)
+
+@export("cos")
+cos(x: real) -> real
+    val ix = hi_word(x) & 0x7fffffff
+    if ix <= 0x3fe921fb
+        // |x| < 2^-27 sqrt(2)
+        if ix < 0x3e46a09e then return 1.0
+        return k_cos(x, 0.0)
+    if ix >= 0x7ff00000 then return domain_error(x)
+    val (n, y0, y1) = rem_pio2(x)
+    val q = n & 3
+    if q == 0 then return k_cos(y0, y1)
+    if q == 1 then return -k_sin(y0, y1, true)
+    if q == 2 then return -k_cos(y0, y1)
+    k_sin(y0, y1, true)
+
+@export("tan")
+tan(x: real) -> real
+    val ix = hi_word(x) & 0x7fffffff
+    if ix <= 0x3fe921fb
+        // |x| < 2^-27
+        if ix < 0x3e400000 then return x
+        return k_tan(x, 0.0, false)
+    if ix >= 0x7ff00000 then return domain_error(x)
+    val (n, y0, y1) = rem_pio2(x)
+    k_tan(y0, y1, n & 1 != 0)
+
+@export("sinf")
+sinf(x: f32) -> f32 = f32(sin(real(x)))
+
+@export("cosf")
+cosf(x: f32) -> f32 = f32(cos(real(x)))
+
+@export("tanf")
+tanf(x: f32) -> f32 = f32(tan(real(x)))

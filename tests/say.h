@@ -16,6 +16,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <stdio.h>
+#include <math.h>
 
 long write(int fd, const void *buf, unsigned long n);
 

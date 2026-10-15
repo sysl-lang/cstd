@@ -1,0 +1,54 @@
+module sh.sysl.cstd
+
+@tests
+
+// The gamma functions against MPFR: the poles at zero and the negative integers (ERANGE), tgamma's
+// domain errors at the negative integers and -infinity (EDOM), the exact factorials, overflow and
+// underflow, and both sides of the reflection formula.
+
+@test("tgamma and tgammaf: within 1 ulp on both sides of zero, exact factorials, poles and domain errors")
+math_tgamma()
+    judge("tgamma", 53, 1.0, unary_d("tgamma", 20000) + """
+        for (int i = 0; i < 20000; i++) D1(tgamma, uni_d(-185, 172));
+        for (int i = 0; i < 10000; i++) D1(tgamma, uni_d(-10, 10));
+        for (int i = 0; i < 4000; i++) D1(tgamma, sgn_d(mag_d(-60, 0)));
+        for (int i = -30; i <= 30; i++) { D1(tgamma, (double)i); D1(tgamma, near_d((double)i, 3)); D1(tgamma, i + 0.5); }
+        for (int i = 0; i < 2000; i++) D1(tgamma, near_d(171.62437695630272, 1000));
+        for (int i = 0; i < 2000; i++) D1(tgamma, uni_d(-184, -170));
+        """)
+    judge("tgamma", 24, 0.501, unary_f("tgammaf", 20000) + """
+        for (int i = 0; i < 20000; i++) F1(tgammaf, uni_f(-45, 36));
+        for (int i = -30; i <= 30; i++) { F1(tgammaf, (float)i); F1(tgammaf, i + 0.5f); }
+        """)
+
+@test("lgamma and lgammaf: within 1 ulp for positive x, poles at 0 and the negative integers")
+math_lgamma()
+    judge("lgamma", 53, 1.0, """
+        for (int i = 0; i < DSPECIALS; i++) D1(lgamma, dfrom(dspecial[i]));
+        for (int i = 0; i < 20000; i++) D1(lgamma, mag_d(-1074, 1023));
+        for (int i = 0; i < 20000; i++) D1(lgamma, uni_d(0, 10));
+        for (int i = 0; i < 4000; i++) D1(lgamma, near_d(1.0, 2000));
+        for (int i = 0; i < 4000; i++) D1(lgamma, near_d(2.0, 2000));
+        for (int i = 0; i < 4000; i++) D1(lgamma, near_d(1.4616321449683622, 2000));
+        for (int i = -40; i <= 40; i++) { D1(lgamma, (double)i); D1(lgamma, near_d((double)i, 5)); }
+        for (int i = 0; i <= 40; i++) D1(lgamma, i + 0.5);
+        """)
+    judge("lgamma", 24, 0.501, unary_f("lgammaf", 20000) + """
+        for (int i = 0; i < 20000; i++) F1(lgammaf, uni_f(-40, 40));
+        for (int i = -40; i <= 40; i++) { F1(lgammaf, (float)i); F1(lgammaf, i + 0.5f); }
+        """)
+
+// For x < 0 the reflection formula subtracts two logarithms that agree to the last few bits wherever
+// lgamma(x) is near one of its zeros -- two in each unit interval from -2 down, and closer to the
+// integers the further out (within 1/n! of -n). There the answer is held to an absolute error of
+// 2^-56; everywhere else to 1 ulp.
+@test("lgamma for negative x: within 1 ulp, or 2^-56 absolute next to the zeros")
+math_lgamma_negative()
+    judge("lgamma", 53, 1.0, """
+        for (int i = 0; i < 20000; i++) D1(lgamma, uni_d(-40, 0));
+        for (int i = 0; i < 4000; i++) D1(lgamma, -mag_d(-60, 51));
+        for (int i = -40; i < 0; i++) D1(lgamma, i + 0.5);
+        static const double zeros[] = {-2.4570247382208006, -2.7476826467274127, -3.1435808883499798,
+                                       -3.9552942848585781, -4.0391547150152165, -4.9918507150461388};
+        for (int z = 0; z < 6; z++) for (int i = 0; i < 400; i++) D1(lgamma, near_d(zeros[z], 1000000));
+        """, 1.3877787807814457e-17)

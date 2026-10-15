@@ -1,0 +1,39 @@
+module sh.sysl.cstd
+
+@tests
+
+// The circular functions against MPFR. The inputs that matter most are the ones argument reduction
+// can get wrong: arguments next to multiples of pi/2, where x - n pi/2 cancels almost entirely (the
+// worst case for double is 6381956970095103 × 2^797, whose reduced argument is about 2^-61), and
+// arguments far beyond 2^20 pi/2, which take the Payne-Hanek path. An infinity is a domain error.
+
+private trig_cases(f: string) -> string = unary_d(f, 20000) + f"""
+    for (int i = 0; i < 20000; i++) D1($f, uni_d(-10, 10));
+    for (int i = 0; i < 10000; i++) D1($f, sgn_d(mag_d(-30, 2)));
+    for (int i = 0; i < 10000; i++) D1($f, sgn_d(mag_d(2, 1023)));
+    for (int i = 1; i <= 3000; i++) { double k = (double)(rbits() % 2000000); D1($f, near_d(k * M_PI_2, 3)); }
+    for (int i = 1; i <= 64; i++) { D1($f, near_d(i * M_PI_2, 2)); D1($f, -near_d(i * M_PI_4, 2)); }
+    for (int i = 0; i < 2000; i++) D1($f, sgn_d(mag_d(19, 22)));
+    D1($f, ldexp(6381956970095103.0, 797));
+    D1($f, -ldexp(6381956970095103.0, 797));
+    D1($f, ldexp(5422874305126352.0, 908));
+    D1($f, 1e22); D1($f, 1e300); D1($f, 0x1.fffffffffffffp1023);
+    D1($f, 1.5707963267948966); D1($f, 3.141592653589793); D1($f, 4.71238898038469);
+    D1($f, 6.283185307179586); D1($f, 0x1.921fb54442d18p+20); D1($f, 0x1.921fb54442d18p+21);
+    """
+
+private trig_cases_f(f: string) -> string = unary_f(f, 20000) + f"""
+    for (int i = 0; i < 20000; i++) F1($f, uni_f(-10, 10));
+    for (int i = 0; i < 10000; i++) F1($f, sgn_f(mag_f(2, 127)));
+    for (int i = 1; i <= 3000; i++) { float k = (float)(rbits() % 20000); F1($f, near_f(k * (float)M_PI_2, 3)); }
+    """
+
+@test("sin, cos and tan: within 1 ulp, through argument reduction at every scale")
+math_trig_double()
+    for f in ["sin", "cos", "tan"]
+        judge(f, 53, 1.0, trig_cases(f))
+
+@test("sinf, cosf and tanf: within bound")
+math_trig_float()
+    for f in ["sin", "cos", "tan"]
+        judge(f, 24, 0.501, trig_cases_f(f + "f"))

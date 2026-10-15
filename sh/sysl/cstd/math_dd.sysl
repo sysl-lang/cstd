@@ -1,0 +1,124 @@
+module sh.sysl.cstd
+
+// Double-double arithmetic: a value carried as hi + lo, |lo| <= ulp(hi)/2, about 106 bits.
+//
+// musl's own `sinh`, `tanh`, `asinh`, `acosh`, `atanh`, `atan2`, `erfc`, `lgamma` and `tgamma` round
+// an intermediate before the last step, and the measured error of each comes to between 1.2 and 10
+// ulp. cstd holds
+// every elementary function to 1 ulp, so these are evaluated with their intermediates carried in
+// two doubles and rounded once, at the end: the error-free transformations of Knuth (two-sum) and
+// Dekker (fast two-sum, and the product through Veltkamp's split, since there is no fused
+// multiply-add to lean on), and on top of them `exp_dd`, `expm1_dd` and `log_dd`, which reuse the
+// tables of `exp` and `pow` and keep the bits those functions round away.
+
+// a + b exactly: the rounded sum and its error.
+private[cstd] two_sum(a: real, b: real) -> (real, real)
+    val s = a + b
+    val bb = s - a
+    (s, (a - (s - bb)) + (b - bb))
+
+// The same when |a| >= |b|, or a is zero.
+private[cstd] fast_two_sum(a: real, b: real) -> (real, real)
+    val s = a + b
+    (s, b - (s - a))
+
+// a in two halves of 26 bits, whose products with each other are exact. |a| < 2^995.
+private split(a: real) -> (real, real)
+    val t = 134217729.0 * a
+    val hi = t - (t - a)
+    (hi, a - hi)
+
+// a × b exactly: the rounded product and its error.
+private[cstd] two_prod(a: real, b: real) -> (real, real)
+    val p = a * b
+    val (ah, al) = split(a)
+    val (bh, bl) = split(b)
+    (p, ((ah * bh - p) + ah * bl + al * bh) + al * bl)
+
+private[cstd] dd_add(ah: real, al: real, bh: real, bl: real) -> (real, real)
+    val (s, e) = two_sum(ah, bh)
+    fast_two_sum(s, e + (al + bl))
+
+private[cstd] dd_mul(ah: real, al: real, bh: real, bl: real) -> (real, real)
+    val (p, e) = two_prod(ah, bh)
+    fast_two_sum(p, e + (ah * bl + al * bh))
+
+private[cstd] dd_div(ah: real, al: real, bh: real, bl: real) -> (real, real)
+    val q = ah / bh
+    val (p, e) = two_prod(q, bh)
+    fast_two_sum(q, (ah - p - e + al - q * bl) / bh)
+
+private[cstd] dd_sqrt(ah: real, al: real) -> (real, real)
+    if ah == 0.0 then return (0.0, 0.0)
+    val s = sqrt(ah)
+    val (p, e) = two_prod(s, s)
+    fast_two_sum(s, (ah - p - e + al) / (2.0 * s))
+
+// A polynomial with double coefficients c[0] + c[1] x + ... + c[n - 1] x^(n-1) at a double-double x,
+// by Horner's rule in double-double.
+private[cstd] dd_poly(c: []const real, xh: real, xl: real) -> (real, real)
+    var n = c.len
+    var (ah, al) = (c[n - 1], 0.0)
+    while n > 1
+        n -= 1
+        val (mh, ml) = dd_mul(ah, al, xh, xl)
+        val (sh, sl) = dd_add(mh, ml, c[n - 1], 0.0)
+        ah = sh
+        al = sl
+    (ah, al)
+
+// exp(x + xtail) = scale × (1 + th + tl), by `exp`'s reduction and table with nothing rounded away:
+// the reduced argument kept as two doubles, the table's second term multiplied in, and the sum
+// carried in two parts. |x| <= 650, which keeps scale's products exact: splitting scale cannot
+// overflow and their error terms stay out of the subnormals. The relative error is about 2^-60.
+private exp_core(x: real, xtail: real) -> (real, real, real)
+    val z = exp_invln2n * x
+    var kd = z + exp_shift
+    val ki = kd.bits()
+    kd -= exp_shift
+    // r = x - k ln2/N, as two doubles.
+    val (p, pe) = two_prod(kd, exp_negln2hin)
+    val (s, se) = two_sum(x, p)
+    val (r, rl) = two_sum(s, se + pe + kd * exp_negln2lon + xtail)
+    // 2^(k/N) = scale × (1 + tail).
+    val idx = 2 * (ki % exp_n)
+    val tail = real.from_bits(exp_tab[idx])
+    val scale = real.from_bits(exp_tab[idx + 1] + (ki << (52 - exp_table_bits)))
+    // exp(r) - 1 = r + poly(r), and (1 + tail)(1 + r + poly + rl) - 1 to second order.
+    val r2 = r * r
+    val poly = r2 * (exp_c2 + r * exp_c3) + r2 * r2 * (exp_c4 + r * exp_c5)
+    val (t1, t1e) = two_sum(tail, r)
+    val (t2, t2e) = two_sum(t1, poly)
+    (scale, t2, t2e + t1e + rl + tail * (r + poly))
+end exp_core
+
+// exp(x + xtail) as hi + lo, |x| <= 650.
+private[cstd] exp_dd(x: real, xtail: real) -> (real, real)
+    val (scale, th, tl) = exp_core(x, xtail)
+    val (p, pe) = two_prod(scale, th)
+    val (h, l) = fast_two_sum(scale, p)
+    fast_two_sum(h, l + pe + scale * tl)
+
+// exp(x) - 1 as hi + lo, |x| <= 650, accurate relative to the result however small: near zero
+// scale is 1 and the answer is th + tl itself.
+private[cstd] expm1_dd(x: real) -> (real, real)
+    val (scale, th, tl) = exp_core(x, 0.0)
+    val (a, ae) = two_sum(scale, -1.0)
+    val (p, pe) = two_prod(scale, th)
+    dd_add(a, ae, p, pe + scale * tl)
+
+// log(ah + al) as hi + lo, for a positive normal ah: `pow`'s logarithm, good to 2^-68, and the low
+// part's share, log1p(al/ah) ~= al/ah.
+private[cstd] log_dd(ah: real, al: real) -> (real, real)
+    val (h, t) = pow_log(ah.bits())
+    fast_two_sum(h, t + al / ah)
+
+// ln 2 in two parts: the first with its low bits clear.
+private[cstd] val ln2_hi: real = 0.6931471805598903     // 0x1.62e42fefa3800p-1
+private[cstd] val ln2_lo: real = 5.497923018708371e-14  // 0x1.ef35793c76730p-45
+
+// log(x) + ln 2, rounded once: log(2x) for an x too large to double.
+private[cstd] log_twice(x: real) -> real
+    val (h, t) = pow_log(x.bits())
+    val (s, e) = two_sum(h, ln2_hi)
+    s + (e + t + ln2_lo)

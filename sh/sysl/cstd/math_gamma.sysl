@@ -1,0 +1,369 @@
+module sh.sysl.cstd
+
+// `<math.h>`'s gamma functions: `lgamma` and `tgamma`, and their float forms.
+//
+// **The fits are fdlibm's**, as musl 1.2.6 carries them in `lgamma_r.c`: on [0, 2] rational and
+// polynomial approximations split around the minimum at 1.4616 and the zeros at 1 and 2; on [2, 8)
+// a rational function of the fraction and the recurrence lgamma(x + 1) = lgamma(x) + log x; beyond 8
+// Stirling's series in 1/x. Each fit is good to about 2^-58.
+//
+// **They are evaluated in double-double** (`math_dd.sysl`), and so is everything built on them:
+//
+//   - lgamma(x), x > 0, is the fits, rounded once.
+//   - lgamma(x), x < 0, is log(pi / |x sin(pi x)|) - lgamma(-x), the reflection formula, with
+//     sin(pi x) from a Taylor series in double-double. Every term is good to about 2^-60 absolute, so
+//     the answer is within 1 ulp wherever lgamma(x) is not close to zero; next to its two zeros in
+//     each unit interval below -2 the difference cancels and only the absolute error is small.
+//   - tgamma(x) = exp(lgamma(x)) with the logarithm carried in two parts into `exp_dd`, and for a
+//     negative x the reflection formula's sign and terms taken inside that logarithm. The relative
+//     error before the last rounding is about 2^-57, which keeps it within 1 ulp.
+//
+// musl's own tgamma uses Lanczos's approximation, rounds at every step and comes to 7 ulp, and its
+// lgamma rounds the reflection formula and comes to 10 ulp at -2.5; neither is used.
+//
+// A pole -- lgamma at zero or a negative integer, tgamma at ±0 -- answers an infinity with ERANGE;
+// tgamma at a negative integer or -infinity is a domain error. The float forms compute in double and
+// round once.
+
+private val lg_tc: real = 1.46163214496836224576e0    // 0x3FF762D8 0x6356BE3F
+private val lg_tf: real = -1.21486290535849611461e-1  // 0xBFBF19B9 0xBCC38A42
+private val lg_tt: real = -3.63867699703950536541e-18 // 0xBC50C7CA 0xA48A971F
+
+// lgamma on [1.73, 2] and [0.73, 0.9], in y = 2 - x or 1 - x: a0 + a2 z + ... and a1 + a3 z + ...
+// in z = y².
+private val lg_a_even: [6]real = [
+    7.72156649015328655494e-2,   // 0x3FB3C467 0xE37DB0C8
+    6.73523010531292681824e-2,   // 0x3FB13E00 0x1A5562A7
+    7.38555086081402883957e-3,   // 0x3F7E404F 0xB68FEFE8
+    1.19270763183362067845e-3,   // 0x3F538A94 0x116F3F5D
+    2.20862790713908385557e-4,   // 0x3F2CF2EC 0xED10E54D
+    2.52144565451257326939e-5,   // 0x3EFA7074 0x428CFA52
+]
+private val lg_a_odd: [6]real = [
+    3.22467033424113591611e-1,   // 0x3FD4A34C 0xC4A60FAD
+    2.05808084325167332806e-2,   // 0x3F951322 0xAC92547B
+    2.89051383673415629091e-3,   // 0x3F67ADD8 0xCCB7926B
+    5.10069792153511336608e-4,   // 0x3F40B6C6 0x89B99C00
+    1.08011567247583939954e-4,   // 0x3F1C5088 0x987DFB07
+    4.48640949618915160150e-5,   // 0x3F07858E 0x90A45837
+]
+// Around the minimum tc, in y = x - tc: three polynomials in w = y³, interleaved as fdlibm has them.
+private val lg_t0: [5]real = [
+    4.83836122723810047042e-1,   // 0x3FDEF72B 0xC8EE38A2
+    -3.27885410759859649565e-2,  // 0xBFA0C9A8 0xDF35B713
+    6.10053870246291332635e-3,   // 0x3F78FCE0 0xE370E344
+    -1.40346469989232843813e-3,  // 0xBF56FE8E 0xBF2D1AF1
+    3.15632070903625950361e-4,   // 0x3F34AF6D 0x6C0EBBF7
+]
+private val lg_t1: [5]real = [
+    -1.47587722994593911752e-1,  // 0xBFC2E427 0x8DC6C509
+    1.79706750811820387126e-2,   // 0x3F9266E7 0x970AF9EC
+    -3.68452016781138256760e-3,  // 0xBF6E2EFF 0xB3E914D7
+    8.81081882437654011382e-4,   // 0x3F4CDF0C 0xEF61A8E9
+    -3.12754168375120860518e-4,  // 0xBF347F24 0xECC38C38
+]
+private val lg_t2: [5]real = [
+    6.46249402391333854778e-2,   // 0x3FB08B42 0x94D5419B
+    -1.03142241298341437450e-2,  // 0xBF851F9F 0xBA91EC6A
+    2.25964780900612472250e-3,   // 0x3F6282D3 0x2E15C915
+    -5.38595305356740546715e-4,  // 0xBF41A610 0x9C73E0EC
+    3.35529192635519073543e-4,   // 0x3F35FD3E 0xE8C2D3F4
+]
+// On [0.9, 1.23] and below 0.23, in y = x - 1 or x: y U(y) / V(y).
+private val lg_u: [6]real = [
+    -7.72156649015328655494e-2,  // 0xBFB3C467 0xE37DB0C8
+    6.32827064025093366517e-1,   // 0x3FE4401E 0x8B005DFF
+    1.45492250137234768737e0,    // 0x3FF7475C 0xD119BD6F
+    9.77717527963372745603e-1,   // 0x3FEF4976 0x44EA8450
+    2.28963728064692451092e-1,   // 0x3FCD4EAE 0xF6010924
+    1.33810918536787660377e-2,   // 0x3F8B678B 0xBF2BAB09
+]
+private val lg_v: [6]real = [
+    1.0,
+    2.45597793713041134822e0,    // 0x4003A5D7 0xC2BD619C
+    2.12848976379893395361e0,    // 0x40010725 0xA42B18F5
+    7.69285150456672783825e-1,   // 0x3FE89DFB 0xE45050AF
+    1.04222645593369134254e-1,   // 0x3FBAAE55 0xD6537C88
+    3.21709242282423911810e-3,   // 0x3F6A5ABB 0x57D0CF61
+]
+// lgamma(2 + y) - y/2 on [0, 1): y S(y) / R(y).
+private val lg_s: [7]real = [
+    -7.72156649015328655494e-2,  // 0xBFB3C467 0xE37DB0C8
+    2.14982415960608852501e-1,   // 0x3FCB848B 0x36E20878
+    3.25778796408930981787e-1,   // 0x3FD4D98F 0x4F139F59
+    1.46350472652464452805e-1,   // 0x3FC2BB9C 0xBEE5F2F7
+    2.66422703033638609560e-2,   // 0x3F9B481C 0x7E939961
+    1.84028451407337715652e-3,   // 0x3F5E26B6 0x7368F239
+    3.19475326584100867617e-5,   // 0x3F00BFEC 0xDD17E945
+]
+private val lg_r: [7]real = [
+    1.0,
+    1.39200533467621045958e0,    // 0x3FF645A7 0x62C4AB74
+    7.21935547567138069525e-1,   // 0x3FE71A18 0x93D3DCDC
+    1.71933865632803078993e-1,   // 0x3FC601ED 0xCCFBDF27
+    1.86459191715652901344e-2,   // 0x3F9317EA 0x742ED475
+    7.77942496381893596434e-4,   // 0x3F497DDA 0xCA41A95B
+    7.32668430744625636189e-6,   // 0x3EDEBAF7 0xA5B38140
+]
+// Stirling's series beyond 8: w0 + z (w1 + w2 z² + ... + w6 z^10), z = 1/x.
+private val lg_w0: real = 4.18938533204672725052e-1  // 0x3FDACFE3 0x90C97D69
+private val lg_w: [6]real = [
+    8.33333333333329678849e-2,   // 0x3FB55555 0x5555553B
+    -2.77777777728775536470e-3,  // 0xBF66C16C 0x16B02E5C
+    7.93650558643019558500e-4,   // 0x3F4A019F 0x98CF38B6
+    -5.95187557450339963135e-4,  // 0xBF4380CB 0x8C0FE741
+    8.36339918996282139126e-4,   // 0x3F4B67BA 0x4CDAD5D1
+    -1.63092934096575273989e-3,  // 0xBF5AB89D 0x0B9E43E4
+]
+
+// lgamma(x) for a finite x >= 2^-70, as hi + lo.
+private lgamma_dd(x: real) -> (real, real)
+    val ix = hi_word(x)
+    // lgamma(1) = lgamma(2) = 0
+    if (ix == 0x3ff00000 || ix == 0x40000000) && lo_word(x) == 0 then return (0.0, 0.0)
+    if ix < 0x40000000
+        // x < 2
+        var rh = 0.0
+        var rl = 0.0
+        var yh = 0.0
+        var yl = 0.0
+        var i = 0
+        if ix <= 0x3feccccc
+            // lgamma(x) = lgamma(x + 1) - log(x)
+            val (lh, ll) = log_dd(x, 0.0)
+            rh = -lh
+            rl = -ll
+            if ix >= 0x3fe76944
+                yh, yl = two_sum(1.0, -x)
+                i = 0
+            elif ix >= 0x3fcda661
+                yh, yl = two_sum(x, -(lg_tc - 1.0))
+                i = 1
+            else
+                yh = x
+                i = 2
+        elif ix >= 0x3ffbb4c3
+            // [1.7316, 2]
+            yh, yl = two_sum(2.0, -x)
+            i = 0
+        elif ix >= 0x3ff3b4c4
+            // [1.23, 1.73]
+            yh, yl = two_sum(x, -lg_tc)
+            i = 1
+        else
+            yh, yl = two_sum(x, -1.0)
+            i = 2
+        var ph = 0.0
+        var pl = 0.0
+        if i == 0
+            // y p1(z) + z p2(z) - y/2
+            val (zh, zl) = dd_mul(yh, yl, yh, yl)
+            val (e1h, e1l) = dd_poly(lg_a_even, zh, zl)
+            val (o1h, o1l) = dd_poly(lg_a_odd, zh, zl)
+            val (ah, al) = dd_mul(yh, yl, e1h, e1l)
+            val (bh, bl) = dd_mul(zh, zl, o1h, o1l)
+            val (sh, sl) = dd_add(ah, al, bh, bl)
+            ph, pl = dd_add(sh, sl, -0.5 * yh, -0.5 * yl)
+        elif i == 1
+            // tf + z p1(w) - (tt - w (p2(w) + y p3(w)))
+            val (zh, zl) = dd_mul(yh, yl, yh, yl)
+            val (wh, wl) = dd_mul(zh, zl, yh, yl)
+            val (p1h, p1l) = dd_poly(lg_t0, wh, wl)
+            val (p2h, p2l) = dd_poly(lg_t1, wh, wl)
+            val (p3h, p3l) = dd_poly(lg_t2, wh, wl)
+            val (q3h, q3l) = dd_mul(yh, yl, p3h, p3l)
+            val (s23h, s23l) = dd_add(p2h, p2l, q3h, q3l)
+            val (ws, wsl) = dd_mul(wh, wl, s23h, s23l)
+            val (inh, inl) = dd_add(lg_tt, 0.0, -ws, -wsl)
+            val (zp, zpl) = dd_mul(zh, zl, p1h, p1l)
+            val (dh, dl) = dd_add(zp, zpl, -inh, -inl)
+            ph, pl = dd_add(lg_tf, 0.0, dh, dl)
+        else
+            // y U(y) / V(y) - y/2
+            val (uh, ul) = dd_poly(lg_u, yh, yl)
+            val (vh, vl) = dd_poly(lg_v, yh, yl)
+            val (yu, yul) = dd_mul(yh, yl, uh, ul)
+            val (qh, ql) = dd_div(yu, yul, vh, vl)
+            ph, pl = dd_add(qh, ql, -0.5 * yh, -0.5 * yl)
+        return dd_add(rh, rl, ph, pl)
+    if ix < 0x40200000
+        // x < 8: lgamma(2 + y) and the recurrence up to x, y the exact fraction.
+        val i = i32(x)
+        val y = x - real(i)
+        val (sh, sl) = dd_poly(lg_s, y, 0.0)
+        val (rh, rl) = dd_poly(lg_r, y, 0.0)
+        val (ysh, ysl) = dd_mul(y, 0.0, sh, sl)
+        val (qh, ql) = dd_div(ysh, ysl, rh, rl)
+        var (resh, resl) = dd_add(qh, ql, 0.5 * y, 0.0)
+        if i >= 3
+            // log((y + 2)(y + 3)...(y + i - 1))
+            var zh = 1.0
+            var zl = 0.0
+            for k in 2..i - 1
+                val (th, tl) = two_sum(y, real(k))
+                zh, zl = dd_mul(zh, zl, th, tl)
+            val (lh, ll) = log_dd(zh, zl)
+            resh, resl = dd_add(resh, resl, lh, ll)
+        return (resh, resl)
+    val (th, tl) = log_dd(x, 0.0)
+    val (t1h, t1l) = dd_add(th, tl, -1.0, 0.0)
+    if ix >= 0x43900000
+        // x >= 2^58: x (log x - 1), the product formed at x 2^-64 so that splitting x cannot overflow.
+        val (ph, pl) = dd_mul(x * 5.421010862427522e-20, 0.0, t1h, t1l)
+        return (ph * 18446744073709551616.0, pl * 18446744073709551616.0)
+    // x (log x - 1) - (log x - 1)/2 + w(1/x); x - 0.5 itself is not exact past 2^52.
+    val (zh, zl) = dd_div(1.0, 0.0, x, 0.0)
+    val (z2h, z2l) = dd_mul(zh, zl, zh, zl)
+    val (ph, pl) = dd_poly(lg_w, z2h, z2l)
+    val (zph, zpl) = dd_mul(zh, zl, ph, pl)
+    val (wh, wl) = dd_add(lg_w0, 0.0, zph, zpl)
+    val (mh, ml) = dd_mul(x, 0.0, t1h, t1l)
+    val (nh, nl) = dd_add(mh, ml, -0.5 * t1h, -0.5 * t1l)
+    dd_add(nh, nl, wh, wl)
+end lgamma_dd
+
+// pi^k / k! with the sign of (-1)^(k/2), each as hi + lo, MPFR's: sin(pi t) = t (c1 + c3 t² + ... +
+// c21 t^20) and cos(pi t) = c0 + c2 t² + ... + c22 t^22, both to 2^-70 on |t| <= 1/4.
+private val sinpi_hi: [11]real = [3.1415926535897931, -5.1677127800499703, 2.5501640398773455,
+    -0.59926452932079211, 0.082145886611128233, -0.0073704309457143504, 0.00046630280576761255,
+    -2.1915353447830217e-05, 7.9520540014755126e-07, -2.2948428997269873e-08, 5.392664662608129e-10]
+private val sinpi_lo: [11]real = [1.2246467991473532e-16, 2.2665622825789447e-16, -7.931006345326556e-17,
+    2.8450261126982178e-17, -3.8472928052976561e-18, -3.3282811656034321e-19, 1.0704561733683463e-20,
+    1.4648526682685598e-21, 1.7365403615190209e-23, -7.3763462070410877e-26, -4.6231664587063263e-26]
+private val cospi_hi: [12]real = [1.0, -4.934802200544679, 4.0587121264167685, -1.3352627688545895,
+    0.23533063035889321, -0.025806891390014061, 0.0019295743094039231, -0.0001046381049248457,
+    4.3030695870329473e-06, -1.3878952462213771e-07, 3.6047307974625011e-09, -7.7007071306013539e-11]
+private val cospi_lo: [12]real = [0.0, -3.1326477543698557e-16, -2.6602000824298645e-16,
+    3.1815237892149862e-18, -1.2583065576724427e-18, 1.170191067939226e-18, -9.6695179399869563e-20,
+    -2.421206183964864e-21, -2.8640100829367909e-22, -7.4793620904172383e-24, -1.833556774402799e-25,
+    4.7314468253686385e-27]
+
+// log(pi) as hi + lo.
+private val log_pi_hi: real = 1.1447298858494002
+private val log_pi_lo: real = 1.0265951162707826e-17
+
+// A polynomial with double-double coefficients at a double-double point.
+private dd_poly_dd(hi: []const real, lo: []const real, xh: real, xl: real) -> (real, real)
+    var n = hi.len
+    var ah = hi[n - 1]
+    var al = lo[n - 1]
+    while n > 1
+        n -= 1
+        val (mh, ml) = dd_mul(ah, al, xh, xl)
+        ah, al = dd_add(mh, ml, hi[n - 1], lo[n - 1])
+    (ah, al)
+
+// sin(pi x) for a finite x >= 0 that is not an integer, as hi + lo.
+private sin_pi_dd(x: real) -> (real, real)
+    // x mod 2, then t in [-1/4, 1/4] with x = n/2 + t; every step is exact.
+    var t = 2.0 * (x * 0.5 - floor(x * 0.5))
+    var n = i32(t * 4.0)
+    n = (n + 1) / 2
+    t -= real(n) * 0.5
+    val (t2h, t2l) = two_prod(t, t)
+    if n == 1 || n == 3
+        val (ch, cl) = dd_poly_dd(cospi_hi, cospi_lo, t2h, t2l)
+        return if n == 1 then (ch, cl) else (-ch, -cl)
+    val (ph, pl) = dd_poly_dd(sinpi_hi, sinpi_lo, t2h, t2l)
+    val (sh, sl) = dd_mul(ph, pl, t, 0.0)
+    if n == 2 then (-sh, -sl) else (sh, sl)
+
+// log(pi / |x sin(pi x)|) for a negative non-integer x, given |x|, as hi + lo; and whether
+// sin(pi |x|) is negative.
+private reflection_log(ax: real) -> (real, real, bool)
+    var (sh, sl) = sin_pi_dd(ax)
+    val negative = sh < 0.0
+    if negative
+        sh = -sh
+        sl = -sl
+    val (ph, pl) = dd_mul(ax, 0.0, sh, sl)
+    val (lh, ll) = log_dd(ph, pl)
+    val (rh, rl) = dd_add(log_pi_hi, log_pi_lo, -lh, -ll)
+    (rh, rl, negative)
+
+@export("lgamma")
+lgamma(x: real) -> real
+    val ix = hi_word(x) & 0x7fffffff
+    if ix >= 0x7ff00000 then return x * x
+    if ix < (0x3ffu32 - 70) << 20
+        // |x| < 2^-70: -log|x|, a pole at zero.
+        if x == 0.0 then return pole_error(false)
+        return -log(fabs(x))
+    if !sign_bit(x)
+        val (h, l) = lgamma_dd(x)
+        return checked_overflow(h + l)
+    // A negative integer is a pole; otherwise the reflection formula.
+    val ax = -x
+    if floor(ax) == ax then return pole_error(false)
+    val (nh, nl, _) = reflection_log(ax)
+    val (gh, gl) = lgamma_dd(ax)
+    val (rh, rl) = dd_add(nh, nl, -gh, -gl)
+    rh + rl
+
+@export("lgammaf")
+lgammaf(x: f32) -> f32 = narrow(lgamma(real(x)))
+
+// (n - 1)! for n from 1 to 23, all exact.
+private val tg_fact: [23]real = [
+    1.0, 1.0, 2.0, 6.0, 24.0, 120.0, 720.0, 5040.0, 40320.0, 362880.0, 3628800.0, 39916800.0,
+    479001600.0, 6227020800.0, 87178291200.0, 1307674368000.0, 20922789888000.0,
+    355687428096000.0, 6402373705728000.0, 121645100408832000.0,
+    2432902008176640000.0, 51090942171709440000.0, 1124000727777607680000.0,
+]
+
+// e^(ah + al), negated when `negative`, rounded once. Past ±650 exp_dd's argument is moved by 128 ln2
+// and the answer scaled back, which keeps its products clear of overflow and of the subnormals.
+private exp_signed(ah: real, al: real, negative: bool) -> real
+    var r = 0.0
+    if ah > 650.0
+        if ah > 760.0 then return overflow(negative)
+        val (bh, bl) = dd_add(ah, al, -128.0 * ln2_hi, -128.0 * ln2_lo)
+        val (eh, el) = exp_dd(bh, bl)
+        // 2^128
+        r = checked_overflow((eh + el) * 3.402823669209385e38)
+    elif ah < -650.0
+        if ah < -760.0 then return underflow(negative)
+        val (bh, bl) = dd_add(ah, al, 128.0 * ln2_hi, 128.0 * ln2_lo)
+        val (eh, el) = exp_dd(bh, bl)
+        // 2^-128: the one rounding into the subnormals, after the sum's own.
+        r = (eh + el) * 2.938735877055719e-39
+    else
+        val (eh, el) = exp_dd(ah, al)
+        r = eh + el
+    if negative then -r else r
+
+@export("tgamma")
+tgamma(x: real) -> real
+    val ix = hi_word(x) & 0x7fffffff
+    val sign = sign_bit(x)
+    // tgamma(NaN) = NaN, tgamma(inf) = inf, tgamma(-inf) is a domain error.
+    if ix >= 0x7ff00000
+        if x == -real.infinity then return domain_error(x)
+        return x + real.infinity
+    // |x| < 2^-54: tgamma x ~ 1/x, and ±0 is a pole.
+    if ix < (0x3ffu32 - 54) << 20
+        if x == 0.0 then return pole_error(sign)
+        return checked_overflow(1.0 / x)
+    // The integers: a negative one is a domain error, and the factorials are exact.
+    if x == floor(x)
+        if sign then return domain_error(x)
+        if x <= 23.0 then return tg_fact[i32(x) - 1]
+    // x >= 184 overflows; x <= -184 underflows, its sign the parity's.
+    if ix >= 0x40670000
+        if sign
+            if floor(x) * 0.5 == floor(x * 0.5) then return 0.0
+            return -0.0
+        return overflow(false)
+    if !sign
+        val (lh, ll) = lgamma_dd(x)
+        return exp_signed(lh, ll, false)
+    // tgamma(x) = -pi / (x sin(pi x) tgamma(-x)), whose sign is that of -sin(pi |x|).
+    val ax = -x
+    val (nh, nl, sin_negative) = reflection_log(ax)
+    val (gh, gl) = lgamma_dd(ax)
+    val (ah, al) = dd_add(nh, nl, -gh, -gl)
+    exp_signed(ah, al, !sin_negative)
+end tgamma
+
+@export("tgammaf")
+tgammaf(x: f32) -> f32 = narrow(tgamma(real(x)))

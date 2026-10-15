@@ -1,0 +1,140 @@
+module sh.sysl.cstd
+
+// `<math.h>`'s remainders: `fmod`, `remainder` and `remquo`. Each is exact -- the remainder of two
+// doubles is always a double -- and is computed as long division on the significands, one bit per
+// step, in integer arithmetic.
+//
+// Ported from musl's `fmod.c`, `remquo.c` and `remainder.c`. The float forms divide the same
+// doubles: a float's remainder is the double's, and fits a float.
+
+// A significand as an integer with its leading one at bit 52, and the exponent that goes with it; a
+// subnormal is shifted up until it has one.
+private normalize(u: u64, biased: i32) -> (u64, i32)
+    if biased != 0 then return ((u & (0xffffffffffffffff >> 12)) | (1u64 << 52), biased)
+    var e = biased
+    var i = u << 12
+    while i >> 63 == 0
+        e -= 1
+        i = i << 1
+    (u << (-e + 1), e)
+
+// `m` with its leading one at bit 52 and exponent `e`, put back together as a double's bits, a
+// subnormal when `e` is not above 0.
+private reassemble(m: u64, e: i32) -> u64
+    if e > 0 then return (m - (1u64 << 52)) | (u64(e) << 52)
+    m >> (-e + 1)
+
+@export("fmod")
+fmod(x: real, y: real) -> real
+    val ux = x.bits()
+    val uy = y.bits()
+    var ex = i32((ux >> 52) & 0x7ff)
+    var ey = i32((uy >> 52) & 0x7ff)
+    val sx = ux >> 63
+
+    if uy << 1 == 0 || y != y || ex == 0x7ff
+        // A zero divisor or an infinite dividend is a domain error; a NaN is passed through.
+        if x != x || y != y then return x * y
+        return domain_error(x)
+    if ux << 1 <= uy << 1
+        if ux << 1 == uy << 1 then return 0.0 * x
+        return x
+
+    var (mx, nx) = normalize(ux, ex)
+    val (my, ny) = normalize(uy, ey)
+    ex = nx
+    ey = ny
+
+    // x mod y, a bit at a time.
+    var i: u64 = 0
+    while ex > ey
+        i = mx - my
+        if i >> 63 == 0
+            if i == 0 then return 0.0 * x
+            mx = i
+        mx = mx << 1
+        ex -= 1
+    i = mx - my
+    if i >> 63 == 0
+        if i == 0 then return 0.0 * x
+        mx = i
+    while mx >> 52 == 0
+        mx = mx << 1
+        ex -= 1
+    real.from_bits(reassemble(mx, ex) | (sx << 63))
+end fmod
+
+// The remainder of x / y with the quotient rounded to nearest, half way to even, and the low bits of
+// that quotient with its sign.
+@export("remquo")
+remquo(x: real, y: real, quo: *i32) -> real
+    val ux = x.bits()
+    val uy = y.bits()
+    var ex = i32((ux >> 52) & 0x7ff)
+    var ey = i32((uy >> 52) & 0x7ff)
+    val sx = ux >> 63 != 0
+    val sy = uy >> 63 != 0
+
+    *quo = 0
+    if uy << 1 == 0 || y != y || ex == 0x7ff
+        if x != x || y != y then return x * y
+        return domain_error(x)
+    if ux << 1 == 0 then return x
+
+    var (mx, nx) = normalize(ux, ex)
+    val (my, ny) = normalize(uy, ey)
+    ex = nx
+    ey = ny
+
+    var q: u32 = 0
+    var straight_to_end = false
+    if ex < ey
+        if ex + 1 != ey then return x
+        straight_to_end = true
+
+    if !straight_to_end
+        // x mod y, counting the quotient's bits.
+        var i: u64 = 0
+        while ex > ey
+            i = mx - my
+            if i >> 63 == 0
+                mx = i
+                q += 1
+            mx = mx << 1
+            q = q << 1
+            ex -= 1
+        i = mx - my
+        if i >> 63 == 0
+            mx = i
+            q += 1
+        if mx == 0
+            ex = -60
+        else
+            while mx >> 52 == 0
+                mx = mx << 1
+                ex -= 1
+
+    // Scale the result and decide between |x| and |x| - |y|.
+    var r = real.from_bits(reassemble(mx, ex))
+    val ay = if sy then -y else y
+    if ex == ey || (ex + 1 == ey && (2.0 * r > ay || (2.0 * r == ay && q % 2 != 0)))
+        r = r - ay
+        q += 1
+    q = q & 0x7fffffff
+    *quo = if sx != sy then -i32(q) else i32(q)
+    if sx then -r else r
+end remquo
+
+@export("remainder")
+remainder(x: real, y: real) -> real
+    var q: i32 = 0
+    remquo(x, y, &q)
+
+@export("fmodf")
+fmodf(x: f32, y: f32) -> f32 = f32(fmod(real(x), real(y)))
+
+@export("remainderf")
+remainderf(x: f32, y: f32) -> f32 = f32(remainder(real(x), real(y)))
+
+@export("remquof")
+remquof(x: f32, y: f32, quo: *i32) -> f32 = f32(remquo(real(x), real(y), quo))

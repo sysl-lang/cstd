@@ -1,0 +1,368 @@
+module sh.sysl.cstd
+
+// `<math.h>`, the exact half: the functions whose answer is a bit pattern decided by the argument's
+// bits, with no approximation anywhere. Rounding to an integral value (`floor`, `ceil`, `trunc`,
+// `round`, `rint`, `nearbyint` and the conversions to `long`), taking a double apart and putting it
+// back (`frexp`, `ldexp`, `scalbn`, `modf`, `ilogb`, `logb`), the neighbours (`nextafter`,
+// `nexttoward`), and the sign and ordering functions. Every answer is exact, and the tests hold each
+// to the bit.
+//
+// Ported from musl's `floor.c`, `ceil.c`, `trunc.c`, `round.c`, `rint.c`, `modf.c`, `frexp.c`,
+// `scalbn.c`, `ilogb.c`, `logb.c`, `nextafter.c`, `nextafterf.c`, `nexttoward.c`, `fdim.c`, `fmax.c`
+// and `fmin.c`.
+//
+// **`float` goes through `double` wherever that is exact**, and for these it always is: every float
+// is a double, the integral neighbours of a float are floats, and a power-of-two scaling done in
+// double and rounded once to float is the float scaling (a result small enough to round in double's
+// subnormal range is far below float's, so both roundings give the same zero).
+
+// 2^52: past it every double is an integer, and adding and taking it away again rounds to one.
+private val toint: real = 4503599627370496.0
+
+@export("floor")
+floor(x: real) -> real
+    val e = (x.bits() >> 52) & 0x7ff
+    if e >= 0x3ff + 52 || x == 0.0 then return x
+    // y = int(x) - x, where int(x) is the integer nearest x.
+    val y = if sign_bit(x) then x - toint + toint - x else x + toint - toint - x
+    if e <= 0x3ff - 1 then return if sign_bit(x) then -1.0 else 0.0
+    if y > 0.0 then x + y - 1.0 else x + y
+
+@export("ceil")
+ceil(x: real) -> real
+    val e = (x.bits() >> 52) & 0x7ff
+    if e >= 0x3ff + 52 || x == 0.0 then return x
+    val y = if sign_bit(x) then x - toint + toint - x else x + toint - toint - x
+    if e <= 0x3ff - 1 then return if sign_bit(x) then -0.0 else 1.0
+    if y < 0.0 then x + y + 1.0 else x + y
+
+@export("trunc")
+trunc(x: real) -> real
+    val u = x.bits()
+    var e = i32((u >> 52) & 0x7ff) - 0x3ff + 12
+    if e >= 52 + 12 then return x
+    if e < 12 then e = 1
+    val m = 0xffffffffffffffffu64 >> e
+    if u & m == 0 then return x
+    real.from_bits(u & ~m)
+
+// Half way goes away from zero.
+@export("round")
+round(x: real) -> real
+    val e = (x.bits() >> 52) & 0x7ff
+    if e >= 0x3ff + 52 then return x
+    val negative = sign_bit(x)
+    val a = if negative then -x else x
+    if e < 0x3ff - 1 then return 0.0 * x
+    var y = a + toint - toint - a
+    if y > 0.5
+        y = y + a - 1.0
+    elif y <= -0.5
+        y = y + a + 1.0
+    else
+        y = y + a
+    if negative then -y else y
+
+// To the nearest integer, half way to the even one, in the current rounding mode -- which is
+// nearest, the only one cstd assumes.
+@export("rint")
+rint(x: real) -> real
+    val e = (x.bits() >> 52) & 0x7ff
+    if e >= 0x3ff + 52 then return x
+    val y = if sign_bit(x) then x - toint + toint else x + toint - toint
+    if y == 0.0 then return if sign_bit(x) then -0.0 else 0.0
+    y
+
+// `rint` without the inexact exception, which cstd never promises; so the same function.
+@export("nearbyint")
+nearbyint(x: real) -> real = rint(x)
+
+// The conversions to an integer type. Where the rounded value does not fit, C leaves the result
+// unspecified; here it saturates, to the type's nearest end, and a NaN is 0.
+@export("lrint")
+lrint(x: real) -> Long = Long(rint(x))
+
+@export("llrint")
+llrint(x: real) -> LongLong = LongLong(rint(x))
+
+@export("lround")
+lround(x: real) -> Long = Long(round(x))
+
+@export("llround")
+llround(x: real) -> LongLong = LongLong(round(x))
+
+@export("modf")
+modf(x: real, iptr: *real) -> real
+    val u = x.bits()
+    val e = i32((u >> 52) & 0x7ff) - 0x3ff
+    val sign = u & (1u64 << 63)
+    // No fractional part.
+    if e >= 52
+        *iptr = x
+        if e == 0x400 && u << 12 != 0 then return x
+        return real.from_bits(sign)
+    // No integral part.
+    if e < 0
+        *iptr = real.from_bits(sign)
+        return x
+    val mask = 0xffffffffffffffffu64 >> 12 >> e
+    if u & mask == 0
+        *iptr = x
+        return real.from_bits(sign)
+    val whole = real.from_bits(u & ~mask)
+    *iptr = whole
+    x - whole
+end modf
+
+@export("frexp")
+frexp(x: real, e: *i32) -> real
+    val u = x.bits()
+    val ee = i32((u >> 52) & 0x7ff)
+    if ee == 0
+        if x == 0.0
+            *e = 0
+            return x
+        // A subnormal, made normal by 2^64.
+        val m = frexp(x * 18446744073709551616.0, e)
+        *e = *e - 64
+        return m
+    if ee == 0x7ff then return x
+    *e = ee - 0x3fe
+    real.from_bits((u & 0x800fffffffffffff) | 0x3fe0000000000000)
+
+// x × 2^n, rounded once. The scaling is done in at most three exact steps, the last of which keeps
+// the final multiplication out of the subnormal range until it is the one that rounds.
+@export("scalbn")
+scalbn(x: real, n: i32) -> real
+    var y = x
+    var k = n
+    if k > 1023
+        y = y * 8.98846567431158e307
+        k -= 1023
+        if k > 1023
+            y = y * 8.98846567431158e307
+            k -= 1023
+            if k > 1023 then k = 1023
+    elif k < -1022
+        // 2^-1022 × 2^53, so that the final k is below -53 and the last step rounds only once.
+        y = y * 2.004168360008973e-292
+        k += 1022 - 53
+        if k < -1022
+            y = y * 2.004168360008973e-292
+            k += 1022 - 53
+            if k < -1022 then k = -1022
+    val r = y * real.from_bits(u64(0x3ff + k) << 52)
+    if x == x && x != real.infinity && x != -real.infinity then checked_overflow(r) else r
+end scalbn
+
+@export("ldexp")
+ldexp(x: real, n: i32) -> real = scalbn(x, n)
+
+// A `long` count saturated to what `scalbn` needs: anything past ±65535 overflows or underflows
+// every double already.
+@export("scalbln")
+scalbln(x: real, n: Long) -> real
+    val k = if n > 65535 then 65535 elif n < -65535 then -65535 else i32(n)
+    scalbn(x, k)
+
+@export("ilogb")
+ilogb(x: real) -> i32
+    var i = x.bits()
+    var e = i32((i >> 52) & 0x7ff)
+    if e == 0
+        i = i << 12
+        if i == 0 then return -2147483647 - 1
+        // A subnormal: count down to its leading one.
+        e = -0x3ff
+        while i >> 63 == 0
+            e -= 1
+            i = i << 1
+        return e
+    if e == 0x7ff then return if i << 12 != 0 then -2147483647 - 1 else 2147483647
+    e - 0x3ff
+
+// The exponent as a double. Zero is a pole: -infinity and `ERANGE`.
+@export("logb")
+logb(x: real) -> real
+    if x != x || x == real.infinity || x == -real.infinity then return x * x
+    if x == 0.0 then return pole_error(true)
+    real(ilogb(x))
+
+@export("nextafter")
+nextafter(x: real, y: real) -> real
+    if x != x || y != y then return x + y
+    var ux = x.bits()
+    val uy = y.bits()
+    if ux == uy then return y
+    val ax = ux & 0x7fffffffffffffff
+    val ay = uy & 0x7fffffffffffffff
+    if ax == 0
+        if ay == 0 then return y
+        ux = (uy & (1u64 << 63)) | 1
+    elif ax > ay || (ux ^ uy) & (1u64 << 63) != 0
+        ux -= 1
+    else
+        ux += 1
+    // Stepping off the largest finite value overflows.
+    checked_overflow(real.from_bits(ux))
+end nextafter
+
+// The direction is a long double, which on the machines where it is a double makes this
+// `nextafter`. Where it is binary128 the step is taken toward a wider value, compared at its width.
+#if (aarch64 && macos) || thumb
+@export("nexttoward")
+nexttoward(x: real, y: real) -> real = nextafter(x, y)
+
+// The float steps toward an infinity on `y`'s side: `y` rounded to float could land on `x`.
+@export("nexttowardf")
+nexttowardf(x: f32, y: real) -> f32
+    if x != x || y != y then return f32(real(x) + y)
+    if real(x) == y then return f32(y)
+    nextafterf(x, if real(x) < y then f32.infinity else -f32.infinity)
+#elif aarch64 || riscv64 || riscv32
+@export("nexttoward")
+nexttoward(x: real, y: f128) -> real
+    if x != x || y != y then return x + real(y)
+    if f128(x) == y then return real(y)
+    if x == 0.0
+        return checked_overflow(real.from_bits(if y < 0.0 then 0x8000000000000001 else 1))
+    val ux = x.bits()
+    val up = (f128(x) < y) != sign_bit(x)
+    checked_overflow(real.from_bits(if up then ux + 1 else ux - 1))
+
+@export("nexttowardf")
+nexttowardf(x: f32, y: f128) -> f32
+    if x != x || y != y then return x + f32(y)
+    if f128(x) == y then return f32(y)
+    nextafterf(x, if f128(x) < y then f32.infinity else -f32.infinity)
+#endif
+
+@export("fdim")
+fdim(x: real, y: real) -> real
+    if x != x then return x
+    if y != y then return y
+    if x <= y then return 0.0
+    if x == real.infinity || y == -real.infinity then return x - y
+    checked_overflow(x - y)
+
+// A NaN loses to a number; -0 is below +0 (C Annex F.10.9.2).
+@export("fmax")
+fmax(x: real, y: real) -> real
+    if x != x then return y
+    if y != y then return x
+    if sign_bit(x) != sign_bit(y) then return if sign_bit(x) then y else x
+    if x < y then y else x
+
+@export("fmin")
+fmin(x: real, y: real) -> real
+    if x != x then return y
+    if y != y then return x
+    if sign_bit(x) != sign_bit(y) then return if sign_bit(x) then x else y
+    if x < y then x else y
+
+@export("fabs")
+fabs(x: real) -> real = real.from_bits(x.bits() & 0x7fffffffffffffff)
+
+@export("copysign")
+copysign(x: real, y: real) -> real =
+    real.from_bits((x.bits() & 0x7fffffffffffffff) | (y.bits() & 0x8000000000000000))
+
+// The tag is not read: every NaN cstd makes is the default quiet one.
+@export("nan")
+nan(tag: *u8) -> real = real.from_bits(0x7ff8000000000000)
+
+// --- float ---
+
+@export("floorf")
+floorf(x: f32) -> f32 = f32(floor(real(x)))
+
+@export("ceilf")
+ceilf(x: f32) -> f32 = f32(ceil(real(x)))
+
+@export("truncf")
+truncf(x: f32) -> f32 = f32(trunc(real(x)))
+
+@export("roundf")
+roundf(x: f32) -> f32 = f32(round(real(x)))
+
+@export("rintf")
+rintf(x: f32) -> f32 = f32(rint(real(x)))
+
+@export("nearbyintf")
+nearbyintf(x: f32) -> f32 = f32(rint(real(x)))
+
+@export("lrintf")
+lrintf(x: f32) -> Long = lrint(real(x))
+
+@export("llrintf")
+llrintf(x: f32) -> LongLong = llrint(real(x))
+
+@export("lroundf")
+lroundf(x: f32) -> Long = lround(real(x))
+
+@export("llroundf")
+llroundf(x: f32) -> LongLong = llround(real(x))
+
+@export("modff")
+modff(x: f32, iptr: *f32) -> f32
+    var whole = 0.0
+    val frac = modf(real(x), &whole)
+    *iptr = f32(whole)
+    f32(frac)
+
+@export("frexpf")
+frexpf(x: f32, e: *i32) -> f32 = f32(frexp(real(x), e))
+
+@export("scalbnf")
+scalbnf(x: f32, n: i32) -> f32 = narrow(scalbn(real(x), n))
+
+@export("ldexpf")
+ldexpf(x: f32, n: i32) -> f32 = narrow(scalbn(real(x), n))
+
+@export("scalblnf")
+scalblnf(x: f32, n: Long) -> f32 = narrow(scalbln(real(x), n))
+
+@export("ilogbf")
+ilogbf(x: f32) -> i32 = ilogb(real(x))
+
+@export("logbf")
+logbf(x: f32) -> f32 = f32(logb(real(x)))
+
+// A float's own bits, stepped as `nextafter` steps a double's.
+@export("nextafterf")
+nextafterf(x: f32, y: f32) -> f32
+    if x != x || y != y then return x + y
+    var ux = x.bits()
+    val uy = y.bits()
+    if ux == uy then return y
+    val ax = ux & 0x7fffffff
+    val ay = uy & 0x7fffffff
+    if ax == 0
+        if ay == 0 then return y
+        ux = (uy & 0x80000000) | 1
+    elif ax > ay || (ux ^ uy) & 0x80000000 != 0
+        ux -= 1
+    else
+        ux += 1
+    val r = f32.from_bits(ux)
+    if r == f32.infinity || r == -f32.infinity then errno = ERANGE
+    r
+end nextafterf
+
+@export("fdimf")
+fdimf(x: f32, y: f32) -> f32 = narrow(fdim(real(x), real(y)))
+
+@export("fmaxf")
+fmaxf(x: f32, y: f32) -> f32 = f32(fmax(real(x), real(y)))
+
+@export("fminf")
+fminf(x: f32, y: f32) -> f32 = f32(fmin(real(x), real(y)))
+
+@export("fabsf")
+fabsf(x: f32) -> f32 = f32.from_bits(x.bits() & 0x7fffffff)
+
+@export("copysignf")
+copysignf(x: f32, y: f32) -> f32 = f32.from_bits((x.bits() & 0x7fffffff) | (y.bits() & 0x80000000))
+
+@export("nanf")
+nanf(tag: *u8) -> f32 = f32.from_bits(0x7fc00000)

@@ -1,0 +1,437 @@
+module sh.sysl.cstd
+
+@tests
+
+// The oracle every `<math.h>` accuracy test is judged by: GNU MPFR, which computes each function
+// correctly rounded at any precision.
+//
+// A case is C over `tests/math_gen.h`: it calls cstd's functions on a fixed-seed spread of arguments
+// and the hard ones, and prints one line per call -- the arguments and the answer as bits, and
+// `errno`. The program below, built once per run against the host's MPFR, reads those lines and
+// works out for each the correctly rounded answer (in the format's own exponent range, subnormals
+// included) and the answer to 200 bits. A bound of 0 asks for the correctly rounded answer to the
+// bit; any other bound is the largest error allowed, in units in the last place of the exact
+// answer. It also checks `errno` on every line, and appends the largest error it saw to
+// `.sysl/c-tests/ulp-report.txt`, which is where the README's table comes from.
+//
+// It is a string here rather than a `.c` file because every `.c` file under a module is compiled
+// into cstd.
+
+import sysl.buf.{Buf, buf}
+import sysl.fs.{make_dir, make_dir_all, read_text, remove_dir, remove_file, write_text}
+import sysl.posix.time.sleep
+import sysl.process.capture
+import sysl.time.millis
+
+private extern "getppid" oracle_ppid() -> i32
+private extern "getpid" oracle_pid() -> i32
+
+private val scratch: string = ".sysl/c-tests"
+private var judged: int = 0
+
+// The C sits at the margin, but each preprocessor line is indented by a space: a `#` in column 1 is a
+// sysl `#if` directive line wherever it appears, string or not.
+private val oracle_c: string = raw"""
+ #include <stdio.h>
+ #include <stdlib.h>
+ #include <string.h>
+ #include <stdint.h>
+ #include <mpfr.h>
+
+ #define C_EDOM 33
+ #define C_ERANGE 34
+ #define BIG 1e30
+
+enum kind { UN, BIN, TERN, LDEXP, FREXP, MODF, REMQUO, ILOGB, LOGB, LINT, LROUND, NEXT, FABS_K, COPYSIGN_K, LGAMMA };
+
+typedef int (*f1_t)(mpfr_ptr, mpfr_srcptr, mpfr_rnd_t);
+typedef int (*f2_t)(mpfr_ptr, mpfr_srcptr, mpfr_srcptr, mpfr_rnd_t);
+typedef int (*f3_t)(mpfr_ptr, mpfr_srcptr, mpfr_srcptr, mpfr_srcptr, mpfr_rnd_t);
+
+static int o_floor(mpfr_ptr r, mpfr_srcptr x, mpfr_rnd_t m) { (void)m; return mpfr_floor(r, x); }
+static int o_ceil(mpfr_ptr r, mpfr_srcptr x, mpfr_rnd_t m) { (void)m; return mpfr_ceil(r, x); }
+static int o_trunc(mpfr_ptr r, mpfr_srcptr x, mpfr_rnd_t m) { (void)m; return mpfr_trunc(r, x); }
+static int o_round(mpfr_ptr r, mpfr_srcptr x, mpfr_rnd_t m) { (void)m; return mpfr_round(r, x); }
+static int o_rint(mpfr_ptr r, mpfr_srcptr x, mpfr_rnd_t m) { (void)m; return mpfr_rint(r, x, MPFR_RNDN); }
+static int o_lgamma(mpfr_ptr r, mpfr_srcptr x, mpfr_rnd_t m) { int s; return mpfr_lgamma(r, &s, x, m); }
+static int o_remainder(mpfr_ptr r, mpfr_srcptr x, mpfr_srcptr y, mpfr_rnd_t m) { return mpfr_remainder(r, x, y, m); }
+static int o_atan2(mpfr_ptr r, mpfr_srcptr y, mpfr_srcptr x, mpfr_rnd_t m) { return mpfr_atan2(r, y, x, m); }
+
+struct spec { const char *name; enum kind kind; f1_t f1; f2_t f2; f3_t f3; };
+
+static const struct spec specs[] = {
+    {"sqrt", UN, mpfr_sqrt}, {"cbrt", UN, mpfr_cbrt},
+    {"exp", UN, mpfr_exp}, {"exp2", UN, mpfr_exp2}, {"expm1", UN, mpfr_expm1},
+    {"log", UN, mpfr_log}, {"log2", UN, mpfr_log2}, {"log10", UN, mpfr_log10}, {"log1p", UN, mpfr_log1p},
+    {"sin", UN, mpfr_sin}, {"cos", UN, mpfr_cos}, {"tan", UN, mpfr_tan},
+    {"asin", UN, mpfr_asin}, {"acos", UN, mpfr_acos}, {"atan", UN, mpfr_atan},
+    {"sinh", UN, mpfr_sinh}, {"cosh", UN, mpfr_cosh}, {"tanh", UN, mpfr_tanh},
+    {"asinh", UN, mpfr_asinh}, {"acosh", UN, mpfr_acosh}, {"atanh", UN, mpfr_atanh},
+    {"erf", UN, mpfr_erf}, {"erfc", UN, mpfr_erfc}, {"tgamma", UN, mpfr_gamma},
+    {"lgamma", LGAMMA, o_lgamma},
+    {"floor", UN, o_floor}, {"ceil", UN, o_ceil}, {"trunc", UN, o_trunc}, {"round", UN, o_round},
+    {"rint", UN, o_rint}, {"nearbyint", UN, o_rint},
+    {"pow", BIN, 0, mpfr_pow}, {"atan2", BIN, 0, o_atan2}, {"hypot", BIN, 0, mpfr_hypot},
+    {"fmod", BIN, 0, mpfr_fmod}, {"remainder", BIN, 0, o_remainder}, {"fdim", BIN, 0, mpfr_dim},
+    {"fmax", BIN, 0, mpfr_max}, {"fmin", BIN, 0, mpfr_min},
+    {"fma", TERN, 0, 0, mpfr_fma},
+    {"ldexp", LDEXP}, {"scalbn", LDEXP}, {"scalbln", LDEXP},
+    {"frexp", FREXP}, {"modf", MODF}, {"remquo", REMQUO},
+    {"ilogb", ILOGB}, {"logb", LOGB},
+    {"lrint", LINT}, {"llrint", LINT}, {"lround", LROUND}, {"llround", LROUND},
+    {"nextafter", NEXT}, {"nexttoward", NEXT},
+    {"fabs", FABS_K}, {"copysign", COPYSIGN_K},
+};
+
+static int prec, emin_sub, emax_fmt;
+static mpfr_exp_t wide_emin, wide_emax;
+
+static void narrow_range(void) {
+    mpfr_set_emin(prec == 53 ? -1073 : -148);
+    mpfr_set_emax(prec == 53 ? 1024 : 128);
+}
+static void wide_range(void) { mpfr_set_emin(wide_emin); mpfr_set_emax(wide_emax); }
+
+static double from_hex(const char *tok) {
+    uint64_t u = strtoull(tok, 0, 16);
+    if (prec == 53) { double d; memcpy(&d, &u, 8); return d; }
+    uint32_t w = (uint32_t)u;
+    float f;
+    memcpy(&f, &w, 4);
+    return f;
+}
+
+static int is_nan(double x) { return x != x; }
+static int is_inf(double x) { return x == 1.0 / 0.0 || x == -1.0 / 0.0; }
+static int sign_of(double x) { uint64_t u; memcpy(&u, &x, 8); return (int)(u >> 63); }
+
+/* The bits of a value of the format, held in a double. */
+static uint64_t fmt_bits(double x) {
+    if (prec == 53) { uint64_t u; memcpy(&u, &x, 8); return u; }
+    float f = (float)x;
+    uint32_t w;
+    memcpy(&w, &f, 4);
+    return w;
+}
+
+/* f on the arguments into `out`, at out's precision. With `target` set it is the format's own
+ * correct rounding: its exponent range, its subnormals. */
+static void eval(const struct spec *s, mpfr_ptr out, mpfr_t *a, long n, int target) {
+    int t = 0;
+    if (target) narrow_range();
+    switch (s->kind) {
+    case UN: case LGAMMA: t = s->f1(out, a[0], MPFR_RNDN); break;
+    case BIN: t = s->f2(out, a[0], a[1], MPFR_RNDN); break;
+    case TERN: t = s->f3(out, a[0], a[1], a[2], MPFR_RNDN); break;
+    case LDEXP: t = mpfr_mul_2si(out, a[0], n, MPFR_RNDN); break;
+    default: break;
+    }
+    if (target) {
+        t = mpfr_check_range(out, t, MPFR_RNDN);
+        mpfr_subnormalize(out, t, MPFR_RNDN);
+        wide_range();
+    }
+}
+
+/* |r - y| in units in the last place of y in the format; an infinite r counts as the power of two
+ * just past the largest finite value. */
+static double ulp_error(double r, mpfr_t y, mpfr_t cr) {
+    if (is_nan(r)) return mpfr_nan_p(cr) ? 0 : BIG;
+    if (mpfr_nan_p(cr) || mpfr_nan_p(y)) return BIG;
+    if (mpfr_inf_p(y)) return (is_inf(r) && (r > 0) == (mpfr_sgn(y) > 0)) ? 0 : BIG;
+    if (is_inf(r) && mpfr_inf_p(cr) && (r > 0) == (mpfr_sgn(cr) > 0)) return 0;
+    if (mpfr_zero_p(cr) && r == 0 && sign_of(r) != mpfr_signbit(cr)) return BIG;
+    mpfr_t rv, d;
+    mpfr_inits2(256, rv, d, (mpfr_ptr)0);
+    if (is_inf(r)) {
+        mpfr_set_ui_2exp(rv, 1, emax_fmt, MPFR_RNDN);
+        if (r < 0) mpfr_neg(rv, rv, MPFR_RNDN);
+    } else {
+        mpfr_set_d(rv, r, MPFR_RNDN);
+    }
+    mpfr_sub(d, rv, y, MPFR_RNDN);
+    mpfr_abs(d, d, MPFR_RNDN);
+    long e = mpfr_zero_p(y) ? emin_sub : (long)mpfr_get_exp(y) - prec;
+    if (e < emin_sub) e = emin_sub;
+    mpfr_mul_2si(d, d, -e, MPFR_RNDN);
+    double err = mpfr_get_d(d, MPFR_RNDU);
+    mpfr_clears(rv, d, (mpfr_ptr)0);
+    return err;
+}
+
+static int failures;
+static void fail(const char *line, const char *why, double err) {
+    if (failures < 12) printf("FAIL %s: %s (%.3f ulp)\n", line, why, err);
+    failures++;
+}
+
+int main(int argc, char **argv) {
+    if (argc != 6 && argc != 7) { fprintf(stderr, "usage: oracle <fn> <prec> <bound> <file> <report> [<abs>]\n"); return 2; }
+    const char *name = argv[1];
+    prec = atoi(argv[2]);
+    double bound = atof(argv[3]);
+    /* An absolute tolerance, for lines whose exact answer is too close to zero for the bound in ulps
+     * to be met: those are counted apart, with the largest absolute error among them. */
+    double abs_tol = argc == 7 ? atof(argv[6]) : 0;
+    long abs_only = 0;
+    double worst_abs = 0;
+    emin_sub = prec == 53 ? -1074 : -149;
+    emax_fmt = prec == 53 ? 1024 : 128;
+    wide_emin = mpfr_get_emin();
+    wide_emax = mpfr_get_emax();
+    const struct spec *s = 0;
+    for (size_t i = 0; i < sizeof specs / sizeof specs[0]; i++)
+        if (strcmp(specs[i].name, name) == 0) s = &specs[i];
+    if (!s) { fprintf(stderr, "oracle: no function %s\n", name); return 2; }
+
+    FILE *in = fopen(argv[4], "r");
+    if (!in) { perror(argv[4]); return 2; }
+    int nargs = s->kind == BIN || s->kind == REMQUO || s->kind == NEXT || s->kind == COPYSIGN_K ? 2
+              : s->kind == TERN ? 3 : 1;
+
+    char line[512], copy[512];
+    long count = 0;
+    double worst = 0;
+    char worst_line[512] = "";
+    mpfr_t a[3], y, cr;
+    for (int i = 0; i < 3; i++) mpfr_init2(a[i], 64);
+    mpfr_init2(y, 200);
+    mpfr_init2(cr, prec);
+
+    while (fgets(line, sizeof line, in)) {
+        line[strcspn(line, "\n")] = 0;
+        if (!line[0]) continue;
+        strcpy(copy, line);
+        char *tok[8];
+        int nt = 0;
+        for (char *p = strtok(copy, " "); p && nt < 8; p = strtok(0, " ")) tok[nt++] = p;
+        count++;
+
+        double x[3] = {0, 0, 0};
+        long n = 0;
+        int k = 0;
+        for (int i = 0; i < nargs; i++) x[i] = from_hex(tok[k++]);
+        if (s->kind == LDEXP) n = strtol(tok[k++], 0, 10);
+        int got_errno = atoi(tok[nt - 1]);
+        int any_nan = 0, all_finite = 1;
+        for (int i = 0; i < nargs; i++) {
+            if (is_nan(x[i])) any_nan = 1;
+            if (is_nan(x[i]) || is_inf(x[i])) all_finite = 0;
+            mpfr_set_d(a[i], x[i], MPFR_RNDN);
+        }
+
+        int want_errno = 0;
+        double err = 0;
+        switch (s->kind) {
+        case UN: case BIN: case TERN: case LDEXP: case LGAMMA: {
+            double r = from_hex(tok[k++]);
+            eval(s, y, a, n, 0);
+            eval(s, cr, a, n, 1);
+            if (!any_nan) {
+                if (mpfr_nan_p(y)) want_errno = C_EDOM;
+                else if (all_finite && (mpfr_inf_p(y) || is_inf(r))) want_errno = C_ERANGE;
+            }
+            if (bound == 0) {
+                double c = mpfr_get_d(cr, MPFR_RNDN);
+                int same = (is_nan(c) && is_nan(r)) || fmt_bits(c) == fmt_bits(r);
+                err = same ? 0 : BIG;
+                if (!same) fail(line, "not the correctly rounded answer", err);
+            } else {
+                err = ulp_error(r, y, cr);
+                if (err > bound && abs_tol > 0 && !is_nan(r) && !is_inf(r) && mpfr_number_p(y)) {
+                    /* Within the absolute tolerance where the answer is too near zero for ulps. */
+                    mpfr_t d;
+                    mpfr_init2(d, 256);
+                    mpfr_set_d(d, r, MPFR_RNDN);
+                    mpfr_sub(d, d, y, MPFR_RNDN);
+                    double a = mpfr_get_d(d, MPFR_RNDU);
+                    if (a < 0) a = -a;
+                    mpfr_clear(d);
+                    if (a <= abs_tol) {
+                        abs_only++;
+                        if (a > worst_abs) worst_abs = a;
+                        err = 0;
+                    }
+                }
+                if (err > bound) fail(line, "error over the bound", err);
+            }
+            break;
+        }
+        case FREXP: {
+            double r = from_hex(tok[k++]);
+            long e = strtol(tok[k++], 0, 10);
+            mpfr_exp_t want_e = 0;
+            mpfr_frexp(&want_e, cr, a[0], MPFR_RNDN);
+            double c = mpfr_get_d(cr, MPFR_RNDN);
+            int ok = (is_nan(c) && is_nan(r)) || fmt_bits(c) == fmt_bits(r);
+            if (all_finite && e != (long)want_e) ok = 0;
+            if (!ok) fail(line, "frexp", BIG);
+            break;
+        }
+        case MODF: {
+            double r = from_hex(tok[k++]);
+            double ip = from_hex(tok[k++]);
+            mpfr_t w, f;
+            mpfr_inits2(64, w, f, (mpfr_ptr)0);
+            mpfr_trunc(w, a[0]);
+            mpfr_sub(f, a[0], w, MPFR_RNDN);
+            double wi = mpfr_get_d(w, MPFR_RNDN), fr = mpfr_get_d(f, MPFR_RNDN);
+            if (is_inf(x[0])) fr = 0;
+            if (fr == 0 && sign_of(x[0])) fr = -0.0;
+            if (wi == 0 && sign_of(x[0])) wi = -0.0;
+            int ok = is_nan(x[0]) ? is_nan(r) && is_nan(ip)
+                   : fmt_bits(r) == fmt_bits(fr) && fmt_bits(ip) == fmt_bits(wi);
+            if (!ok) fail(line, "modf", BIG);
+            mpfr_clears(w, f, (mpfr_ptr)0);
+            break;
+        }
+        case REMQUO: {
+            double r = from_hex(tok[k++]);
+            long q = strtol(tok[k++], 0, 10);
+            long wq = 0;
+            narrow_range();
+            int t = mpfr_remquo(cr, &wq, a[0], a[1], MPFR_RNDN);
+            mpfr_subnormalize(cr, t, MPFR_RNDN);
+            wide_range();
+            double c = mpfr_get_d(cr, MPFR_RNDN);
+            int ok = (is_nan(c) && is_nan(r)) || fmt_bits(c) == fmt_bits(r);
+            if (!is_nan(c) && (((q - wq) & 7) != 0 || (q != 0 && wq != 0 && (q < 0) != (wq < 0)))) ok = 0;
+            if (!ok) fail(line, "remquo", BIG);
+            if (!any_nan && is_nan(c)) want_errno = C_EDOM;
+            break;
+        }
+        case ILOGB: {
+            long v = strtol(tok[k++], 0, 10);
+            long want = is_nan(x[0]) || x[0] == 0 ? -2147483647L - 1 : is_inf(x[0]) ? 2147483647L
+                      : (long)mpfr_get_exp(a[0]) - 1;
+            if (v != want) fail(line, "ilogb", BIG);
+            break;
+        }
+        case LOGB: {
+            double r = from_hex(tok[k++]);
+            double want = is_nan(x[0]) ? x[0] : is_inf(x[0]) ? 1.0 / 0.0
+                        : x[0] == 0 ? -1.0 / 0.0 : (double)(mpfr_get_exp(a[0]) - 1);
+            if (!((is_nan(want) && is_nan(r)) || fmt_bits(want) == fmt_bits(r))) fail(line, "logb", BIG);
+            if (x[0] == 0) want_errno = C_ERANGE;
+            break;
+        }
+        case LINT: case LROUND: {
+            long long v = strtoll(tok[k++], 0, 10);
+            long long want;
+            if (is_nan(x[0])) want = 0;
+            else if (x[0] >= 9223372036854775808.0) want = INT64_MAX;
+            else if (x[0] < -9223372036854775808.0) want = INT64_MIN;
+            else {
+                mpfr_t w;
+                mpfr_init2(w, 64);
+                if (s->kind == LINT) mpfr_rint(w, a[0], MPFR_RNDN); else mpfr_round(w, a[0]);
+                want = mpfr_get_sj(w, MPFR_RNDN);
+                mpfr_clear(w);
+            }
+            if (v != want) fail(line, "integer result", BIG);
+            break;
+        }
+        case NEXT: {
+            double r = from_hex(tok[k++]);
+            double want;
+            if (any_nan) want = x[0] + x[1];
+            else if (x[0] == x[1]) want = x[1];
+            else {
+                uint64_t u = fmt_bits(x[0]);
+                uint64_t sign = prec == 53 ? 1ULL << 63 : 1ULL << 31;
+                if (x[0] == 0) u = (x[1] < 0 ? sign : 0) | 1;
+                else if ((x[0] < x[1]) == (x[0] > 0)) u++;
+                else u--;
+                if (prec == 53) memcpy(&want, &u, 8);
+                else { uint32_t w = (uint32_t)u; float f; memcpy(&f, &w, 4); want = f; }
+            }
+            if (!((is_nan(want) && is_nan(r)) || fmt_bits(want) == fmt_bits(r))) fail(line, "next", BIG);
+            if (!is_nan(x[0]) && !is_inf(x[0]) && is_inf(r)) want_errno = C_ERANGE;
+            break;
+        }
+        case FABS_K: case COPYSIGN_K: {
+            uint64_t sign = prec == 53 ? 1ULL << 63 : 1ULL << 31;
+            uint64_t want = strtoull(tok[0], 0, 16) & ~sign;
+            if (s->kind == COPYSIGN_K) want |= strtoull(tok[1], 0, 16) & sign;
+            if (strtoull(tok[k], 0, 16) != want) fail(line, "sign bits", BIG);
+            break;
+        }
+        }
+        if (got_errno != want_errno) {
+            char why[64];
+            snprintf(why, sizeof why, "errno %d, expected %d", got_errno, want_errno);
+            fail(line, why, err);
+        }
+        if (err > worst && err < BIG) { worst = err; strcpy(worst_line, line); }
+    }
+    fclose(in);
+
+    FILE *rep = fopen(argv[5], "a");
+    if (rep) {
+        fprintf(rep, "%s %d %ld %.4f %s", name, prec, count, worst, worst_line);
+        if (abs_tol > 0) fprintf(rep, " | %ld past the ulp bound, absolute error at most %.3g", abs_only, worst_abs);
+        fprintf(rep, "\n");
+        fclose(rep);
+    }
+    printf("%s p=%d lines=%ld max_ulp=%.4f worst=[%s] failures=%d abs_only=%ld max_abs=%.3g\n", name, prec,
+           count, worst, worst_line, failures, abs_only, worst_abs);
+    return failures ? 1 : 0;
+}
+"""
+
+private oracle_stamp_says(stamp: string, run: string) -> bool = read_text(stamp) match
+    Ok(text) -> text == run
+    Err(_) -> false
+
+/** The oracle program, built **once per run of the suite** against the host's MPFR, the way
+ * `archive()` builds cstd: the runner's pid beside the binary says whether it is this run's.
+ */
+private oracle() -> string
+    val run = f"${oracle_ppid()}"
+    val stamp = f"$scratch/oracle-built-by"
+    val bin = f"$scratch/mpfr-oracle"
+    if oracle_stamp_says(stamp, run) then return bin
+
+    make_dir_all(scratch).unwrap()
+    val lock = f"$scratch/oracle-lock-$run"
+    loop
+        if make_dir(lock).is_ok() then break
+        sleep(millis(50))
+
+    if !oracle_stamp_says(stamp, run)
+        write_text(f"$scratch/mpfr-oracle.c", oracle_c).unwrap()
+        val built = capture("clang", ["-O2", "-I/opt/homebrew/opt/mpfr/include",
+            "-I/opt/homebrew/opt/gmp/include", f"$scratch/mpfr-oracle.c",
+            "-L/opt/homebrew/opt/mpfr/lib", "-L/opt/homebrew/opt/gmp/lib", "-lmpfr", "-lgmp",
+            "-o", bin], stderr = true).unwrap()
+        // A .c file left under the project reads to sysl as a module's C.
+        remove_file(f"$scratch/mpfr-oracle.c")
+        if !built.status.ok()
+            remove_dir(lock)
+            panic(f"the MPFR oracle did not build:\n${built.err.unwrap_or("")}")
+        // A fresh run starts a fresh report.
+        remove_file(f"$scratch/ulp-report.txt")
+        write_text(stamp, run).unwrap()
+
+    remove_dir(lock)
+    bin
+end oracle
+
+/** Run `body` -- C statements over `math_gen.h` -- against cstd, and have the oracle judge every
+ * line it printed for the function `name` at precision `prec` (53 or 24), within `bound` ulps (0 for
+ * the correctly rounded answer). A nonzero `abs` also passes a line whose absolute error is at most
+ * that, for an answer too close to zero to hold to ulps.
+ */
+private[cstd] judge(name: string, prec: int, bound: real, body: string, abs: real = 0.0)
+    val ran = c_run(f"$body\n    gen_flush();", "#include \"math_gen.h\"")
+    if !ran.status.ok() then panic(f"the case did not exit 0 (${ran.status}):\n${ran.err.unwrap_or("")}")
+    judged += 1
+    val lines = f"$scratch/lines-${oracle_pid()}-$judged"
+    write_text(lines, ran.text).unwrap()
+    var args: Buf[string] = buf()
+    for a in [name, f"$prec", f"$bound", lines, f"$scratch/ulp-report.txt"] do args.push(a)
+    if abs > 0.0 then args.push(f"$abs")
+    val verdict = capture(oracle(), args.view(), stderr = true).unwrap()
+    remove_file(lines)
+    if !verdict.status.ok()
+        panic(f"$name at $prec bits:\n${verdict.text}${verdict.err.unwrap_or("")}")

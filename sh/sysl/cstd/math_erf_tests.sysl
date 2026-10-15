@@ -1,0 +1,22 @@
+module sh.sysl.cstd
+
+@tests
+
+// The error functions against MPFR, through each interval of the approximation and out to where
+// erfc underflows (it reaches the subnormals near 26.5 and zero past 27.2).
+
+@test("erf and erfc: within 1 ulp across every interval of the approximation")
+math_erf()
+    for f in ["erf", "erfc"]
+        judge(f, 53, 1.0, unary_d(f, 20000) + f"""
+            for (int i = 0; i < 20000; i++) D1($f, uni_d(-6, 6));
+            for (int i = 0; i < 10000; i++) D1($f, uni_d(-1, 28));
+            for (int i = 0; i < 6000; i++) D1($f, sgn_d(mag_d(-60, 0)));
+            for (int i = 0; i < 4000; i++) D1($f, uni_d(26, 27.3));
+            static const double edges[] = {0.84375, 1.25, 2.857142857142857, 6.0, 0.25, 28.0};
+            for (int e = 0; e < 6; e++) for (int i = 0; i < 400; i++) D1($f, sgn_d(near_d(edges[e], 200)));
+            """)
+        judge(f, 24, 0.501, unary_f(f + "f", 20000) + f"""
+            for (int i = 0; i < 20000; i++) F1(${f}f, uni_f(-6, 11));
+            for (int i = 0; i < 6000; i++) F1(${f}f, sgn_f(mag_f(-30, 0)));
+            """)

@@ -1,0 +1,30 @@
+module sh.sysl.cstd
+
+@tests
+
+// cbrt and hypot against MPFR: exact cubes and Pythagorean triples must come out exact, hypot of an
+// infinity and a NaN is the infinity (C Annex F), and hypot overflows with ERANGE.
+
+@test("cbrt and cbrtf: within 1 ulp, exact on perfect cubes, signs kept")
+math_cbrt()
+    judge("cbrt", 53, 1.0, unary_d("cbrt", 30000) + """
+        for (int i = 0; i < 4000; i++) { double k = (double)(rbits() >> 47); D1(cbrt, sgn_d(k * k * k)); }
+        for (int i = 0; i < 4000; i++) D1(cbrt, sgn_d(mag_d(-1074, -1000)));
+        for (int i = 0; i < 4000; i++) D1(cbrt, uni_d(-8, 8));
+        """)
+    judge("cbrt", 24, 0.501, unary_f("cbrtf", 30000) + """
+        for (int i = 0; i < 4000; i++) { float k = (float)(rbits() >> 57); F1(cbrtf, sgn_f(k * k * k)); }
+        """)
+
+@test("hypot and hypotf: within 1 ulp across the whole range, ERANGE on overflow")
+math_hypot()
+    judge("hypot", 53, 1.0, binary_d("hypot", 30000) + """
+        for (int i = 0; i < 10000; i++) D2(hypot, uni_d(-10, 10), uni_d(-10, 10));
+        for (int i = 0; i < 10000; i++) { double x = sgn_d(mag_d(-1074, 1023)); D2(hypot, x, x * uni_d(-2, 2)); }
+        for (int i = 0; i < 2000; i++) D2(hypot, sgn_d(mag_d(1020, 1023)), sgn_d(mag_d(1020, 1023)));
+        for (int i = 1; i < 200; i++) { D2(hypot, 3.0 * i, 4.0 * i); D2(hypot, 5.0 * i, 12.0 * i); }
+        """)
+    judge("hypot", 24, 0.501, binary_f("hypotf", 30000) + """
+        for (int i = 0; i < 10000; i++) F2(hypotf, uni_f(-10, 10), uni_f(-10, 10));
+        for (int i = 0; i < 2000; i++) F2(hypotf, sgn_f(mag_f(124, 127)), sgn_f(mag_f(124, 127)));
+        """)

@@ -1,0 +1,184 @@
+module sh.sysl.cstd
+
+// `<math.h>`'s long double functions, where long double is a double: arm64 macOS and 32-bit Arm
+// (AAPCS's `long double` is binary64). There each is its double counterpart under the `l` name, and
+// is exactly as accurate.
+//
+// Where long double is binary128 -- AArch64 Linux, RISC-V -- they are not offered: a quad-precision
+// `sinl` needs its own argument reduction, polynomials and tables, and handing back a double's
+// answer widened would be wrong in the last 60 bits. `include/math.h` declares them only where
+// `__LDBL_MANT_DIG__` is 53, so a program for a binary128 machine that calls one fails to compile
+// rather than linking against something inaccurate.
+
+#if (aarch64 && macos) || thumb
+@export("acosl")
+acosl(x: real) -> real = acos(x)
+
+@export("asinl")
+asinl(x: real) -> real = asin(x)
+
+@export("atanl")
+atanl(x: real) -> real = atan(x)
+
+@export("atan2l")
+atan2l(y: real, x: real) -> real = atan2(y, x)
+
+@export("cosl")
+cosl(x: real) -> real = cos(x)
+
+@export("sinl")
+sinl(x: real) -> real = sin(x)
+
+@export("tanl")
+tanl(x: real) -> real = tan(x)
+
+@export("acoshl")
+acoshl(x: real) -> real = acosh(x)
+
+@export("asinhl")
+asinhl(x: real) -> real = asinh(x)
+
+@export("atanhl")
+atanhl(x: real) -> real = atanh(x)
+
+@export("coshl")
+coshl(x: real) -> real = cosh(x)
+
+@export("sinhl")
+sinhl(x: real) -> real = sinh(x)
+
+@export("tanhl")
+tanhl(x: real) -> real = tanh(x)
+
+@export("expl")
+expl(x: real) -> real = exp(x)
+
+@export("exp2l")
+exp2l(x: real) -> real = exp2(x)
+
+@export("expm1l")
+expm1l(x: real) -> real = expm1(x)
+
+@export("frexpl")
+frexpl(x: real, e: *i32) -> real = frexp(x, e)
+
+@export("ilogbl")
+ilogbl(x: real) -> i32 = ilogb(x)
+
+@export("ldexpl")
+ldexpl(x: real, n: i32) -> real = scalbn(x, n)
+
+@export("logl")
+logl(x: real) -> real = log(x)
+
+@export("log10l")
+log10l(x: real) -> real = log10(x)
+
+@export("log1pl")
+log1pl(x: real) -> real = log1p(x)
+
+@export("log2l")
+log2l(x: real) -> real = log2(x)
+
+@export("logbl")
+logbl(x: real) -> real = logb(x)
+
+@export("modfl")
+modfl(x: real, iptr: *real) -> real = modf(x, iptr)
+
+@export("scalbnl")
+scalbnl(x: real, n: i32) -> real = scalbn(x, n)
+
+@export("scalblnl")
+scalblnl(x: real, n: Long) -> real = scalbln(x, n)
+
+@export("cbrtl")
+cbrtl(x: real) -> real = cbrt(x)
+
+@export("fabsl")
+fabsl(x: real) -> real = fabs(x)
+
+@export("hypotl")
+hypotl(x: real, y: real) -> real = hypot(x, y)
+
+@export("powl")
+powl(x: real, y: real) -> real = pow(x, y)
+
+@export("sqrtl")
+sqrtl(x: real) -> real = sqrt(x)
+
+@export("erfl")
+erfl(x: real) -> real = erf(x)
+
+@export("erfcl")
+erfcl(x: real) -> real = erfc(x)
+
+@export("lgammal")
+lgammal(x: real) -> real = lgamma(x)
+
+@export("tgammal")
+tgammal(x: real) -> real = tgamma(x)
+
+@export("ceill")
+ceill(x: real) -> real = ceil(x)
+
+@export("floorl")
+floorl(x: real) -> real = floor(x)
+
+@export("nearbyintl")
+nearbyintl(x: real) -> real = rint(x)
+
+@export("rintl")
+rintl(x: real) -> real = rint(x)
+
+@export("lrintl")
+lrintl(x: real) -> Long = lrint(x)
+
+@export("llrintl")
+llrintl(x: real) -> LongLong = llrint(x)
+
+@export("roundl")
+roundl(x: real) -> real = round(x)
+
+@export("lroundl")
+lroundl(x: real) -> Long = lround(x)
+
+@export("llroundl")
+llroundl(x: real) -> LongLong = llround(x)
+
+@export("truncl")
+truncl(x: real) -> real = trunc(x)
+
+@export("fmodl")
+fmodl(x: real, y: real) -> real = fmod(x, y)
+
+@export("remainderl")
+remainderl(x: real, y: real) -> real = remainder(x, y)
+
+@export("remquol")
+remquol(x: real, y: real, quo: *i32) -> real = remquo(x, y, quo)
+
+@export("copysignl")
+copysignl(x: real, y: real) -> real = copysign(x, y)
+
+@export("nanl")
+nanl(tag: *u8) -> real = nan(tag)
+
+@export("nextafterl")
+nextafterl(x: real, y: real) -> real = nextafter(x, y)
+
+@export("nexttowardl")
+nexttowardl(x: real, y: real) -> real = nextafter(x, y)
+
+@export("fdiml")
+fdiml(x: real, y: real) -> real = fdim(x, y)
+
+@export("fmaxl")
+fmaxl(x: real, y: real) -> real = fmax(x, y)
+
+@export("fminl")
+fminl(x: real, y: real) -> real = fmin(x, y)
+
+@export("fmal")
+fmal(x: real, y: real, z: real) -> real = fma(x, y, z)
+#endif

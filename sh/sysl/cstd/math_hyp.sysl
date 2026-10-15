@@ -1,0 +1,160 @@
+module sh.sysl.cstd
+
+// `<math.h>`'s hyperbolic functions and their inverses, and their float forms.
+//
+// The case analysis is musl 1.2.6's (`sinh.c`, `cosh.c`, `tanh.c`, `asinh.c`, `acosh.c`,
+// `atanh.c`, `__expo2.c`), which writes each in terms of exp, expm1, log and log1p. musl rounds
+// those inner results and so comes to 1.5 to 2 ulp; here the inner results are carried in
+// double-double (`math_dd.sysl`) and only the answer is rounded, which keeps each within 1 ulp:
+//
+//     sinh x = (E + E/(E + 1)) / 2        E = expm1 |x|
+//     cosh x = (e^|x| + e^-|x|) / 2
+//     tanh x = E / (E + 2)                E = expm1 2|x|
+//     asinh x = log(|x| + sqrt(x² + 1))
+//     acosh x = log(x + sqrt(x² - 1))
+//     atanh x = log((1 + |x|) / (1 - |x|)) / 2
+//
+// The float forms compute in double and round once.
+
+// exp(x - k ln2) × 2^(k - 1) for k = 2043, which reaches the top of the range without overflowing
+// on the way: 2^1021 is applied twice, last. The double below is 2.8 × 10^-17 from k ln2, which
+// costs 0.13 ulp on top of exp's own error.
+private val expo2_kln2: real = 1416.0996898839683  // 0x1.62066151add8bp+10
+
+private expo2(x: real, sign: real) -> real
+    val scale = from_words(u32(0x3ff + 2043 / 2) << 20, 0)
+    exp(x - expo2_kln2) * (sign * scale) * scale
+
+@export("sinh")
+sinh(x: real) -> real
+    val h = if sign_bit(x) then -0.5 else 0.5
+    val absx = fabs(x)
+    val w = hi_word(absx)
+    if x != x then return x
+    // |x| < 2^-26: sinh x = x (1 + x²/6) rounds to x.
+    if w < 0x3e500000 then return x
+    if w < 0x40360000
+        // |x| < 22
+        val (a, al) = expm1_dd(absx)
+        val (d, dl) = dd_add(a, al, 1.0, 0.0)
+        val (q, ql) = dd_div(a, al, d, dl)
+        val (s, sl) = dd_add(a, al, q, ql)
+        return h * (s + sl)
+    // |x| < log(DBL_MAX): e^-|x| is below 2^-63 of e^|x|.
+    if w < 0x40862e42 then return h * exp(absx)
+    // Beyond, or infinite.
+    val t = expo2(absx, 2.0 * h)
+    if absx == real.infinity then t else checked_overflow(t)
+
+@export("cosh")
+cosh(x_in: real) -> real
+    val x = fabs(x_in)
+    val w = hi_word(x)
+    if x != x then return x
+    // |x| < 2^-26: cosh x = 1 + x²/2 rounds to 1.
+    if w < 0x3e500000 then return 1.0
+    if w < 0x40360000
+        // |x| < 22
+        val (e, el) = exp_dd(x, 0.0)
+        val (r, rl) = dd_div(1.0, 0.0, e, el)
+        val (s, sl) = dd_add(e, el, r, rl)
+        return 0.5 * (s + sl)
+    if w < 0x40862e42 then return 0.5 * exp(x)
+    val t = expo2(x, 1.0)
+    if x == real.infinity then t else checked_overflow(t)
+
+@export("tanh")
+tanh(x_in: real) -> real
+    val sign = sign_bit(x_in)
+    val x = fabs(x_in)
+    val w = hi_word(x)
+    if x != x then return x_in
+    var t = 0.0
+    if w > 0x40340000
+        // |x| > 20: 1 - tanh x < 2^-57.
+        t = 1.0
+    elif w < 0x3e400000
+        // |x| < 2^-27, subnormals included: tanh x = x (1 - x²/3) rounds to x.
+        t = x
+    else
+        val (a, al) = expm1_dd(2.0 * x)
+        val (d, dl) = dd_add(a, al, 2.0, 0.0)
+        val (q, ql) = dd_div(a, al, d, dl)
+        t = q + ql
+    if sign then -t else t
+
+@export("asinh")
+asinh(x_in: real) -> real
+    val s = sign_bit(x_in)
+    val x = fabs(x_in)
+    val w = hi_word(x)
+    var y = 0.0
+    if w >= 0x7ff00000
+        return x_in
+    elif w < 0x3e500000
+        // |x| < 2^-26: asinh x = x (1 - x²/6) rounds to x.
+        return x_in
+    elif w >= 0x41900000
+        // |x| >= 2^26: asinh x = log 2|x| + 1/(4x²), and the second term is below 2^-54 of the first.
+        y = log_twice(x)
+    else
+        val (p, pl) = two_prod(x, x)
+        val (q, ql) = dd_add(p, pl, 1.0, 0.0)
+        val (r, rl) = dd_sqrt(q, ql)
+        val (v, vl) = dd_add(r, rl, x, 0.0)
+        val (lh, ll) = log_dd(v, vl)
+        y = lh + ll
+    if s then -y else y
+
+@export("acosh")
+acosh(x: real) -> real
+    if x != x then return x
+    // Below 1, -infinity included, is a domain error.
+    if x < 1.0 then return domain_error(x)
+    if x == real.infinity then return x
+    // x >= 2^26: acosh x = log 2x - 1/(4x²).
+    if hi_word(x) >= 0x41900000 then return log_twice(x)
+    // x² - 1 is exact in double-double, so the root keeps its digits next to 1.
+    val (p, pl) = two_prod(x, x)
+    val (q, ql) = dd_add(p, pl, -1.0, 0.0)
+    val (r, rl) = dd_sqrt(q, ql)
+    val (v, vl) = dd_add(x, 0.0, r, rl)
+    val (lh, ll) = log_dd(v, vl)
+    lh + ll
+
+@export("atanh")
+atanh(x: real) -> real
+    if x != x then return x
+    val s = sign_bit(x)
+    val y = fabs(x)
+    // |x| < 2^-28: atanh x = x (1 + x²/3) rounds to x.
+    if hi_word(y) < 0x3e300000 then return x
+    // ±1 is a pole and beyond it a domain error, the infinities included.
+    if y == 1.0 then return pole_error(s)
+    if y > 1.0 then return domain_error(x)
+    // 1 + |x| and 1 - |x| are exact as pairs; their quotient is near 1 for a small x and log_dd
+    // keeps it relative there.
+    val (n, nl) = two_sum(1.0, y)
+    val (d, dl) = two_sum(1.0, -y)
+    val (q, ql) = dd_div(n, nl, d, dl)
+    val (lh, ll) = log_dd(q, ql)
+    val r = 0.5 * (lh + ll)
+    if s then -r else r
+
+@export("sinhf")
+sinhf(x: f32) -> f32 = narrow(sinh(real(x)))
+
+@export("coshf")
+coshf(x: f32) -> f32 = narrow(cosh(real(x)))
+
+@export("tanhf")
+tanhf(x: f32) -> f32 = f32(tanh(real(x)))
+
+@export("asinhf")
+asinhf(x: f32) -> f32 = f32(asinh(real(x)))
+
+@export("acoshf")
+acoshf(x: f32) -> f32 = f32(acosh(real(x)))
+
+@export("atanhf")
+atanhf(x: f32) -> f32 = f32(atanh(real(x)))

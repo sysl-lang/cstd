@@ -1,0 +1,292 @@
+module sh.sysl.cstd
+
+// `<math.h>`'s inverse circular functions: `asin`, `acos`, `atan` and `atan2`, and their float forms.
+//
+// fdlibm's, as musl 1.2.6 carries them (`asin.c`, `acos.c`, `atan.c`, `atan2.c`). asin and acos
+// share a rational approximation R(z) of (asin(sqrt z) - sqrt z) / sqrt z, used directly below 1/2
+// and through asin(x) = pi/2 - 2 asin(sqrt((1 - x)/2)) above it, with pi/2 and the root each carried
+// in two parts. atan reduces |x| to one of five intervals around 0, 1/2, 1, 3/2 and infinity, whose
+// arctangents are tabulated in two parts. atan2 is atan of |y/x| placed in its quadrant, with C
+// Annex F's answers for the zeros and infinities; where musl rounds y/x and the arctangent before
+// adding pi, here both are carried in double-double (`math_dd.sysl`) and rounded once. Each is within
+// 1 ulp.
+//
+// The float forms compute in double and round once.
+
+private val pio2_hi: real = 1.57079632679489655800e0    // 0x3FF921FB 0x54442D18
+private val pio2_lo: real = 6.12323399573676603587e-17  // 0x3C91A626 0x33145C07
+private val ps0: real = 1.66666666666666657415e-1       // 0x3FC55555 0x55555555
+private val ps1: real = -3.25565818622400915405e-1      // 0xBFD4D612 0x03EB6F7D
+private val ps2: real = 2.01212532134862925881e-1       // 0x3FC9C155 0x0E884455
+private val ps3: real = -4.00555345006794114027e-2      // 0xBFA48228 0xB5688F3B
+private val ps4: real = 7.91534994289814532176e-4       // 0x3F49EFE0 0x7501B288
+private val ps5: real = 3.47933107596021167570e-5       // 0x3F023DE1 0x0DFDF709
+private val qs1: real = -2.40339491173441421878e0       // 0xC0033A27 0x1C8A2D4B
+private val qs2: real = 2.02094576023350569471e0        // 0x40002AE5 0x9C598AC8
+private val qs3: real = -6.88283971605453293030e-1      // 0xBFE6066C 0x1B8D0159
+private val qs4: real = 7.70381505559019352791e-2       // 0x3FB3B8C5 0xB12E9282
+
+private asin_r(z: real) -> real
+    val p = z * (ps0 + z * (ps1 + z * (ps2 + z * (ps3 + z * (ps4 + z * ps5)))))
+    val q = 1.0 + z * (qs1 + z * (qs2 + z * (qs3 + z * qs4)))
+    p / q
+
+@export("asin")
+asin(x: real) -> real
+    val hx = hi_word(x)
+    val ix = hx & 0x7fffffff
+    // |x| >= 1, or NaN.
+    if ix >= 0x3ff00000
+        if (ix - 0x3ff00000) | lo_word(x) == 0 then return x * pio2_hi
+        return domain_error(x)
+    // |x| < 0.5
+    if ix < 0x3fe00000
+        // 2^-1022 <= |x| < 2^-26: x itself.
+        if ix < 0x3e500000 && ix >= 0x00100000 then return x
+        return x + x * asin_r(x * x)
+    // 1 > |x| >= 0.5
+    val z = (1.0 - fabs(x)) * 0.5
+    val s = sqrt(z)
+    val r = asin_r(z)
+    var y = 0.0
+    if ix >= 0x3fef3333
+        // |x| > 0.975
+        y = pio2_hi - (2.0 * (s + s * r) - pio2_lo)
+    else
+        // f + c = sqrt(z)
+        val f = with_lo_word(s, 0)
+        val c = (z - f * f) / (s + f)
+        y = 0.5 * pio2_hi - (2.0 * s * r - (pio2_lo - 2.0 * c) - (0.5 * pio2_hi - 2.0 * f))
+    if hx >> 31 != 0 then -y else y
+end asin
+
+@export("acos")
+acos(x: real) -> real
+    val hx = hi_word(x)
+    val ix = hx & 0x7fffffff
+    // |x| >= 1, or NaN.
+    if ix >= 0x3ff00000
+        if (ix - 0x3ff00000) | lo_word(x) == 0
+            // acos(1) = 0, acos(-1) = pi.
+            return if hx >> 31 != 0 then 2.0 * pio2_hi else 0.0
+        return domain_error(x)
+    // |x| < 0.5
+    if ix < 0x3fe00000
+        // |x| < 2^-57
+        if ix <= 0x3c600000 then return pio2_hi
+        return pio2_hi - (x - (pio2_lo - x * asin_r(x * x)))
+    // x < -0.5
+    if hx >> 31 != 0
+        val z = (1.0 + x) * 0.5
+        val s = sqrt(z)
+        val w = asin_r(z) * s - pio2_lo
+        return 2.0 * (pio2_hi - (s + w))
+    // x > 0.5
+    val z = (1.0 - x) * 0.5
+    val s = sqrt(z)
+    val df = with_lo_word(s, 0)
+    val c = (z - df * df) / (s + df)
+    val w = asin_r(z) * s + c
+    2.0 * (df + w)
+end acos
+
+// atan at 0.5, 1, 1.5 and infinity, each in two parts.
+private val atanhi: [4]real = [
+    4.63647609000806093515e-1,   // atan(0.5)hi 0x3FDDAC67 0x0561BB4F
+    7.85398163397448278999e-1,   // atan(1.0)hi 0x3FE921FB 0x54442D18
+    9.82793723247329054082e-1,   // atan(1.5)hi 0x3FEF730B 0xD281F69B
+    1.57079632679489655800e0,    // atan(inf)hi 0x3FF921FB 0x54442D18
+]
+private val atanlo: [4]real = [
+    2.26987774529616870924e-17,  // atan(0.5)lo 0x3C7A2B7F 0x222F65E2
+    3.06161699786838301793e-17,  // atan(1.0)lo 0x3C81A626 0x33145C07
+    1.39033110312309984516e-17,  // atan(1.5)lo 0x3C700788 0x7AF0CBBD
+    6.12323399573676603587e-17,  // atan(inf)lo 0x3C91A626 0x33145C07
+]
+private val at: [11]real = [
+    3.33333333333329318027e-1,   // 0x3FD55555 0x5555550D
+    -1.99999999998764832476e-1,  // 0xBFC99999 0x9998EBC4
+    1.42857142725034663711e-1,   // 0x3FC24924 0x920083FF
+    -1.11111104054623557880e-1,  // 0xBFBC71C6 0xFE231671
+    9.09088713343650656196e-2,   // 0x3FB745CD 0xC54C206E
+    -7.69187620504482999495e-2,  // 0xBFB3B0F2 0xAF749A6D
+    6.66107313738753120669e-2,   // 0x3FB10D66 0xA0D03D51
+    -5.83357013379057348645e-2,  // 0xBFADDE2D 0x52DEFD9A
+    4.97687799461593236017e-2,   // 0x3FA97B4B 0x24760DEB
+    -3.65315727442169155270e-2,  // 0xBFA2B444 0x2C6A6C2F
+    1.62858201153657823623e-2,   // 0x3F90AD3A 0xE322DA11
+]
+
+@export("atan")
+atan(x_in: real) -> real
+    var x = x_in
+    var ix = hi_word(x)
+    val sign = ix >> 31 != 0
+    ix = ix & 0x7fffffff
+    if ix >= 0x44100000
+        // |x| >= 2^66
+        if x != x then return x
+        return if sign then -atanhi[3] else atanhi[3]
+    var id: i32 = 0
+    if ix < 0x3fdc0000
+        // |x| < 0.4375
+        if ix < 0x3e400000 then return x
+        id = -1
+    else
+        x = fabs(x)
+        if ix < 0x3ff30000
+            // |x| < 1.1875
+            if ix < 0x3fe60000
+                // 7/16 <= |x| < 11/16
+                id = 0
+                x = (2.0 * x - 1.0) / (2.0 + x)
+            else
+                // 11/16 <= |x| < 19/16
+                id = 1
+                x = (x - 1.0) / (x + 1.0)
+        elif ix < 0x40038000
+            // |x| < 2.4375
+            id = 2
+            x = (x - 1.5) / (1.0 + 1.5 * x)
+        else
+            // 2.4375 <= |x| < 2^66
+            id = 3
+            x = -1.0 / x
+    val z = x * x
+    val w = z * z
+    // The sum of at[i] z^(i+1), as its odd and even halves.
+    val s1 = z * (at[0] + w * (at[2] + w * (at[4] + w * (at[6] + w * (at[8] + w * at[10])))))
+    val s2 = w * (at[1] + w * (at[3] + w * (at[5] + w * (at[7] + w * at[9]))))
+    if id < 0 then return x - x * (s1 + s2)
+    val r = atanhi[id] - (x * (s1 + s2) - atanlo[id] - x)
+    if sign then -r else r
+end atan
+
+private val atan2_pi: real = 3.1415926535897931160e0      // 0x400921FB 0x54442D18
+private val atan2_pi_lo: real = 1.2246467991473531772e-16 // 0x3CA1A626 0x33145C07
+
+@export("atan2")
+atan2(y: real, x: real) -> real
+    if x != x || y != y then return x + y
+    var ix = hi_word(x)
+    val lx = lo_word(x)
+    var iy = hi_word(y)
+    val ly = lo_word(y)
+    // x = 1
+    if (ix - 0x3ff00000) | lx == 0 then return atan(y)
+    // 2 sign(x) + sign(y)
+    val m = ((iy >> 31) & 1) | ((ix >> 30) & 2)
+    ix = ix & 0x7fffffff
+    iy = iy & 0x7fffffff
+
+    // y = 0
+    if iy | ly == 0
+        if m <= 1 then return y
+        return if m == 2 then atan2_pi else -atan2_pi
+    // x = 0
+    if ix | lx == 0 then return if m & 1 != 0 then -atan2_pi / 2.0 else atan2_pi / 2.0
+    // x infinite
+    if ix == 0x7ff00000
+        if iy == 0x7ff00000
+            if m == 0 then return atan2_pi / 4.0
+            if m == 1 then return -atan2_pi / 4.0
+            if m == 2 then return 3.0 * atan2_pi / 4.0
+            return -3.0 * atan2_pi / 4.0
+        if m == 0 then return 0.0
+        if m == 1 then return -0.0
+        if m == 2 then return atan2_pi
+        return -atan2_pi
+    // |y/x| > 2^64
+    if ix + (64u32 << 20) < iy || iy == 0x7ff00000
+        return if m & 1 != 0 then -atan2_pi / 2.0 else atan2_pi / 2.0
+
+    // |y/x| < 2^-64 with x < 0: the answer is ±pi to the last bit.
+    if m & 2 != 0 && iy + (64u32 << 20) < ix then return if m == 2 then atan2_pi else -atan2_pi
+
+    // atan(|y/x|), with the quotient and the arctangent carried in double-double so that the
+    // quadrant's pi is added before anything is rounded. musl rounds y/x and atan's result first,
+    // and comes to 1.2 ulp. Both operands are scaled by one power of two first, to keep the
+    // products that check the quotient in range; the quotient is within 2^±64, so that is exact.
+    val e = ilogb(x)
+    val ax = scalbn(fabs(x), -e)
+    val ay = scalbn(fabs(y), -e)
+    // |y/x| < 2^-27 with x > 0: atan q = q (1 - q²/3), so the correctly rounded quotient is the
+    // answer -- and in the subnormal range the only one, since a double-double tail is lost there.
+    val q0 = ay / ax
+    if m < 2 && q0 < 7.450580596923828e-9 then return if m == 0 then q0 else -q0
+    val (q, ql) = dd_div(ay, 0.0, ax, 0.0)
+    val (zh, zl) = atan_dd(q, ql)
+    if m == 0 then return zh + zl
+    if m == 1 then return -(zh + zl)
+    if m == 2
+        val (a, ae) = two_sum(atan2_pi, -zh)
+        return a + (ae + atan2_pi_lo - zl)
+    val (a, ae) = two_sum(zh, -atan2_pi)
+    a + (ae + zl - atan2_pi_lo)
+end atan2
+
+// atan(th + tl) for th >= 0, as hi + lo: `atan`'s reduction with every step but the polynomial's
+// carried in double-double. The polynomial's own share of the answer is at most a sixteenth, so its
+// rounding costs a tenth of an ulp.
+private atan_dd(th: real, tl: real) -> (real, real)
+    val ix = hi_word(th)
+    // t >= 2^66: pi/2 - 1/t, and 1/t is below 2^-66.
+    if ix >= 0x44100000 then return (atanhi[3], atanlo[3])
+    var id: i32 = 0
+    var xh = th
+    var xl = tl
+    if ix < 0x3fdc0000
+        // t < 0.4375
+        id = -1
+    elif ix < 0x3fe60000
+        // 7/16 <= t < 11/16: (2t - 1) / (2 + t)
+        id = 0
+        val (n, nl) = two_sum(2.0 * th, -1.0)
+        val (d, dl) = two_sum(2.0, th)
+        val (rh, rl) = dd_div(n, nl + 2.0 * tl, d, dl + tl)
+        xh = rh
+        xl = rl
+    elif ix < 0x3ff30000
+        // 11/16 <= t < 19/16: (t - 1) / (t + 1)
+        id = 1
+        val (n, nl) = two_sum(th, -1.0)
+        val (d, dl) = two_sum(th, 1.0)
+        val (rh, rl) = dd_div(n, nl + tl, d, dl + tl)
+        xh = rh
+        xl = rl
+    elif ix < 0x40038000
+        // 19/16 <= t < 2.4375: (t - 1.5) / (1 + 1.5 t)
+        id = 2
+        val (n, nl) = two_sum(th, -1.5)
+        val (p, pl) = two_prod(1.5, th)
+        val (d, dl) = two_sum(1.0, p)
+        val (rh, rl) = dd_div(n, nl + tl, d, dl + pl + 1.5 * tl)
+        xh = rh
+        xl = rl
+    else
+        // 2.4375 <= t < 2^66: -1/t
+        id = 3
+        val (rh, rl) = dd_div(-1.0, 0.0, th, tl)
+        xh = rh
+        xl = rl
+    val z = xh * xh
+    val w = z * z
+    val s1 = z * (at[0] + w * (at[2] + w * (at[4] + w * (at[6] + w * (at[8] + w * at[10])))))
+    val s2 = w * (at[1] + w * (at[3] + w * (at[5] + w * (at[7] + w * at[9]))))
+    val poly = xh * (s1 + s2)
+    if id < 0 then return fast_two_sum(xh, xl - poly)
+    val (a, ae) = two_sum(atanhi[id], xh)
+    fast_two_sum(a, ae + xl - poly + atanlo[id])
+end atan_dd
+
+@export("asinf")
+asinf(x: f32) -> f32 = f32(asin(real(x)))
+
+@export("acosf")
+acosf(x: f32) -> f32 = f32(acos(real(x)))
+
+@export("atanf")
+atanf(x: f32) -> f32 = f32(atan(real(x)))
+
+@export("atan2f")
+atan2f(y: f32, x: f32) -> f32 = f32(atan2(real(y), real(x)))

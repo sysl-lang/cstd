@@ -1,0 +1,108 @@
+module sh.sysl.cstd
+
+@tests
+
+// The exponentials and logarithms against MPFR, each within its stated bound in ulps of the exact
+// answer, with `errno` checked on every line: overflow and the poles ERANGE, a negative logarithm
+// EDOM, underflow nothing. The inputs run over every bit pattern and then concentrate where the
+// algorithms have their edges -- the overflow and underflow thresholds, the subnormal results, the
+// neighbourhood of 1 for a logarithm and of 0 for `expm1` and `log1p`.
+
+@test("exp and expf: within bound over the whole range, ERANGE on overflow, exact at 0")
+math_exp()
+    judge("exp", 53, 0.52, unary_d("exp", 20000) + """
+        for (int i = 0; i < 20000; i++) D1(exp, uni_d(-745.2, 709.8));
+        for (int i = 0; i < 4000; i++) D1(exp, sgn_d(mag_d(-60, 0)));
+        for (int i = 0; i < 2000; i++) D1(exp, near_d(709.782712893384, 40));
+        for (int i = 0; i < 2000; i++) D1(exp, near_d(-708.3964185322641, 40));
+        for (int i = 0; i < 2000; i++) D1(exp, near_d(-745.1332191019411, 40));
+        for (int i = 0; i < 4000; i++) D1(exp, uni_d(-745.2, -708));
+        """)
+    judge("exp", 24, 0.501, unary_f("expf", 20000) + """
+        for (int i = 0; i < 20000; i++) F1(expf, uni_f(-104, 89));
+        for (int i = 0; i < 2000; i++) F1(expf, near_f(88.72283935546875f, 40));
+        for (int i = 0; i < 2000; i++) F1(expf, near_f(-103.97207641601562f, 40));
+        """)
+
+@test("exp2 and exp2f: within bound, exact at integers")
+math_exp2()
+    judge("exp2", 53, 0.52, unary_d("exp2", 20000) + """
+        for (int i = 0; i < 20000; i++) D1(exp2, uni_d(-1075, 1024));
+        for (int i = -1080; i <= 1030; i += 3) D1(exp2, (double)i);
+        for (int i = 0; i < 4000; i++) D1(exp2, sgn_d(mag_d(-60, 0)));
+        for (int i = 0; i < 2000; i++) D1(exp2, near_d(1024.0, 40));
+        for (int i = 0; i < 2000; i++) D1(exp2, near_d(-1022.0, 40));
+        for (int i = 0; i < 2000; i++) D1(exp2, uni_d(-1075, -1022));
+        """)
+    judge("exp2", 24, 0.501, unary_f("exp2f", 20000) + """
+        for (int i = 0; i < 20000; i++) F1(exp2f, uni_f(-150, 128));
+        for (int i = -152; i <= 130; i++) F1(exp2f, (float)i);
+        """)
+
+@test("expm1 and expm1f: within bound, keeping the digits of a tiny result")
+math_expm1()
+    judge("expm1", 53, 1.0, unary_d("expm1", 20000) + """
+        for (int i = 0; i < 20000; i++) D1(expm1, uni_d(-40, 709.8));
+        for (int i = 0; i < 10000; i++) D1(expm1, sgn_d(mag_d(-60, 1)));
+        for (int i = 0; i < 2000; i++) D1(expm1, near_d(709.782712893384, 40));
+        for (int i = 0; i < 2000; i++) D1(expm1, sgn_d(near_d(0.34657359027997264, 40)));
+        for (int i = 0; i < 2000; i++) D1(expm1, sgn_d(near_d(1.0397207708399179, 40)));
+        """)
+    judge("expm1", 24, 0.501, unary_f("expm1f", 20000) + """
+        for (int i = 0; i < 20000; i++) F1(expm1f, uni_f(-20, 89));
+        for (int i = 0; i < 10000; i++) F1(expm1f, sgn_f(mag_f(-30, 1)));
+        """)
+
+@test("log and logf: within bound, a pole at 0 and EDOM below it")
+math_log()
+    judge("log", 53, 0.52, unary_d("log", 20000) + """
+        for (int i = 0; i < 20000; i++) D1(log, mag_d(-1074, 1023));
+        for (int i = 0; i < 10000; i++) D1(log, uni_d(0.9375, 1.0647));
+        for (int i = 0; i < 4000; i++) D1(log, near_d(1.0, 1000));
+        for (int i = 0; i < 4000; i++) D1(log, uni_d(0.5, 2));
+        """)
+    judge("log", 24, 0.501, unary_f("logf", 20000) + """
+        for (int i = 0; i < 20000; i++) F1(logf, mag_f(-149, 127));
+        for (int i = 0; i < 4000; i++) F1(logf, near_f(1.0f, 1000));
+        """)
+
+@test("log2 and log2f: within bound, exact at powers of two")
+math_log2()
+    judge("log2", 53, 0.55, unary_d("log2", 20000) + """
+        for (int i = 0; i < 20000; i++) D1(log2, mag_d(-1074, 1023));
+        for (int i = 0; i < 10000; i++) D1(log2, uni_d(0.9575, 1.0443));
+        for (int i = 0; i < 4000; i++) D1(log2, near_d(1.0, 1000));
+        for (int i = -1074; i <= 1023; i += 7) D1(log2, ldexp(1.0, i));
+        """)
+    judge("log2", 24, 0.501, unary_f("log2f", 20000) + """
+        for (int i = 0; i < 20000; i++) F1(log2f, mag_f(-149, 127));
+        for (int i = 0; i < 4000; i++) F1(log2f, near_f(1.0f, 1000));
+        """)
+
+@test("log10 and log10f: within bound, exact at powers of ten")
+math_log10()
+    judge("log10", 53, 1.0, unary_d("log10", 20000) + """
+        for (int i = 0; i < 20000; i++) D1(log10, mag_d(-1074, 1023));
+        for (int i = 0; i < 4000; i++) D1(log10, near_d(1.0, 1000));
+        { double p = 1; for (int i = 0; i <= 22; i++) { D1(log10, p); p *= 10; } }
+        for (int i = 0; i < 4000; i++) D1(log10, uni_d(0.5, 2));
+        """)
+    judge("log10", 24, 0.501, unary_f("log10f", 20000) + """
+        for (int i = 0; i < 20000; i++) F1(log10f, mag_f(-149, 127));
+        { float p = 1; for (int i = 0; i <= 10; i++) { F1(log10f, p); p *= 10; } }
+        """)
+
+@test("log1p and log1pf: within bound, a pole at -1, keeping the digits of a tiny argument")
+math_log1p()
+    judge("log1p", 53, 1.0, unary_d("log1p", 20000) + """
+        for (int i = 0; i < 20000; i++) D1(log1p, mag_d(-1074, 1023));
+        for (int i = 0; i < 10000; i++) D1(log1p, sgn_d(mag_d(-60, -1)));
+        for (int i = 0; i < 4000; i++) D1(log1p, uni_d(-1, 1));
+        for (int i = 0; i < 2000; i++) D1(log1p, near_d(-1.0, 1000));
+        for (int i = 0; i < 2000; i++) D1(log1p, sgn_d(near_d(0.41421356237309503, 100)));
+        """)
+    judge("log1p", 24, 0.501, unary_f("log1pf", 20000) + """
+        for (int i = 0; i < 20000; i++) F1(log1pf, mag_f(-149, 127));
+        for (int i = 0; i < 10000; i++) F1(log1pf, sgn_f(mag_f(-30, -1)));
+        for (int i = 0; i < 2000; i++) F1(log1pf, near_f(-1.0f, 1000));
+        """)

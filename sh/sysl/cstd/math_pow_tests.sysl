@@ -1,0 +1,37 @@
+module sh.sysl.cstd
+
+@tests
+
+// pow against MPFR, whose `mpfr_pow` follows C Annex F's special cases: every pair of special values
+// is tried, so pow(-1, ±inf) = 1, pow(1, NaN) = 1, pow(NaN, ±0) = 1, pow(±0, y) for odd, even and
+// non-integer y and the infinities are all checked to the bit, with EDOM for a negative base and a
+// non-integer power and ERANGE for a zero base and a negative power.
+
+private pow_cases(f: string, t: string) -> string
+    if t == "d"
+        return binary_d(f, 20000) + f"""
+            for (int i = 0; i < 20000; i++) D2($f, uni_d(0, 10), uni_d(-100, 100));
+            for (int i = 0; i < 10000; i++) D2($f, near_d(1.0, 100000), sgn_d(mag_d(0, 60)));
+            for (int i = 0; i < 6000; i++) D2($f, -uni_d(0, 10), (double)((long long)(rbits() % 200) - 100));
+            for (int i = 0; i < 4000; i++) D2($f, sgn_d(mag_d(-1074, 1023)), sgn_d(mag_d(-10, 4)));
+            for (int i = 0; i < 4000; i++) { double y = sgn_d(mag_d(-60, 11)); D2($f, 2.0, y); D2($f, 10.0, y); }
+            for (int i = -1080; i <= 1030; i += 7) D2($f, 2.0, (double)i);
+            for (int i = 0; i <= 33; i++) { D2($f, 3.0, (double)i); D2($f, -3.0, (double)i); D2($f, 0.5, (double)-i); }
+            for (int i = 0; i < 4000; i++) D2($f, uni_d(0.5, 2), uni_d(-1100, 1100));
+            for (int i = 0; i < 2000; i++) D2($f, mag_d(-1074, -1022), uni_d(0, 1.1));
+            """
+    binary_f(f, 20000) + f"""
+        for (int i = 0; i < 20000; i++) F2($f, uni_f(0, 10), uni_f(-50, 50));
+        for (int i = 0; i < 10000; i++) F2($f, near_f(1.0f, 1000), sgn_f(mag_f(0, 30)));
+        for (int i = 0; i < 6000; i++) F2($f, -uni_f(0, 10), (float)((long long)(rbits() % 100) - 50));
+        for (int i = -152; i <= 130; i++) F2($f, 2.0f, (float)i);
+        for (int i = 0; i < 4000; i++) F2($f, uni_f(0.5f, 2), uni_f(-160, 160));
+        """
+
+@test("pow: within 0.54 ulp everywhere, exact at exact powers, C Annex F's special cases to the bit")
+math_pow()
+    judge("pow", 53, 0.54, pow_cases("pow", "d"))
+
+@test("powf: within bound, with float's own overflow")
+math_powf()
+    judge("pow", 24, 0.501, pow_cases("powf", "f"))

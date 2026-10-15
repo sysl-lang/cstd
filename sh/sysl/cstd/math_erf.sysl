@@ -1,0 +1,213 @@
+module sh.sysl.cstd
+
+// `<math.h>`'s error function and its complement, and their float forms.
+//
+// fdlibm's approximations, as musl 1.2.6 carries them (`erf.c`): below 0.84375 a rational
+// approximation of erf(x)/x - 1 in x²; to 1.25, erf(x) = erx + P/Q in s = |x| - 1, erx being erf(1)
+// to 24 bits; beyond, erfc(x) = exp(-x² - 0.5625 + R/S) / x in s = 1/x², with two fits split at
+// 1/0.35. Each fit is good to about 2^-58.
+//
+// musl evaluates them in double and the rounding of the fits shows in erfc, which comes to 2.4 ulp
+// where 1 - erf cancels; here erfc, and erf above 0.84375, evaluate the same fits in double-double
+// (`math_dd.sysl`) and round once, which keeps both within 1 ulp. erf below 0.84375 needs no help
+// and stays musl's. erfc reaches the subnormals at 26.5 and underflows past 27.2.
+//
+// The float forms compute in double and round once.
+
+private val erx: real = 8.45062911510467529297e-1    // 0x3FEB0AC1 0x60000000
+private val efx8: real = 1.02703333676410069053e0    // 0x3FF06EBA 0x8214DB69
+
+// erf(x)/x - 1 = x × P(z)/Q(z) on [0, 0.84375], z = x².
+private val erf_pp: [5]real = [
+    1.28379167095512558561e-1,    // 0x3FC06EBA 0x8214DB68
+    -3.25042107247001499370e-1,   // 0xBFD4CD7D 0x691CB913
+    -2.84817495755985104766e-2,   // 0xBF9D2A51 0xDBD7194F
+    -5.77027029648944159157e-3,   // 0xBF77A291 0x236668E4
+    -2.37630166566501626084e-5,   // 0xBEF8EAD6 0x120016AC
+]
+private val erf_qq: [6]real = [
+    1.0,
+    3.97917223959155352819e-1,    // 0x3FD97779 0xCDDADC09
+    6.50222499887672944485e-2,    // 0x3FB0A54C 0x5536CEBA
+    5.08130628187576562776e-3,    // 0x3F74D022 0xC4D36B0F
+    1.32494738004321644526e-4,    // 0x3F215DC9 0x221C1A10
+    -3.96022827877536812320e-6,   // 0xBED09C43 0x42A26120
+]
+// erf(x) - erx on [0.84375, 1.25], in s = |x| - 1.
+private val erf_pa: [7]real = [
+    -2.36211856075265944077e-3,   // 0xBF6359B8 0xBEF77538
+    4.14856118683748331666e-1,    // 0x3FDA8D00 0xAD92B34D
+    -3.72207876035701323847e-1,   // 0xBFD7D240 0xFBB8C3F1
+    3.18346619901161753674e-1,    // 0x3FD45FCA 0x805120E4
+    -1.10894694282396677476e-1,   // 0xBFBC6398 0x3D3E28EC
+    3.54783043256182359371e-2,    // 0x3FA22A36 0x599795EB
+    -2.16637559486879084300e-3,   // 0xBF61BF38 0x0A96073F
+]
+private val erf_qa: [7]real = [
+    1.0,
+    1.06420880400844228286e-1,    // 0x3FBB3E66 0x18EEE323
+    5.40397917702171048937e-1,    // 0x3FE14AF0 0x92EB6F33
+    7.18286544141962662868e-2,    // 0x3FB2635C 0xD99FE9A7
+    1.26171219808761642112e-1,    // 0x3FC02660 0xE763351F
+    1.36370839120290507362e-2,    // 0x3F8BEDC2 0x6B51DD1C
+    1.19844998467991074170e-2,    // 0x3F888B54 0x5735151D
+]
+// log(x erfc(x)) + x² + 0.5625 on [1.25, 1/0.35], in s = 1/x².
+private val erf_ra: [8]real = [
+    -9.86494403484714822705e-3,   // 0xBF843412 0x600D6435
+    -6.93858572707181764372e-1,   // 0xBFE63416 0xE4BA7360
+    -1.05586262253232909814e1,    // 0xC0251E04 0x41B0E726
+    -6.23753324503260060396e1,    // 0xC04F300A 0xE4CBA38D
+    -1.62396669462573470355e2,    // 0xC0644CB1 0x84282266
+    -1.84605092906711035994e2,    // 0xC067135C 0xEBCCABB2
+    -8.12874355063065934246e1,    // 0xC0545265 0x57E4D2F2
+    -9.81432934416914548592e0,    // 0xC023A0EF 0xC69AC25C
+]
+private val erf_sa: [9]real = [
+    1.0,
+    1.96512716674392571292e1,     // 0x4033A6B9 0xBD707687
+    1.37657754143519042600e2,     // 0x4061350C 0x526AE721
+    4.34565877475229228821e2,     // 0x407B290D 0xD58A1A71
+    6.45387271733267880336e2,     // 0x40842B19 0x21EC2868
+    4.29008140027567833386e2,     // 0x407AD021 0x57700314
+    1.08635005541779435134e2,     // 0x405B28A3 0xEE48AE2C
+    6.57024977031928170135e0,     // 0x401A47EF 0x8E484A93
+    -6.04244152148580987438e-2,   // 0xBFAEEFF2 0xEE749A62
+]
+// The same on [1/0.35, 28].
+private val erf_rb: [7]real = [
+    -9.86494292470009928597e-3,   // 0xBF843412 0x39E86F4A
+    -7.99283237680523006574e-1,   // 0xBFE993BA 0x70C285DE
+    -1.77579549177547519889e1,    // 0xC031C209 0x555F995A
+    -1.60636384855821916062e2,    // 0xC064145D 0x43C5ED98
+    -6.37566443368389627722e2,    // 0xC083EC88 0x1375F228
+    -1.02509513161107724954e3,    // 0xC0900461 0x6A2E5992
+    -4.83519191608651397019e2,    // 0xC07E384E 0x9BDC383F
+]
+private val erf_sb: [8]real = [
+    1.0,
+    3.03380607434824582924e1,     // 0x403E568B 0x261D5190
+    3.25792512996573918826e2,     // 0x40745CAE 0x221B9F0A
+    1.53672958608443695994e3,     // 0x409802EB 0x189D5118
+    3.19985821950859553908e3,     // 0x40A8FFB7 0x688C246A
+    2.55305040643316442583e3,     // 0x40A3F219 0xCEDF3BE6
+    4.74528541206955367215e2,     // 0x407DA874 0xE79FE763
+    -2.24409524465858183362e1,    // 0xC03670E2 0x42712D62
+]
+
+// The rational fit c/d at a double-double point.
+private ratio_dd(c: []const real, d: []const real, xh: real, xl: real) -> (real, real)
+    val (nh, nl) = dd_poly(c, xh, xl)
+    val (dh, dl) = dd_poly(d, xh, xl)
+    dd_div(nh, nl, dh, dl)
+
+// erf(x)/x - 1 on [0, 0.84375] in double, as musl has it.
+private erf_small(x: real) -> real
+    val z = x * x
+    val r = erf_pp[0] + z * (erf_pp[1] + z * (erf_pp[2] + z * (erf_pp[3] + z * erf_pp[4])))
+    val s = 1.0 + z * (erf_qq[1] + z * (erf_qq[2] + z * (erf_qq[3] + z * (erf_qq[4] + z * erf_qq[5]))))
+    r / s
+
+// erf(|x|) - erx on [0.84375, 1.25], as hi + lo.
+private erf_mid(ax: real) -> (real, real) = ratio_dd(erf_pa, erf_qa, ax - 1.0, 0.0)
+
+// erfc(|x|) for |x| in [1.25, 28) as hi + lo, and a power of two it is still to be scaled by.
+private erfc_far(ax: real) -> (real, real, real)
+    val (x2h, x2l) = two_prod(ax, ax)
+    val (sh, sl) = dd_div(1.0, 0.0, x2h, x2l)
+    // |x| < 1/0.35, or beyond.
+    val (rh, rl) = if ax < 2.857142857142857 then ratio_dd(erf_ra, erf_sa, sh, sl) else ratio_dd(erf_rb, erf_sb, sh, sl)
+    val (a1h, a1l) = dd_add(-x2h, -x2l, -0.5625, 0.0)
+    var (ah, al) = dd_add(a1h, a1l, rh, rl)
+    var scale = 1.0
+    if ah < -650.0
+        // Toward the end of exp's normal range: exp(a + 128 ln2) × 2^-128, ln2 × 128 being exact in
+        // two parts, which keeps exp_dd's products out of the subnormals.
+        val (bh, bl) = dd_add(ah, al, 128.0 * ln2_hi, 128.0 * ln2_lo)
+        ah = bh
+        al = bl
+        scale = 2.938735877055719e-39
+    if ah < -705.0 then return (0.0, 0.0, scale)
+    val (eh, el) = exp_dd(ah, al)
+    val (qh, ql) = dd_div(eh, el, ax, 0.0)
+    (qh, ql, scale)
+end erfc_far
+
+@export("erf")
+erf(x: real) -> real
+    var ix = hi_word(x)
+    val sign = ix >> 31 != 0
+    ix = ix & 0x7fffffff
+    if ix >= 0x7ff00000
+        // erf(NaN) = NaN, erf(±inf) = ±1.
+        if x != x then return x
+        return if sign then -1.0 else 1.0
+    if ix < 0x3feb0000
+        // |x| < 0.84375
+        if ix < 0x3e300000 then return 0.125 * (8.0 * x + efx8 * x)
+        return x + x * erf_small(x)
+    val ax = fabs(x)
+    var y = 1.0
+    if ix < 0x3ff40000
+        // |x| < 1.25: erx + P/Q
+        val (ph, pl) = erf_mid(ax)
+        val (sh, sl) = dd_add(erx, 0.0, ph, pl)
+        y = sh + sl
+    elif ix < 0x40180000
+        // |x| < 6: 1 - erfc; beyond, 1 to the last bit.
+        val (ch, cl, _) = erfc_far(ax)
+        val (sh, sl) = dd_add(1.0, 0.0, -ch, -cl)
+        y = sh + sl
+    if sign then -y else y
+end erf
+
+@export("erfc")
+erfc(x: real) -> real
+    var ix = hi_word(x)
+    val sign = ix >> 31 != 0
+    ix = ix & 0x7fffffff
+    if ix >= 0x7ff00000
+        // erfc(NaN) = NaN, erfc(+inf) = 0, erfc(-inf) = 2.
+        if x != x then return x
+        return if sign then 2.0 else 0.0
+    // |x| < 2^-56
+    if ix < 0x3c700000 then return 1.0 - x
+    // From here erfc(|x|) as hi + lo, and erfc(-|x|) = 2 - erfc(|x|).
+    val ax = fabs(x)
+    var ch = 0.0
+    var cl = 0.0
+    var scale = 1.0
+    if ix < 0x3feb0000
+        // |x| < 0.84375: 1 - (x + x P/Q), x carried with its sign.
+        val (z, zl) = two_prod(x, x)
+        val (yh, yl) = ratio_dd(erf_pp, erf_qq, z, zl)
+        val (ph, pl) = dd_mul(x, 0.0, yh, yl)
+        val (sh, sl) = dd_add(x, 0.0, ph, pl)
+        val (rh, rl) = dd_add(1.0, 0.0, -sh, -sl)
+        return rh + rl
+    elif ix < 0x3ff40000
+        // |x| < 1.25: 1 - erx - P/Q; 1 - erx is exact.
+        val (ph, pl) = erf_mid(ax)
+        val (rh, rl) = dd_add(1.0 - erx, 0.0, -ph, -pl)
+        ch = rh
+        cl = rl
+    elif ix < 0x403c0000
+        // |x| < 28
+        val (rh, rl, s) = erfc_far(ax)
+        ch = rh
+        cl = rl
+        scale = s
+    else
+        if sign then return 2.0
+        return underflow(false)
+    if sign
+        val (rh, rl) = dd_add(2.0, 0.0, -ch, -cl)
+        return rh + rl
+    (ch + cl) * scale
+end erfc
+
+@export("erff")
+erff(x: f32) -> f32 = f32(erf(real(x)))
+
+@export("erfcf")
+erfcf(x: f32) -> f32 = f32(erfc(real(x)))

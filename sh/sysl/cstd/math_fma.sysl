@@ -1,0 +1,183 @@
+module sh.sysl.cstd
+
+import sysl.math.Bits
+
+// `<math.h>`'s fused multiply-add: x × y + z rounded once.
+//
+// The double form is musl's `fma.c`: each operand's significand as a 64-bit integer, the product
+// exact in 128 bits as two halves, the addend shifted to line up with a sticky bit for what falls
+// off, the sum, and one conversion to double that rounds. sysl has no intrinsic for the machine's
+// `fmadd`, so this is the function on every target.
+//
+// The float form computes in double, where x × y is exact (48 bits of 53), and the sum is rounded
+// **to odd**: rounded to nearest, then moved one place away from the even neighbour when the sum was
+// inexact. A sum rounded to odd at 53 bits and then rounded to nearest at 24 bits -- or fewer, in
+// float's subnormal range -- is rounded correctly (Boldo and Melquiond, "Emulation of FMA and
+// correctly rounded sums: proved algorithms using rounding to odd", 2008). musl's `fmaf.c` patches
+// only the halfway case at 24 bits, which leaves the subnormal range open.
+
+// A double as its significand shifted so the top ten bits and the last are clear, its exponent so
+// that the value is m × 2^e, and its sign. A zero, infinity or NaN answers an exponent of at least
+// `zero_inf_nan`.
+private val zero_inf_nan: i32 = 0x7ff - 0x3ff - 52 - 1
+
+private struct Num
+    m: u64
+    e: i32
+    sign: bool
+
+private fma_normalize(x: real) -> Num
+    var ix = x.bits()
+    var e = i32(ix >> 52)
+    val sign = e & 0x800 != 0
+    e = e & 0x7ff
+    if e == 0
+        ix = (x * 9223372036854775808.0).bits()
+        e = i32((ix >> 52) & 0x7ff)
+        e = if e != 0 then e - 63 else 0x800
+    ix = ix & ((1u64 << 52) - 1)
+    ix = ix | (1u64 << 52)
+    ix = ix << 1
+    e -= 0x3ff + 52 + 1
+    Num(ix, e, sign)
+
+// 1 when any bit of `x` is set: the sticky bit of what a shift threw away.
+private sticky(x: u64) -> u64 = if x != 0 then 1 else 0
+
+// The 128-bit product of two 64-bit integers, as (high, low).
+private mul_wide(x: u64, y: u64) -> (u64, u64)
+    val xlo = x & 0xffffffff
+    val xhi = x >> 32
+    val ylo = y & 0xffffffff
+    val yhi = y >> 32
+    val t1 = xlo * ylo
+    val t2 = xlo * yhi + xhi * ylo
+    val t3 = xhi * yhi
+    val lo = t1 + (t2 << 32)
+    val hi = t3 + (t2 >> 32) + (if t1 > lo then 1u64 else 0)
+    (hi, lo)
+
+@export("fma")
+fma(x: real, y: real, z: real) -> real
+    val nx = fma_normalize(x)
+    val ny = fma_normalize(y)
+    val nz = fma_normalize(z)
+
+    if nx.e >= zero_inf_nan || ny.e >= zero_inf_nan then return fma_special(x, y, z, x * y + z)
+    if nz.e >= zero_inf_nan
+        if nz.e > zero_inf_nan then return checked_overflow(x * y)
+        return z
+
+    // r = x × y
+    var (rhi, rlo) = mul_wide(nx.m, ny.m)
+    var zhi: u64 = 0
+    var zlo: u64 = 0
+
+    // Line the exponents up: z <<= kz, r >>= kr, with kz + kr == d and e = e + kr.
+    var e = nx.e + ny.e
+    var d = nz.e - e
+    if d > 0
+        if d < 64
+            zlo = nz.m << d
+            zhi = nz.m >> (64 - d)
+        else
+            zlo = 0
+            zhi = nz.m
+            e = nz.e - 64
+            d -= 64
+            if d >= 64
+                rlo = 1
+                rhi = 0
+            elif d > 0
+                rlo = (rhi << (64 - d)) | (rlo >> d) | sticky(rlo << (64 - d))
+                rhi = rhi >> d
+    else
+        zhi = 0
+        d = -d
+        if d == 0
+            zlo = nz.m
+        elif d < 64
+            zlo = (nz.m >> d) | sticky(nz.m << (64 - d))
+        else
+            zlo = 1
+
+    // Add.
+    var sign = nx.sign != ny.sign
+    val samesign = sign == nz.sign
+    var nonzero = true
+    if samesign
+        rlo += zlo
+        rhi += zhi + (if rlo < zlo then 1u64 else 0)
+    else
+        val t = rlo
+        rlo -= zlo
+        rhi = rhi - zhi - (if t < rlo then 1u64 else 0)
+        if rhi >> 63 != 0
+            rlo = 0 - rlo
+            rhi = 0 - rhi - sticky(rlo)
+            sign = !sign
+        nonzero = rhi != 0
+
+    // rhi becomes the result's top 63 bits, the last of them sticky.
+    if nonzero
+        e += 64
+        d = i32(rhi.leading_zeros()) - 1
+        rhi = (rhi << d) | (rlo >> (64 - d)) | sticky(rlo << d)
+    elif rlo != 0
+        d = i32(rlo.leading_zeros()) - 1
+        rhi = if d < 0 then (rlo >> 1) | (rlo & 1) else rlo << d
+    else
+        // An exact zero, whose sign the rounding mode decides.
+        return x * y + z
+    e -= d
+
+    // To double: i is in [2^62, 2^63).
+    var i = i64(rhi)
+    if sign then i = -i
+    var r = real(i)
+
+    if e < -1022 - 62
+        // The result is subnormal before rounding.
+        if e == -1022 - 63
+            val c = if sign then -9223372036854775808.0 else 9223372036854775808.0
+            // The smallest normal, after rounding.
+            if r == c then return if sign then -2.2250738585072014e-308 else 2.2250738585072014e-308
+            // One bit is lost when scaled: add another top bit so that the conversion is the one
+            // rounding, if anything is inexact.
+            if rhi << 53 != 0
+                i = i64((rhi >> 1) | (rhi & 1) | (1u64 << 62))
+                if sign then i = -i
+                r = real(i)
+                r = 2.0 * r - c
+        else
+            // Round only once, when scaled.
+            d = 10
+            i = i64(((rhi >> d) | sticky(rhi << (64 - d))) << d)
+            if sign then i = -i
+            r = real(i)
+    checked_overflow(scalbn(r, e))
+end fma
+
+// x × y + z when an operand is zero, infinite or NaN: the IEEE answer, and `EDOM` for the invalid
+// ones -- zero times infinity, or infinities of opposite signs added.
+private fma_special(x: real, y: real, z: real, r: real) -> real
+    if r != r && x == x && y == y && z == z then errno = EDOM
+    r
+
+@export("fmaf")
+fmaf(x: f32, y: f32, z: f32) -> f32
+    val xy = real(x) * real(y)
+    val s = xy + real(z)
+    if s != s
+        if x == x && y == y && z == z then errno = EDOM
+        return f32(s)
+    if s == real.infinity || s == -real.infinity then return f32(s)
+    // The exact error of the sum (Knuth's two-sum; xy is exact, so xy + z = s + t exactly).
+    val bb = s - xy
+    val t = (xy - (s - bb)) + (real(z) - bb)
+    var u = s.bits()
+    if t != 0.0 && u & 1 == 0
+        // Round to odd: one step toward the exact value, onto the odd neighbour.
+        if (t > 0.0) != sign_bit(s) then u += 1 else u -= 1
+    narrow(real.from_bits(u))
+end fmaf

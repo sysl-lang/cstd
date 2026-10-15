@@ -1,0 +1,407 @@
+module sh.sysl.cstd
+
+@tests
+
+// `<math.h>` from C: what the header itself defines, and the error behaviour POSIX and C Annex F
+// spell out, written as ordinary C a reader can check line by line. The accuracy of every function
+// is the MPFR oracle's business (the `math_*_tests.sysl` files); these pin the special values and the
+// `errno` contract by name. Each double is printed as its bits; 33 is EDOM and 34 ERANGE.
+
+import sysl.buf.{Buf, buf}
+import sysl.fs.{current_dir, make_dir_all, make_temp_dir, remove_dir_all, write_text}
+import sysl.process.capture
+import sysl.testing.compiler
+import sysl.text.{Search, split}
+
+private val math_prelude: string = raw"""
+    #include <math.h>
+    static void say_d(double x) { unsigned long long b; memcpy(&b, &x, 8); put_hex(b, 16); say_end(); }
+    static void say_fl(float x) { unsigned int b; memcpy(&b, &x, 4); put_hex(b, 8); say_end(); }
+    static void say_de(double x) { unsigned long long b; memcpy(&b, &x, 8); put_hex(b, 16); say_ch(' '); say_int(errno); errno = 0; }
+    """
+
+@test("the classification macros sort every kind of double and float, and the comparisons are quiet")
+math_classification()
+    c_case(raw"""
+        double v[] = {0.0, -0.0, 1.0, -2.5, from_bits(1), from_bits(0x000fffffffffffffULL),
+                      from_bits(0x0010000000000000ULL), HUGE_VAL, -HUGE_VAL, NAN};
+        for (int i = 0; i < 10; i++) {
+            double x = v[i];
+            put_i(fpclassify(x)); say_ch(' '); put_i(isfinite(x) != 0); say_ch(' '); put_i(isinf(x) != 0);
+            say_ch(' '); put_i(isnan(x) != 0); say_ch(' '); put_i(isnormal(x) != 0); say_ch(' ');
+            say_int(signbit(x) != 0);
+        }
+        float f[] = {0.0f, -1.0f, 1e-40f, INFINITY, NAN};
+        for (int i = 0; i < 5; i++) {
+            float x = f[i];
+            put_i(fpclassify(x)); say_ch(' '); put_i(isfinite(x) != 0); say_ch(' '); say_int(isnormal(x) != 0);
+        }
+        double n = NAN;
+        say_int(isgreater(n, 1.0) + isgreaterequal(n, 1.0) + isless(n, 1.0) + islessequal(n, 1.0)
+                + islessgreater(n, 1.0));
+        say_int(isunordered(n, 1.0));
+        put_i(isgreater(2.0, 1.0)); put_i(isless(1.0, 2.0)); put_i(islessgreater(1.0, 2.0));
+        put_i(islessgreater(1.0, 1.0)); put_i(isgreaterequal(1.0, 1.0)); say_int(isunordered(1.0, 2.0));
+        """, """
+        2 1 0 0 0 0
+        2 1 0 0 0 1
+        4 1 0 0 1 0
+        4 1 0 0 1 1
+        3 1 0 0 0 0
+        3 1 0 0 0 0
+        4 1 0 0 1 0
+        1 0 1 0 0 0
+        1 0 1 0 0 1
+        0 0 0 1 0 0
+        2 1 0
+        4 1 1
+        3 1 0
+        1 0 0
+        0 0 0
+        0
+        1
+        111010
+        """, math_prelude)
+
+@test("the header's constants: the infinities, NaN, the FP_ and MATH_ values, and M_PI and friends to the bit")
+math_constants()
+    c_case(raw"""
+        say_d(HUGE_VAL); say_fl(HUGE_VALF); say_d((double)HUGE_VALL); say_fl(INFINITY);
+        say_int(isnan(NAN) != 0);
+        say_int(FP_ILOGB0 == -2147483647 - 1 && FP_ILOGBNAN == -2147483647 - 1);
+        say_int(MATH_ERRNO); say_int(MATH_ERREXCEPT); say_int(math_errhandling);
+        say_int(FP_NAN != FP_INFINITE && FP_ZERO != FP_SUBNORMAL && FP_NORMAL != FP_ZERO);
+        say_int(sizeof(float_t) == sizeof(float) && sizeof(double_t) == sizeof(double));
+        say_d(M_E); say_d(M_EGAMMA); say_d(M_LOG2E); say_d(M_LOG10E); say_d(M_LN2); say_d(M_LN10);
+        say_d(M_PHI); say_d(M_PI); say_d(M_PI_2); say_d(M_PI_4); say_d(M_1_PI); say_d(M_1_SQRTPI);
+        say_d(M_2_PI); say_d(M_2_SQRTPI); say_d(M_SQRT2); say_d(M_SQRT3); say_d(M_SQRT1_2); say_d(M_SQRT1_3);
+        say_int((double)M_PIl == M_PI && (double)M_El == M_E && (double)M_SQRT1_3l == M_SQRT1_3);
+        """, """
+        7ff0000000000000
+        7f800000
+        7ff0000000000000
+        7f800000
+        1
+        1
+        1
+        2
+        1
+        1
+        1
+        4005bf0a8b145769
+        3fe2788cfc6fb619
+        3ff71547652b82fe
+        3fdbcb7b1526e50e
+        3fe62e42fefa39ef
+        40026bb1bbb55516
+        3ff9e3779b97f4a8
+        400921fb54442d18
+        3ff921fb54442d18
+        3fe921fb54442d18
+        3fd45f306dc9c883
+        3fe20dd750429b6d
+        3fe45f306dc9c883
+        3ff20dd750429b6d
+        3ff6a09e667f3bcd
+        3ffbb67ae8584caa
+        3fe6a09e667f3bcd
+        3fe279a74590331c
+        1
+        """, math_prelude)
+
+@test("nan and nanf answer the default quiet NaN whatever the tag")
+math_nan()
+    c_case(raw"""
+        say_d(nan("")); say_d(nan("123")); say_fl(nanf("")); say_fl(nanf("x"));
+        """, """
+        7ff8000000000000
+        7ff8000000000000
+        7fc00000
+        7fc00000
+        """, math_prelude)
+
+@test("errno: EDOM for a domain error, ERANGE for a pole and an overflow, nothing for an underflow")
+math_errno_contract()
+    c_case(raw"""
+        errno = 0;
+        say_de(sqrt(-1.0)); say_de(log(-1.0)); say_de(acos(2.0)); say_de(asin(-1.5));
+        say_de(fmod(1.0, 0.0)); say_de(fmod(HUGE_VAL, 1.0)); say_de(remainder(1.0, 0.0));
+        say_de(pow(-8.0, 1.0 / 3.0)); say_de(sin(HUGE_VAL)); say_de(cos(-HUGE_VAL)); say_de(tan(HUGE_VAL));
+        say_de(tgamma(-1.0)); say_de(tgamma(-HUGE_VAL)); say_de(acosh(0.5)); say_de(atanh(2.0));
+        say_de(log1p(-2.0)); say_de(fma(HUGE_VAL, 0.0, 1.0));
+        say_de(log(0.0)); say_de(log(-0.0)); say_de(log2(0.0)); say_de(log10(0.0)); say_de(log1p(-1.0));
+        say_de(logb(0.0)); say_de(pow(0.0, -1.0)); say_de(pow(-0.0, -3.0)); say_de(atanh(1.0));
+        say_de(atanh(-1.0)); say_de(lgamma(0.0)); say_de(lgamma(-2.0)); say_de(tgamma(0.0)); say_de(tgamma(-0.0));
+        say_de(exp(1000.0)); say_de(pow(10.0, 400.0)); say_de(cosh(800.0)); say_de(sinh(-800.0));
+        say_de(ldexp(1.0, 2000)); say_de(nextafter(from_bits(0x7fefffffffffffffULL), HUGE_VAL));
+        say_de(expm1(800.0)); say_de(hypot(from_bits(0x7fefffffffffffffULL), 1e308));
+        say_de(expf(100.0f)); say_de(powf(10.0f, 40.0f));
+        say_de(exp(-1000.0)); say_de(ldexp(1.0, -1080)); say_de(pow(10.0, -400.0)); say_de(erfc(30.0));
+        say_de(exp(HUGE_VAL)); say_de(log(HUGE_VAL)); say_de(sqrt(NAN)); say_de(pow(NAN, 0.0));
+        """, """
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        7ff8000000000000 33
+        fff0000000000000 34
+        fff0000000000000 34
+        fff0000000000000 34
+        fff0000000000000 34
+        fff0000000000000 34
+        fff0000000000000 34
+        7ff0000000000000 34
+        fff0000000000000 34
+        7ff0000000000000 34
+        fff0000000000000 34
+        7ff0000000000000 34
+        7ff0000000000000 34
+        7ff0000000000000 34
+        fff0000000000000 34
+        7ff0000000000000 34
+        7ff0000000000000 34
+        7ff0000000000000 34
+        fff0000000000000 34
+        7ff0000000000000 34
+        7ff0000000000000 34
+        7ff0000000000000 34
+        7ff0000000000000 34
+        7ff0000000000000 34
+        7ff0000000000000 34
+        0000000000000000 0
+        0000000000000000 0
+        0000000000000000 0
+        0000000000000000 0
+        7ff0000000000000 0
+        7ff0000000000000 0
+        7ff8000000000000 0
+        3ff0000000000000 0
+        """, math_prelude)
+
+@test("C Annex F's special values: signed zeros, the exact answers, and the infinities and NaNs")
+math_annex_f()
+    c_case(raw"""
+        say_d(pow(-1.0, HUGE_VAL)); say_d(pow(-1.0, -HUGE_VAL)); say_d(pow(1.0, NAN)); say_d(pow(NAN, -0.0));
+        say_d(pow(-0.0, 3.0)); say_d(pow(-0.0, 4.0)); say_d(pow(0.0, -HUGE_VAL)); say_d(pow(-HUGE_VAL, -3.0));
+        say_d(pow(0.5, HUGE_VAL)); say_d(pow(2.0, -HUGE_VAL)); say_d(pow(-2.0, 3.0)); say_d(pow(3.0, 4.0));
+        say_d(atan2(0.0, -0.0)); say_d(atan2(-0.0, -0.0)); say_d(atan2(0.0, 0.0)); say_d(atan2(-0.0, 0.0));
+        say_d(atan2(1.0, 0.0)); say_d(atan2(-1.0, -0.0)); say_d(atan2(HUGE_VAL, -HUGE_VAL)); say_d(atan2(-1.0, HUGE_VAL));
+        say_d(hypot(HUGE_VAL, NAN)); say_d(hypot(NAN, -HUGE_VAL)); say_d(hypot(3.0, 4.0));
+        say_d(sqrt(-0.0)); say_d(sqrt(16.0)); say_d(cbrt(-27.0)); say_d(exp(0.0)); say_d(exp2(10.0));
+        say_d(log(1.0)); say_d(log2(1024.0)); say_d(log10(1e15)); say_d(expm1(-0.0)); say_d(log1p(-0.0));
+        say_d(sin(-0.0)); say_d(tan(-0.0)); say_d(cos(0.0)); say_d(asin(-0.0)); say_d(acos(1.0)); say_d(atan(-HUGE_VAL));
+        say_d(sinh(-0.0)); say_d(tanh(-HUGE_VAL)); say_d(asinh(-0.0)); say_d(atanh(-0.0)); say_d(acosh(1.0));
+        say_d(erf(-0.0)); say_d(erf(-HUGE_VAL)); say_d(erfc(-HUGE_VAL)); say_d(tgamma(5.0)); say_d(lgamma(1.0));
+        say_d(lgamma(2.0)); say_d(fmod(-0.0, 1.0)); say_d(fmod(5.5, HUGE_VAL)); say_d(remainder(5.0, 2.0));
+        say_d(fmax(-0.0, 0.0)); say_d(fmin(-0.0, 0.0)); say_d(fmax(NAN, 2.0)); say_d(fdim(1.0, 2.0));
+        say_d(round(-0.5)); say_d(rint(2.5)); say_d(trunc(-0.7)); say_d(ceil(-0.5)); say_d(floor(-0.5));
+        say_d(fma(1.0, 2.0, -2.0)); say_d(fma(2.0, 3.0, 4.0)); say_d(modf(-3.5, &(double){0}));
+        """, """
+        3ff0000000000000
+        3ff0000000000000
+        3ff0000000000000
+        3ff0000000000000
+        8000000000000000
+        0000000000000000
+        7ff0000000000000
+        8000000000000000
+        0000000000000000
+        0000000000000000
+        c020000000000000
+        4054400000000000
+        400921fb54442d18
+        c00921fb54442d18
+        0000000000000000
+        8000000000000000
+        3ff921fb54442d18
+        bff921fb54442d18
+        4002d97c7f3321d2
+        8000000000000000
+        7ff0000000000000
+        7ff0000000000000
+        4014000000000000
+        8000000000000000
+        4010000000000000
+        c008000000000000
+        3ff0000000000000
+        4090000000000000
+        0000000000000000
+        4024000000000000
+        402e000000000000
+        8000000000000000
+        8000000000000000
+        8000000000000000
+        8000000000000000
+        3ff0000000000000
+        8000000000000000
+        0000000000000000
+        bff921fb54442d18
+        8000000000000000
+        bff0000000000000
+        8000000000000000
+        8000000000000000
+        0000000000000000
+        8000000000000000
+        bff0000000000000
+        4000000000000000
+        4038000000000000
+        0000000000000000
+        0000000000000000
+        8000000000000000
+        4016000000000000
+        3ff0000000000000
+        0000000000000000
+        8000000000000000
+        4000000000000000
+        0000000000000000
+        bff0000000000000
+        4000000000000000
+        8000000000000000
+        8000000000000000
+        bff0000000000000
+        0000000000000000
+        4024000000000000
+        bfe0000000000000
+        """, math_prelude)
+
+@test("where long double is a double, each l function is its double counterpart to the bit")
+math_long_double()
+    c_case(raw"""
+        double xs[] = {0.3, -1.7, 2.5, 100.25, 1e-310};
+        int same = 1;
+        for (int i = 0; i < 5; i++) {
+            double x = xs[i];
+            same &= sinl(x) == sin(x) && cosl(x) == cos(x) && tanl(x) == tan(x) && expl(x) == exp(x);
+            same &= exp2l(x) == exp2(x) && expm1l(x) == expm1(x) && atanl(x) == atan(x);
+            same &= sinhl(x) == sinh(x) && coshl(x) == cosh(x) && tanhl(x) == tanh(x) && asinhl(x) == asinh(x);
+            same &= cbrtl(x) == cbrt(x) && erfl(x) == erf(x) && erfcl(x) == erfc(x) && tgammal(x) == tgamma(x);
+            same &= floorl(x) == floor(x) && ceill(x) == ceil(x) && roundl(x) == round(x) && truncl(x) == trunc(x);
+            same &= rintl(x) == rint(x) && nearbyintl(x) == nearbyint(x) && lrintl(x) == lrint(x);
+            same &= llrintl(x) == llrint(x) && lroundl(x) == lround(x) && llroundl(x) == llround(x);
+            same &= powl(x, 1.5) == pow(fabs(x), 1.5) || x < 0;
+            same &= atan2l(x, 0.5) == atan2(x, 0.5) && hypotl(x, 2.0) == hypot(x, 2.0) && fmodl(x, 0.7) == fmod(x, 0.7);
+            same &= remainderl(x, 0.7) == remainder(x, 0.7) && copysignl(x, -1.0) == copysign(x, -1.0);
+            same &= fdiml(x, 1.0) == fdim(x, 1.0) && fmaxl(x, 1.0) == fmax(x, 1.0) && fminl(x, 1.0) == fmin(x, 1.0);
+            same &= fmal(x, 3.0, 1.0) == fma(x, 3.0, 1.0) && fabsl(x) == fabs(x) && nextafterl(x, 0.0) == nextafter(x, 0.0);
+            same &= nexttowardl(x, 0.0L) == nextafter(x, 0.0) && ldexpl(x, 3) == ldexp(x, 3) && scalbnl(x, -2) == scalbn(x, -2);
+            same &= scalblnl(x, 5L) == scalbln(x, 5L) && logbl(x) == logb(x) && ilogbl(x) == ilogb(x);
+            same &= erfl(x) == erf(x) && lgammal(x) == lgamma(x);
+            if (x > 0) same &= logl(x) == log(x) && log2l(x) == log2(x) && log10l(x) == log10(x) && sqrtl(x) == sqrt(x);
+            if (x > -1) same &= log1pl(x) == log1p(x);
+            if (x >= -1 && x <= 1) same &= asinl(x) == asin(x) && acosl(x) == acos(x) && atanhl(x) == atanh(x);
+            if (x >= 1) same &= acoshl(x) == acosh(x);
+            int e1 = 0, e2 = 0, q1 = 0, q2 = 0;
+            long double ip1 = 0; double ip2 = 0;
+            same &= frexpl(x, &e1) == frexp(x, &e2) && e1 == e2;
+            same &= modfl(x, &ip1) == modf(x, &ip2) && ip1 == ip2;
+            same &= remquol(x, 0.7, &q1) == remquo(x, 0.7, &q2) && q1 == q2;
+        }
+        say_int(same);
+        say_int(isnan(nanl("")) != 0);
+        """, """
+        1
+        1
+        """, math_prelude)
+
+// The math functions by shape, every one with a float form `f` and, where long double is a double,
+// an `l` form.
+private val unary_names: [34]string = ["acos", "asin", "atan", "cos", "sin", "tan", "acosh", "asinh",
+    "atanh", "cosh", "sinh", "tanh", "exp", "exp2", "expm1", "log", "log10", "log1p", "log2", "logb",
+    "cbrt", "fabs", "sqrt", "erf", "erfc", "lgamma", "tgamma", "ceil", "floor", "nearbyint", "rint",
+    "round", "trunc", "nan"]
+private val binary_names: [11]string = ["atan2", "hypot", "pow", "fmod", "remainder", "copysign",
+    "nextafter", "nexttoward", "fdim", "fmax", "fmin"]
+private val integer_names: [5]string = ["ilogb", "lrint", "llrint", "lround", "llround"]
+private val other_names: [7]string = ["fma", "frexp", "ldexp", "scalbn", "scalbln", "modf", "remquo"]
+
+// Every name a C library's libm would define, in each form.
+private libm_names() -> Buf[string]
+    var all: Buf[string] = buf()
+    for list in [unary_names[..], binary_names[..], integer_names[..], other_names[..]]
+        for n in list
+            all.push(n)
+            all.push(n + "f")
+            all.push(n + "l")
+    all
+
+private check_no_libm(listing: string, prefix: string)
+    val names = libm_names()
+    for line in split(listing, "\n")
+        val sym = line.trim()
+        for n in names.view()
+            if sym == prefix + n then panic(f"the archive calls '$sym' undefined:\n$listing")
+
+// A sysl function that calls every math function in all three forms, so that a bare-metal archive
+// built from it holds the code of each: an archive keeps only what something reaches.
+private probe_source() -> string
+    var s = "module sh.sysl.bare\n\nimport sh.sysl.cstd.*\n\n@export(\"bare_probe\")\n"
+    s += "bare_probe(x: real, y: real, z: real, f: f32, g: f32, h: f32) -> real\n"
+    s += "    var r = 0.0\n    var e: i32 = 0\n    var ip = 0.0\n    var fp: f32 = 0.0\n"
+    for n in unary_names
+        if n == "nan"
+            s += "    r += nan(null) + real(nanf(null)) + nanl(null)\n"
+        else
+            s += f"    r += $n(x) + real(${n}f(f)) + ${n}l(x)\n"
+    for n in binary_names
+        if n == "nexttoward"
+            s += "    r += nexttoward(x, y) + real(nexttowardf(f, y)) + nexttowardl(x, y)\n"
+        else
+            s += f"    r += $n(x, y) + real(${n}f(f, g)) + ${n}l(x, y)\n"
+    for n in integer_names
+        s += f"    r += real($n(x)) + real(${n}f(f)) + real(${n}l(x))\n"
+    s += "    r += fma(x, y, z) + real(fmaf(f, g, h)) + fmal(x, y, z)\n"
+    s += "    r += frexp(x, &e) + real(frexpf(f, &e)) + frexpl(x, &e)\n"
+    s += "    r += ldexp(x, 3) + real(ldexpf(f, 3)) + ldexpl(x, 3)\n"
+    s += "    r += scalbn(x, 3) + real(scalbnf(f, 3)) + scalbnl(x, 3)\n"
+    s += "    r += scalbln(x, Long(3)) + real(scalblnf(f, Long(3))) + scalblnl(x, Long(3))\n"
+    s += "    r += modf(x, &ip) + real(modff(f, &fp)) + modfl(x, &ip)\n"
+    s += "    r += remquo(x, y, &e) + real(remquof(f, g, &e)) + remquol(x, y, &e)\n"
+    s += "    r\n"
+    s
+
+// Every function cstd exports is computed by cstd: none of the math reaches a C library, so the
+// archive links on a board with no libm and its `sin` does not call itself through one. On the host
+// that is the archive the suite builds; on a 32-bit Arm board -- where LLVM would lower a double
+// square root or floor to a call -- it is a small project depending on cstd whose one function calls
+// all of them; on AArch64 it is cstd's own Linux C runtime, `linux/`, which keeps every export.
+@test("the archive's math calls no libm symbol, on the host and on the bare-metal targets")
+math_needs_no_libm()
+    val host = capture("nm", ["-u", archive()]).unwrap()
+    assert(host.status.ok())
+    check_no_libm(host.text, "_")
+    val defined = capture("nm", ["-gU", archive()]).unwrap()
+    for n in unary_names do assert(defined.text.contains(f" _$n\n") && defined.text.contains(f" _${n}f\n"))
+
+    val root = current_dir().unwrap()
+    val tmp = make_temp_dir("cstd-bare").unwrap()
+    make_dir_all(f"$tmp/sh/sysl/bare").unwrap()
+    write_text(f"$tmp/package.hocon", "package {\n  name = \"bare\"\n  version = \"0.1.0\"\n}\n\n" +
+        f"dependencies {\n  cstd { path = \"$root\" }\n}\n").unwrap()
+    write_text(f"$tmp/sh/sysl/bare/bare.sysl", probe_source()).unwrap()
+    val thumb = capture(compiler(), ["build-c", tmp, "--target", "thumb-freestanding-softfp",
+        "-o", f"$tmp/bare.a"], stderr = true).unwrap()
+    if !thumb.status.ok() then panic(f"build-c for thumb failed:\n${thumb.err.unwrap_or("")}")
+    val thumb_defined = capture("nm", ["-g", f"$tmp/bare.a"]).unwrap()
+    assert(thumb_defined.text.contains(" T sin\n") && thumb_defined.text.contains(" T sqrt\n"))
+    check_no_libm(capture("nm", ["-u", f"$tmp/bare.a"]).unwrap().text, "")
+
+    val a64 = capture(compiler(), ["build-c", "linux", "--target", "aarch64-freestanding",
+        "-o", f"$tmp/linux.a"], stderr = true).unwrap()
+    if !a64.status.ok() then panic(f"build-c of linux failed:\n${a64.err.unwrap_or("")}")
+    val a64_defined = capture("nm", ["-g", f"$tmp/linux.a"]).unwrap()
+    assert(a64_defined.text.contains(" T sin\n") && a64_defined.text.contains(" T tgammaf\n"))
+    check_no_libm(capture("nm", ["-u", f"$tmp/linux.a"]).unwrap().text, "")
+    remove_dir_all(tmp).unwrap()
+end math_needs_no_libm

@@ -1,0 +1,66 @@
+module sh.sysl.cstd
+
+// `<math.h>`: what every file of the mathematics shares.
+//
+// **The algorithms are musl's** (1.2.6, MIT), and through musl FreeBSD's msun (Sun's fdlibm, BSD)
+// and Arm's optimized-routines (MIT). Each function keeps the shape of the C it was ported from, its
+// constants and its case analysis in the same order, so that a reader can lay the two side by side;
+// each file says which musl sources it follows. What changed is the language: a C union read as an
+// integer is `.bits()`, a hexadecimal float constant is written as the decimal that reads back to
+// the same double with its bits beside it, and `FORCE_EVAL`, which exists only to raise exception
+// flags, is dropped, since cstd reports errors through `errno` alone.
+//
+// **Errors are `errno`'s.** `math_errhandling` is `MATH_ERRNO`. A domain error sets `EDOM` and
+// answers NaN; a pole error or an overflow sets `ERANGE` and answers an infinity of the right sign.
+// An underflow answers the subnormal or zero result and leaves `errno` alone: POSIX says a range
+// error *may* occur there, and every caller that cares about a tiny result can see it in the value.
+// A NaN argument is never an error: it comes back out quietly.
+//
+// **Rounding is to nearest.** The functions assume the default rounding mode, as the routines they
+// come from do; `rint` and its family round to nearest even.
+//
+// No function here calls a C library: what would be `floor` or `sqrt` from inside one of these is the
+// sysl function of that name, so the archive needs no libm and links on a bare board.
+
+// The two 32-bit halves of a double, which is how fdlibm's case analysis reads one.
+private[cstd] hi_word(x: real) -> u32 = u32(x.bits() >> 32)
+private[cstd] lo_word(x: real) -> u32 = u32(x.bits())
+private[cstd] from_words(hi: u32, lo: u32) -> real = real.from_bits(u64(hi) << 32 | u64(lo))
+private[cstd] with_lo_word(x: real, lo: u32) -> real = from_words(hi_word(x), lo)
+private[cstd] with_hi_word(x: real, hi: u32) -> real = from_words(hi, lo_word(x))
+
+// The answers to the errors, as musl's `__math_invalid`, `__math_divzero` and `__math_oflow` give
+// them, with `errno` set where musl raises a flag.
+
+// A domain error: NaN, and `EDOM` unless `x` was a NaN already.
+private[cstd] domain_error(x: real) -> real
+    if x == x then errno = EDOM
+    (x - x) / (x - x)
+
+// A pole: an infinity, negative when `negative`, and `ERANGE`.
+private[cstd] pole_error(negative: bool) -> real
+    errno = ERANGE
+    if negative then -real.infinity else real.infinity
+
+// An overflow: as a pole, an infinity and `ERANGE`.
+private[cstd] overflow(negative: bool) -> real = pole_error(negative)
+
+// An underflow to zero: a zero of the right sign, and no error.
+private[cstd] underflow(negative: bool) -> real = if negative then -0.0 else 0.0
+
+// A result that came out infinite from finite arguments overflowed, and says so.
+private[cstd] checked_overflow(r: real) -> real
+    if r == real.infinity || r == -real.infinity then errno = ERANGE
+    r
+
+// The `float` functions that compute in double round once at the end. Narrowing can overflow where
+// the double did not, and that is an overflow of the float function.
+private[cstd] narrow(r: real) -> f32
+    val f = f32(r)
+    if (f == f32.infinity || f == -f32.infinity) && r == r && r != real.infinity && r != -real.infinity
+        errno = ERANGE
+    f
+
+private[cstd] is_nan(x: real) -> bool = x != x
+private[cstd] is_nan_f(x: f32) -> bool = x != x
+private[cstd] sign_bit(x: real) -> bool = x.bits() >> 63 != 0
