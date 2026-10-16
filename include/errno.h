@@ -1,4 +1,5 @@
-/* <errno.h> from sh.sysl.cstd. errno is one global object, defined by the library. The numbers are
+/* <errno.h> from sh.sysl.cstd. errno is the calling thread's, reached through __errno_location as in
+ * glibc and musl; on a board, which has no thread-local storage, there is one. The numbers are
  * Linux's, since cstd's system calls are Linux's and answer these. */
 #ifndef CSTD_ERRNO_H
 #define CSTD_ERRNO_H
@@ -7,7 +8,8 @@
 extern "C" {
 #endif
 
-extern int errno;
+int *__errno_location(void);
+#define errno (*__errno_location())
 
 #define EPERM 1
 #define ENOENT 2

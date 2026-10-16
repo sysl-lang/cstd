@@ -26,3 +26,7 @@ targets {
     entry = "_start"
   }
 }
+
+codegen {
+  thread_pointer = "tpidr_el0"
+}

@@ -139,3 +139,52 @@ from its address.
 
 **Fixed in sysl 0.1.3.** `tzname` is `var tzname: [2]*u8 = [c"UTC", c"UTC"]` in `time.sysl`, and
 `time_tests.sysl` reads it from C.
+
+## 5. A library cannot make a variable thread-local only where the build has thread-local storage (gap)
+
+Found making `errno` per-thread (sysl 0.1.3). POSIX's `errno` is a macro over a thread-local lvalue,
+and cstd serves three kinds of build from one `errno.sysl`:
+
+- a hosted target, which has thread-local storage;
+- the Linux half, built for `aarch64-freestanding` with `codegen { thread_pointer = "tpidr_el0" }` in
+  its own manifest, which has it too (keel and Linux both give each thread its own `tpidr_el0`);
+- a board, or `aarch64-freestanding` with no thread pointer named (keel's kernel, any bare AArch64
+  program taking cstd as its libc), which has none.
+
+The variable has to be `@thread_local` in the first two and plain in the third. `#if` cannot say so:
+its symbols are derived from the target alone, and on `aarch64-freestanding` thread-local storage is a
+manifest fact. The closest spelling,
+
+    #if hosted || aarch64
+    @thread_local
+    #endif
+    var errno: i32 = 0
+
+builds the Linux half (`errno` lands in `.tbss`, and `__errno_location` is `mrs x8, TPIDR_EL0; add;
+ret`), and refuses the portable package on its own:
+
+    $ sysl build-lib . --target aarch64-freestanding
+    error: 'sh.sysl.cstd.errno' cannot be '@thread_local' on 'aarch64-freestanding' until the program
+    says which register holds the thread pointer: [...] Name the register in package.hocon as
+    'codegen { thread_pointer = "tpidr_el1" }' [...] or declare it as a plain module 'var' and let the
+    scheduler answer for which thread is running
+
+`#if hosted` alone builds everywhere and leaves the Linux half, the one keel's busybox will link, with a
+single `errno` across threads.
+
+What should happen, one of:
+
+- an `#if` symbol for it (`thread_local`, or `tls`): true on a hosted target, and on
+  `aarch64-freestanding` when the build's root manifest names a `thread_pointer`. That makes one symbol
+  depend on the manifest, which `attributes.md § the symbols are derived from the target` rules out
+  today, though the refusal above already depends on it;
+- or a form of the attribute that is a plain module `var` where the build has no thread-local storage
+  (`@thread_local(where_available)`), which is what a C library's `errno` wants on every target.
+
+The workarounds not taken: the Linux half defining its own `errno` and `__errno_location` (two
+variables, and every function in the portable half setting the wrong one); a manifest feature the
+consumer has to remember to turn on (the silent loss finding 3 describes); naming a thread pointer in
+the portable package's own manifest, which would make every bare AArch64 consumer give up a register.
+
+**Status: reported to sysl; held.** Branch `errno` carries `__errno_location`, the macro, the probe
+spelling above and the Linux half's `thread_pointer`, and is not merged.
