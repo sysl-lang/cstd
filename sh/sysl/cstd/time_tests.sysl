@@ -222,6 +222,14 @@ localtime_is_utc()
         2024-03-05 14:07:09 wday=2 yday=64 isdst=0 gmtoff=0 zone=UTC
         """, shows)
 
+@test("tzname names UTC for standard and summer time, before and after tzset")
+tzname_is_utc()
+    c_case(raw"""
+        out("%s %s\n", tzname[0], tzname[1]);
+        tzset();
+        out("%s %s\n", tzname[0], tzname[1]);
+        """, "UTC UTC\nUTC UTC\n", shows)
+
 @test("difftime subtracts in double, without overflow where the signs differ")
 difftime_cases()
     c_case(raw"""

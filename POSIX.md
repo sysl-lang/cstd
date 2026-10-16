@@ -750,6 +750,7 @@ Declares no functions. Of the types the page requires, cstd defines `ssize_t`, `
 | timer_settime | CX | done (linux) | | linux |
 | timespec_get | | done (core) | | core |
 | tzset | CX | done (core) | | core |
+| tzname (variable) | CX | done (core) | | core |
 
 There is no time-zone database, so local time is UTC: `localtime`, `localtime_r`, `mktime` and `tzset`
 need no `TZ` and sit in the core (`time.sysl`). `time`, `clock` and `timespec_get` are in the core too,
@@ -760,8 +761,7 @@ POSIX.1-2024's `tm_gmtoff` and `tm_zone`), `struct timespec`, `struct itimerspec
 `int`), `locale_t` under the shared guard, `CLOCKS_PER_SEC`, `TIME_UTC`, `TIMER_ABSTIME` and the `CLOCK_`
 names, and declares `timegm`, which POSIX.1-2024 does not list (ISO C23 does; minmea calls it).
 
-Missing: the variable `tzname` ([CX]). A sysl bug refuses its initializer (FINDINGS.md 4), so `time.h`
-does not declare it. `struct sigevent` is declared incomplete, as `<signal.h>` does not define it yet;
+`tzname` names UTC twice. `struct sigevent` is declared incomplete, as `<signal.h>` does not define it yet;
 `timer_create` hands it to the kernel unread. `daylight` and `timezone` are [XSI].
 
 Out of scope:

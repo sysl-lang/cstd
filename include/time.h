@@ -75,6 +75,7 @@ size_t strftime_l(char *restrict s, size_t max, const char *restrict fmt, const 
 time_t time(time_t *t);
 int timespec_get(struct timespec *ts, int base);
 void tzset(void);
+extern char *tzname[2];
 
 int clock_getres(clockid_t clock, struct timespec *res);
 int clock_gettime(clockid_t clock, struct timespec *ts);

@@ -31,17 +31,6 @@ run_atexit_handlers()
 
 #if freestanding
 
-// The processor's undefined instruction, which faults; where a machine has none, it spins.
-private machine_trap() -> never
-    loop
-        asm
-            [thumb]            "udf #0"
-            [aarch64]          "udf #0"
-            [riscv32, riscv64] "unimp"
-            [x86_64]           "ud2"
-            [craft]
-            [wasm32]
-
 @export("atexit", weak)
 board_atexit(f: *extern() -> unit) -> i32 = atexit_register(f)
 
@@ -52,14 +41,15 @@ board_exit(status: i32) -> never
     run_atexit_handlers()
     c_Exit(status)
 
-// A trap rather than a spin: a debugger stops on it, and a board's fault handler sees it.
+// sysl's `trap`, the processor's trap instruction: a debugger stops on it, and a board's fault
+// handler sees it, where a spin would report nothing.
 @export("_Exit", weak)
-board_Exit(status: i32) -> never = machine_trap()
+board_Exit(status: i32) -> never = trap()
 
 @export("_exit", weak)
-board_exit_now(status: i32) -> never = machine_trap()
+board_exit_now(status: i32) -> never = trap()
 
 @export("abort", weak)
-board_abort() -> never = machine_trap()
+board_abort() -> never = trap()
 
 #endif

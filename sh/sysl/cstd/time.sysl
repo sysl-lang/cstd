@@ -146,6 +146,10 @@ mktime(tm: *Tm) -> Long = timegm(tm)
 tzset()
     return
 
+// The names of standard time and of summer time, which are both UTC.
+@export("tzname")
+var tzname: [2]*u8 = [c"UTC", c"UTC"]
+
 // Two `time_t` of one sign cannot overflow their difference; of opposite signs the difference may
 // not fit, and is taken in `double`.
 @export("difftime")

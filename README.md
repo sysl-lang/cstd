@@ -101,8 +101,8 @@ require, exported under its C name with `@export`.
 
 - **There is no time-zone database: local time is UTC.** `localtime` is `gmtime`, `mktime` is
   `timegm`, `tzset` reads no `TZ`, and every `struct tm` cstd fills has `tm_isdst` 0, `tm_gmtoff` 0
-  and `tm_zone` `"UTC"`. `mktime` ignores the `tm_isdst` it is given. `tzname` is missing
-  (FINDINGS.md 4); `daylight` and `timezone` are XSI and not offered.
+  and `tm_zone` `"UTC"`. `mktime` ignores the `tm_isdst` it is given. `tzname` is `{"UTC", "UTC"}`;
+  `daylight` and `timezone` are XSI and not offered.
 - **The calendar is proleptic Gregorian over every `time_t`**, in 64-bit integers with no table (Howard
   Hinnant's `days_from_civil`), so year 1, negative years and years far past 9999 are exact. A time
   whose year `tm_year` cannot hold makes `gmtime` answer null and `mktime`/`timegm` answer -1, with
@@ -243,7 +243,7 @@ runtime reaches `malloc`, `free` and `abort` for any sysl code that allocates or
 |---|---|
 | `malloc` `calloc` `realloc` `free` | the same `Heap` as the Linux half, growing through `sbrk` (`malloc.sysl`). With cstd's own `sbrk` every allocation is null with `ENOMEM`; a board that defines `sbrk` over its heap region has a working allocator with nothing else written. The heap grows 4 KiB at a time where the region has room, and by exactly what it needs where it does not |
 | `atexit` `exit` | the Linux half's 32-slot table, which lives in the core and serves both (`exit.sysl`); `exit` runs the handlers last first and then calls `_Exit` |
-| `_Exit` `_exit` `abort` | trap: the processor's undefined instruction (`udf` on Arm), so a debugger stops there and the board's fault handler sees it, rather than a spin nothing reports. A board that can end a run — semihosting, a reset — defines `_Exit` and `_exit`, and `exit` ends through them |
+| `_Exit` `_exit` `abort` | trap: sysl's `trap()`, the processor's trap instruction (`udf #254` on Arm, `unimp` on RISC-V), so a debugger stops there and the board's fault handler sees it, rather than a spin nothing reports. A board that can end a run — semihosting, a reset — defines `_Exit` and `_exit`, and `exit` ends through them |
 
 The four allocation functions are one allocator: a board with its own replaces all four, since cstd's
 `realloc` and `free` only understand blocks cstd's `malloc` handed out.

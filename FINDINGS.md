@@ -135,5 +135,7 @@ relocation, like the `&files[1]` the same section accepts. The address of module
 What should happen: `c"…"` is constant data, laid down as a pointer to the literal's bytes.
 
 The workaround not taken: the name spelled as a byte array (`[85, 84, 67, 0]`) and `tzname` built
-from its address. `tzname` is left out of cstd, and `time.h` does not declare it, until this is
-fixed.
+from its address.
+
+**Fixed in sysl 0.1.3.** `tzname` is `var tzname: [2]*u8 = [c"UTC", c"UTC"]` in `time.sysl`, and
+`time_tests.sysl` reads it from C.

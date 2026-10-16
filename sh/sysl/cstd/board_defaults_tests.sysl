@@ -7,6 +7,10 @@ module sh.sysl.cstd
 // `sbrk`, ENOMEM where it does not, `atexit` handlers run last first by `exit`, and sysl code that
 // allocates linking to a whole image with nothing else supplied.
 
+import sysl.process.capture
+import sysl.testing.skip
+import sysl.text.Search
+
 // Every function the two files default.
 private val board_defaults: []string = ["malloc", "calloc", "realloc", "free", "abort", "exit", "_Exit",
                                         "_exit", "atexit"]
@@ -23,6 +27,26 @@ board_defaults_are_weak()
     val kinds = global_symbols("tests/qemu/archive", "thumbv7em-freestanding", "cstd")
     for n in board_defaults
         if !kinds.contains(f"\nW $n\n") then panic(f"$n is not a weak definition on thumbv7em:$kinds")
+
+// Homebrew's LLVM, whose objdump knows RISC-V as well as Arm (Xcode's knows only Arm and x86).
+private val llvm_objdump: string = "/opt/homebrew/opt/llvm/bin/llvm-objdump"
+
+// The disassembly of `abort` in cstd's archive for `target`.
+private abort_disassembly(target: string) -> string
+    if absent(llvm_objdump) then skip(f"$llvm_objdump is not on this machine")
+    val _ = global_symbols("tests/qemu/archive", target, "cstd")
+    val lib = f".sysl/stubs-tests/cstd-$target/libcstd.a"
+    val listed = capture(llvm_objdump, ["-d", "--disassemble-symbols=abort", lib], stderr = true).unwrap()
+    assert(listed.status.ok(), listed.err.unwrap_or(""))
+    listed.text
+
+@test("on thumbv7em and riscv32 abort is the processor's trap instruction")
+abort_traps()
+    val thumb = abort_disassembly("thumbv7em-freestanding")
+    // 0xdefe is `udf #254`, which LLVM's objdump prints as `trap`.
+    assert(thumb.contains("defe"), thumb)
+    val riscv = abort_disassembly("riscv32-freestanding")
+    assert(riscv.contains("unimp"), riscv)
 
 @test("cstd's Linux half defines the allocator and the exits strongly, with no weak copy beside them")
 linux_half_replaces_board_defaults()
