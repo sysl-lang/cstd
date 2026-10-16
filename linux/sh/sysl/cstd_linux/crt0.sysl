@@ -1,5 +1,7 @@
 module sh.sysl.cstd_linux
 
+import sysl.threads.{tls_place, tls_room}
+
 // Where a C program starts. Linux hands a new program its stack pointer at the argument block —
 // the count, the argument pointers and a null, the environment pointers and a null, then the
 // auxiliary vector — with every other register undefined. `_start` is the few instructions sysl
@@ -25,15 +27,31 @@ extern "main" program_main(argc: int, argv: **u8, envp: **u8) -> int
 // Fills the module storage this archive computes at run time, before anything reads it.
 extern "sysl_init_modules" init_modules()
 
+// The first thread's block of thread-local storage (`errno` is in it), where the program's template
+// fits; a larger one is taken from the break.
+private var first_block: [512]u8
+
+// Lays the first thread's block and points `tpidr_el0` at it, which a loader would have done: Linux
+// hands a static program the register at zero, and nothing thread-local can be read until it is set.
+// Every thread `sysl.threads.spawn` starts gets its block from the library.
+private lay_first_thread()
+    val need = tls_room()
+    val room = if need <= first_block.len then first_block[..] else sbrk(isize(need))[0..<need]
+    val tp = tls_place(room) match
+        Some(p) -> p
+        None -> trap()
+    write_sysreg("tpidr_el0", u64(usize(tp)))
+
 // The environment, as C keeps it: the zero-ended vector of `NAME=value` strings the kernel laid on
 // the stack. It is null until `cstd_start` points it there.
 @export("environ")
 var environ: **u8 = null
 
-// The argument block read, the storage filled, the program run, and what it answered handed to
+// The first thread's storage laid, the argument block read, the module storage filled, the program run, and what it answered handed to
 // `exit`, which runs the `atexit` handlers before the process ends.
 @export("cstd_start")
 cstd_start(block: *u64) -> never
+    lay_first_thread()
     init_modules()
     val argc = int(block[0])
     val argv: **u8 = ptr_cast(&block[1])
