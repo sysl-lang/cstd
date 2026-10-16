@@ -1,19 +1,13 @@
 module sh.sysl.cstd_linux
 
-// `malloc` and its family over `brk`: the portable half's `Heap` does the bookkeeping, and this file
-// moves the break when the heap needs more memory. One heap for the whole process, and no lock
-// around it — two threads allocating at once would corrupt it; `pthread` support has to add one.
+// `brk`, `sbrk`, and `malloc` and its family over them: the portable half's `BreakHeap` is the
+// allocator, and this file gives it the kernel's break. One heap for the whole process, and no lock
+// around it; `pthread` support has to add one.
 
-import sh.sysl.cstd.{ENOMEM, HEAP_ALIGN, Heap, errno, memcpy, memset}
-
-private var heap: Heap = Heap(0, 0, 0)
+import sh.sysl.cstd.{BreakHeap, ENOMEM, Heap, errno}
 
 // The break as the kernel last answered it; 0 until the first `brk`/`sbrk`.
 private var current_break: usize = 0
-
-// How much the break moves at least each time the heap grows, so a run of small requests is not a
-// system call each.
-private const GROW_STEP: usize = 64 * 1024
 
 // Linux's `brk` answers the new break, or the old one where it could not move.
 private kernel_brk(to: usize) -> usize = usize(call(SYS_BRK, u64(to)))
@@ -40,58 +34,18 @@ sbrk(by: isize) -> *u8
         return ptr_cast(usize::Max)
     ptr_cast(old)
 
-private round(n: usize, to: usize) -> usize = (n + to - 1) & ~(to - 1)
-
-// Moves the break so the heap has `more` bytes past its top, rounded up to `GROW_STEP`. The first
-// growth also aligns the heap's start to 16 bytes, since the break the kernel starts with need not
-// be. False when the kernel refused, and when the program has moved the break itself since the heap
-// last grew: the heap is one run of memory ending at the break, and the bytes between its top and
-// the break are the program's.
-private grow_heap(more: usize) -> bool
-    if current_break == 0 then current_break = kernel_brk(0)
-    if heap.top != 0 && heap.top != current_break then return false
-    val from = if heap.top == 0 then round(current_break, HEAP_ALIGN) else heap.top
-    if more > usize::Max - from - GROW_STEP then return false
-    val to = round(from + more, GROW_STEP)
-    if kernel_brk(to) != to then return false
-    current_break = to
-    heap.grow(from, to)
-    true
+// The break moves at least 64 KiB each time the heap grows, so a run of small requests is not a
+// system call each.
+private var heap: BreakHeap = BreakHeap(Heap(0, 0, 0), 64 * 1024)
 
 @export("malloc")
-malloc(n: usize) -> *u8
-    loop
-        val p = heap.alloc(n)
-        if p != null then return p
-        val more = heap.shortfall(n)
-        if more == 0 || !grow_heap(more)
-            errno = ENOMEM
-            return null
+malloc(n: usize) -> *u8 = heap.malloc(n)
 
 @export("free")
-free(p: *u8) = heap.release(p)
+free(p: *u8) = heap.free(p)
 
 @export("calloc")
-calloc(count: usize, size: usize) -> *u8
-    if size != 0 && count > usize::Max / size
-        errno = ENOMEM
-        return null
-    val n = count * size
-    val p = malloc(n)
-    if p != null then memset(p, 0, n)
-    p
+calloc(count: usize, size: usize) -> *u8 = heap.calloc(count, size)
 
-// In place when the block can be cut or can take its free neighbour, or is the last before the
-// break and the break can move; otherwise a new block, the bytes copied, the old one freed.
 @export("realloc")
-realloc(p: *u8, n: usize) -> *u8
-    if p == null then return malloc(n)
-    if heap.resize(p, n) then return p
-    val more = heap.resize_shortfall(p, n)
-    if more != 0 && grow_heap(more) && heap.resize(p, n) then return p
-    val q = malloc(n)
-    if q == null then return null
-    val keep = heap.usable(p)
-    memcpy(q, p, if keep < n then keep else n)
-    heap.release(p)
-    q
+realloc(p: *u8, n: usize) -> *u8 = heap.realloc(p, n)

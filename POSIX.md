@@ -528,7 +528,7 @@ Out of scope:
 
 `malloc`, `calloc`, `realloc`, `free`, `atexit`, `exit`, `_Exit` and `abort` are the Linux half's; on
 any other bare-metal target the core gives each a weak default a board replaces (`malloc.sysl`,
-`exit.sysl`): the allocator over `sbrk`, `exit` running the `atexit` table (one table, the core's, for
+`exit.sysl`): the allocator over `sbrk` (`BreakHeap`, the same code the Linux half exports strongly over its own `sbrk`), `exit` running the `atexit` table (one table, the core's, for
 both halves) and then `_Exit`, and `_Exit` and `abort` trapping.
 
 | function | codes | status | needs | half |

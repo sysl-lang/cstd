@@ -183,8 +183,10 @@ own `write` and `malloc`, which these would replace.
 Each call is one `svc #0` (x8 the number, x0–x5 the arguments); an answer from -4095 to -1 sets
 `errno` and answers -1. `errno`'s numbers are Linux's.
 
-`malloc` is `sh.sysl.cstd`'s `Heap` (`heap.sysl`, tested on the host with an array standing in for
-the break) over `brk`: first fit from an address-ordered free list, freed neighbours merged at once,
+`malloc` is `sh.sysl.cstd`'s `BreakHeap` (`malloc.sysl`), the same allocator a board's defaults
+are, over this half's `sbrk`; its bookkeeping is `Heap` (`heap.sysl`, tested on the host with an
+array standing in for the break). The break moves 64 KiB at a time where the kernel allows it, and
+by exactly what is needed where it does not. First fit from an address-ordered free list, freed neighbours merged at once,
 16-byte aligned payloads, `realloc` in place where the block can be cut, can take its free
 neighbour, or is the last before the break. **It is not thread-safe**: one heap, no lock, until
 pthreads arrive. A program that moves the break itself after its first `malloc` gets `ENOMEM` from
