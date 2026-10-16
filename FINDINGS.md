@@ -108,3 +108,32 @@ s16–s31.
 false on every target and usable in `#if` inside an `asm` arm. The thumb arm saves s16–s31 under
 `#if fpu`, the header's `#error` is gone, and the Cortex-M4F QEMU case in `setjmp_tests.sysl` is the
 regression test.
+
+## 4. A `c"…"` literal is refused as an exported object's initializer, though the reference calls it constant data (bug)
+
+Found writing `<time.h>` (sysl 0.1.2). POSIX's `extern char *tzname[]` is exported C data whose two
+pointers name static text, which in sysl is `c"…"`:
+
+    module sh.sysl.probe
+
+    @export("p")
+    var p: *u8 = c"UTC"
+
+    $ sysl build-c . -o p.a
+    error: 'sh.sysl.probe.p' is exported, so C may read it before anything of this program has run —
+    an exported object starts at the value the object file carries, and this initializer is code that
+    runs before the program's statements. Make it constant data — a literal, a 'const', the address of
+    other module storage, and the arrays and structs built from those — or leave the value off to
+    start it at its type's zero and fill it from a function C calls first
+
+`val p: *u8 = c"UTC"` and `var tzname: [2]*u8 = [c"UTC", c"UTC"]` are refused the same way.
+`reference/ffi.md § What constant data is` names a literal as constant data, and
+`reference/strings.md` says `c"…"` is the address of a string literal already in read-only data: a
+relocation, like the `&files[1]` the same section accepts. The address of module storage is accepted
+(`[&name[0], &name[0]]` over a `[4]u8` builds).
+
+What should happen: `c"…"` is constant data, laid down as a pointer to the literal's bytes.
+
+The workaround not taken: the name spelled as a byte array (`[85, 84, 67, 0]`) and `tzname` built
+from its address. `tzname` is left out of cstd, and `time.h` does not declare it, until this is
+fixed.

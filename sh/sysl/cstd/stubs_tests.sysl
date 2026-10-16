@@ -15,7 +15,9 @@ import sysl.text.{Search, split}
 // Every call `stubs.sysl` defaults.
 private val defaulted: []string = ["read", "write", "close", "lseek", "open", "openat", "getpid", "getppid",
                                    "dup", "dup2", "pipe", "unlink", "rmdir", "mkdir", "chdir", "getcwd", "fstat",
-                                   "stat", "kill", "sigprocmask", "nanosleep", "clock_gettime", "brk", "sbrk"]
+                                   "stat", "kill", "sigprocmask", "nanosleep", "clock_gettime", "clock_getres",
+                                   "clock_settime", "clock_nanosleep", "timer_create", "timer_delete",
+                                   "timer_getoverrun", "timer_gettime", "timer_settime", "brk", "sbrk"]
 
 // The global symbols `nm` lists for `project` built for `target`, each as "<kind> <name>" on a line.
 private global_symbols(project: string, target: string, name: string) -> string

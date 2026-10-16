@@ -29,6 +29,7 @@ require, exported under its C name with `@export`.
 | `errno.h` | `errno` (one global, defined by the library), Linux's codes from `EPERM` to `ETIMEDOUT` |
 | `stdio.h` | `printf` `dprintf` `sprintf` `snprintf` `vprintf` `vdprintf` `vsprintf` `vsnprintf` |
 | `setjmp.h` | `setjmp` `longjmp` `sigsetjmp` `siglongjmp` |
+| `time.h` | `gmtime` `gmtime_r` `localtime` `localtime_r` `mktime` `timegm` `difftime` `strftime` `strftime_l` `tzset`, and on a freestanding target `time` `clock` `timespec_get` over `clock_gettime`; `struct tm` (with `tm_gmtoff`, `tm_zone`), `struct itimerspec`, `clock_t`, `timer_t`, `CLOCKS_PER_SEC`, `TIME_UTC`, `TIMER_ABSTIME` |
 | `math.h` | all 57 functions of POSIX.1-2024 in `double` and `float`, and in `long double` where it is a `double`; the classification and comparison macros, `HUGE_VAL`, `INFINITY`, `NAN`, the `FP_` and `MATH_` constants and `M_PI` and friends |
 
 - **`setjmp` is assembly per processor** (`sh/sysl/cstd/setjmp.sysl`): aarch64 (x19–x30, sp,
@@ -95,6 +96,28 @@ require, exported under its C name with `@export`.
   words for each signal `signal.h` defines and `Unknown signal` for any other number.
 - Text with no number in it, or a base C does not define, sets `EINVAL`, as the BSD libcs do. C
   leaves that case unspecified.
+
+### `<time.h>`
+
+- **There is no time-zone database: local time is UTC.** `localtime` is `gmtime`, `mktime` is
+  `timegm`, `tzset` reads no `TZ`, and every `struct tm` cstd fills has `tm_isdst` 0, `tm_gmtoff` 0
+  and `tm_zone` `"UTC"`. `mktime` ignores the `tm_isdst` it is given. `tzname` is missing
+  (FINDINGS.md 4); `daylight` and `timezone` are XSI and not offered.
+- **The calendar is proleptic Gregorian over every `time_t`**, in 64-bit integers with no table (Howard
+  Hinnant's `days_from_civil`), so year 1, negative years and years far past 9999 are exact. A time
+  whose year `tm_year` cannot hold makes `gmtime` answer null and `mktime`/`timegm` answer -1, with
+  `EOVERFLOW`. `mktime` and `timegm` normalise every field (a month of 13, a day of 0, a second of 60
+  or -1) and set `tm_wday` and `tm_yday`. `time_t` is `long`, so 32 bits on a Cortex-M.
+- `strftime` takes every POSIX.1-2024 conversion, `E` and `O` (ignored, as in the C locale), and the
+  `0` and `+` flags with a minimum width on `%C %F %G %Y`. Where POSIX leaves a choice, musl's answer
+  is taken: `%Y` is at least four digits and a year past 9999 is written `+12345`, `%y` of a year
+  before 0 is the last two digits of its magnitude, and a conversion POSIX does not define makes
+  `strftime` answer 0. `%z` is `tm_gmtoff`, `%Z` is `tm_zone` (`UTC` when null), and both are empty
+  when `tm_isdst` is negative. Fields are read as they stand, not normalised; a weekday or month out
+  of range has the name `?`. A result that does not fit, NUL included, answers 0 with `ERANGE`.
+- `time`, `clock` and `timespec_get` read `clock_gettime` (`CLOCK_REALTIME`, and
+  `CLOCK_PROCESS_CPUTIME_ID` for `clock`, in microseconds), and so exist only on a freestanding target,
+  where cstd's Linux half or a board defines it; elsewhere the host libc's are used.
 
 ### `<math.h>`
 
@@ -177,7 +200,7 @@ own `write` and `malloc`, which these would replace.
 | `unistd.h` | `read` `write` `close` `lseek` `_exit` `getpid` `getppid` `brk` `sbrk` `dup` `dup2` `pipe` `unlink` `rmdir` `chdir` `getcwd`, `environ` |
 | `fcntl.h` | `open` (variadic, the mode read only under `O_CREAT`/`O_TMPFILE`) `openat`, arm64's flag values |
 | `sys/stat.h` | `stat` `fstat` `mkdir`, the 128-byte asm-generic `struct stat` |
-| `time.h` / `signal.h` | `nanosleep` `clock_gettime` / `kill` |
+| `time.h` / `signal.h` | `nanosleep` `clock_gettime` `clock_getres` `clock_settime` `clock_nanosleep` `timer_create` `timer_delete` `timer_getoverrun` `timer_gettime` `timer_settime` / `kill` |
 | `stdlib.h` | `malloc` `calloc` `realloc` `free` `exit` `_Exit` `atexit` (32 handlers, last first) `abort` (SIGABRT) |
 
 Each call is one `svc #0` (x8 the number, x0–x5 the arguments); an answer from -4095 to -1 sets
@@ -204,7 +227,9 @@ On any other freestanding target the calls of the `unistd.h`, `fcntl.h`, `sys/st
 the core (`stubs.sysl`): each sets `errno` to `ENOSYS` and answers its failure value (-1, a null
 `getcwd`, `(void *)-1` from `sbrk`). A board overrides any one by defining it strongly, in its sysl
 (`@export("write")`) or its C (`ssize_t write(int, const void *, size_t)`), and the link keeps the
-board's with no duplicate-symbol error. A static linker does not pull an archive member in to replace
+board's with no duplicate-symbol error. `clock_nanosleep` answers `ENOSYS` itself, as it answers every
+error, and `time`, `clock` and `timespec_get` read a board's `clock_gettime` once it defines one. A
+static linker does not pull an archive member in to replace
 a weak definition it already has, so a definition in a board's C is kept where something else in that
 file is linked too — its startup code, or a function the board calls. A hosted target has none of
 the defaults: its calls are the host libc's.

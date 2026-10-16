@@ -4,6 +4,8 @@ module sh.sysl.cstd_linux
 // system call with C's convention over it (`checked`): an error sets `errno` and answers -1. The
 // path calls are the `*at` forms against the working directory, aarch64 having no others.
 
+import sh.sysl.cstd.Timespec
+
 @export("read")
 read(fd: i32, buf: *u8, n: usize) -> isize = isize(checked(call(SYS_READ, u64(fd), addr(buf), u64(n))))
 
@@ -102,5 +104,39 @@ sigprocmask(how: i32, set: *u8, old: *u8) -> i32 =
 @export("nanosleep")
 nanosleep(req: *u8, rem: *u8) -> i32 = i32(checked(call(SYS_NANOSLEEP, addr(req), addr(rem))))
 
+// `time`, `clock` and `timespec_get` in the core read the clock through this, as a `Timespec`.
 @export("clock_gettime")
-clock_gettime(clock: i32, ts: *u8) -> i32 = i32(checked(call(SYS_CLOCK_GETTIME, u64(clock), addr(ts))))
+clock_gettime(clock: i32, ts: *Timespec) -> i32 =
+    i32(checked(call(SYS_CLOCK_GETTIME, u64(clock), u64(usize(ts)))))
+
+@export("clock_getres")
+clock_getres(clock: i32, res: *u8) -> i32 = i32(checked(call(SYS_CLOCK_GETRES, u64(clock), addr(res))))
+
+@export("clock_settime")
+clock_settime(clock: i32, ts: *u8) -> i32 = i32(checked(call(SYS_CLOCK_SETTIME, u64(clock), addr(ts))))
+
+// The one call of these that answers its error number itself, as the kernel's negated answer, and
+// leaves `errno` alone.
+@export("clock_nanosleep")
+clock_nanosleep(clock: i32, flags: i32, req: *u8, rem: *u8) -> i32 =
+    i32(-call(SYS_CLOCK_NANOSLEEP, u64(clock), u64(flags), addr(req), addr(rem)))
+
+// `timer_t` is the kernel's own timer id, an `int`, so the kernel writes it where the caller asked.
+// A `struct sigevent` reaches the kernel unread: `SIGEV_SIGNAL`, `SIGEV_NONE` and `SIGEV_THREAD_ID`
+// are its to act on, and `SIGEV_THREAD`, which needs a thread library, it refuses with `EINVAL`.
+@export("timer_create")
+timer_create(clock: i32, event: *u8, timer: *i32) -> i32 =
+    i32(checked(call(SYS_TIMER_CREATE, u64(clock), addr(event), u64(usize(timer)))))
+
+@export("timer_delete")
+timer_delete(timer: i32) -> i32 = i32(checked(call(SYS_TIMER_DELETE, u64(timer))))
+
+@export("timer_getoverrun")
+timer_getoverrun(timer: i32) -> i32 = i32(checked(call(SYS_TIMER_GETOVERRUN, u64(timer))))
+
+@export("timer_gettime")
+timer_gettime(timer: i32, value: *u8) -> i32 = i32(checked(call(SYS_TIMER_GETTIME, u64(timer), addr(value))))
+
+@export("timer_settime")
+timer_settime(timer: i32, flags: i32, value: *u8, old: *u8) -> i32 =
+    i32(checked(call(SYS_TIMER_SETTIME, u64(timer), u64(flags), addr(value), addr(old))))

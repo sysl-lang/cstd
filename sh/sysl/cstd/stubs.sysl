@@ -10,7 +10,7 @@ module sh.sysl.cstd
 // the program's own image would answer them in that libc's place.
 //
 // The signatures are the headers' (`<unistd.h>`, `<fcntl.h>`, `<sys/stat.h>`, `<signal.h>`,
-// `<time.h>`): `off_t` and `ssize_t` are `long`, so `isize`.
+// `<time.h>`): `off_t` and `ssize_t` are `long`, so `isize`; `timer_t` is the kernel's `int`.
 
 #if freestanding
 
@@ -84,7 +84,32 @@ nosys_sigprocmask(how: i32, set: *u8, old: *u8) -> i32 = nosys()
 nosys_nanosleep(req: *u8, rem: *u8) -> i32 = nosys()
 
 @export("clock_gettime", weak)
-nosys_clock_gettime(clock: i32, ts: *u8) -> i32 = nosys()
+nosys_clock_gettime(clock: i32, ts: *Timespec) -> i32 = nosys()
+
+@export("clock_getres", weak)
+nosys_clock_getres(clock: i32, res: *u8) -> i32 = nosys()
+
+@export("clock_settime", weak)
+nosys_clock_settime(clock: i32, ts: *u8) -> i32 = nosys()
+
+// `clock_nanosleep` answers its error number rather than -1, and leaves `errno` alone.
+@export("clock_nanosleep", weak)
+nosys_clock_nanosleep(clock: i32, flags: i32, req: *u8, rem: *u8) -> i32 = ENOSYS
+
+@export("timer_create", weak)
+nosys_timer_create(clock: i32, event: *u8, timer: *i32) -> i32 = nosys()
+
+@export("timer_delete", weak)
+nosys_timer_delete(timer: i32) -> i32 = nosys()
+
+@export("timer_getoverrun", weak)
+nosys_timer_getoverrun(timer: i32) -> i32 = nosys()
+
+@export("timer_gettime", weak)
+nosys_timer_gettime(timer: i32, value: *u8) -> i32 = nosys()
+
+@export("timer_settime", weak)
+nosys_timer_settime(timer: i32, flags: i32, value: *u8, old: *u8) -> i32 = nosys()
 
 @export("brk", weak)
 nosys_brk(to: *u8) -> i32 = nosys()

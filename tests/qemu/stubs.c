@@ -78,6 +78,27 @@ int main(void) {
     check("sigprocmask", sigprocmask(SIG_SETMASK, 0, 0), -1);
     check("nanosleep", nanosleep(&ts, 0), -1);
     check("clock_gettime", clock_gettime(CLOCK_REALTIME, &ts), -1);
+    check("clock_getres", clock_getres(CLOCK_REALTIME, &ts), -1);
+    check("clock_settime", clock_settime(CLOCK_REALTIME, &ts), -1);
+    timer_t timer = 0;
+    struct itimerspec its = {{0, 0}, {0, 0}};
+    check("timer_create", timer_create(CLOCK_REALTIME, 0, &timer), -1);
+    check("timer_delete", timer_delete(timer), -1);
+    check("timer_getoverrun", timer_getoverrun(timer), -1);
+    check("timer_gettime", timer_gettime(timer, &its), -1);
+    check("timer_settime", timer_settime(timer, 0, &its, 0), -1);
+    /* Built on clock_gettime, so they fail as it does. */
+    time_t t = 7;
+    long now = time(&t);
+    check("time, answered and stored", now == t ? now : 0, -1);
+    check("clock", clock(), -1);
+    check("timespec_get", timespec_get(&ts, TIME_UTC), 0);
+    /* clock_nanosleep answers the error number and leaves errno alone. */
+    errno = 0;
+    if (clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, 0) != ENOSYS || errno != 0) {
+        failures++;
+        say("FAIL clock_nanosleep\n");
+    }
     check("brk", brk(buf), -1);
     check("sbrk", (long)sbrk(16), -1);
 

@@ -722,33 +722,41 @@ Declares no functions. Of the types the page requires, cstd defines `ssize_t`, `
 
 | function | codes | status | needs | half |
 |---|---|---|---|---|
-| clock | | missing | time | linux |
-| clock_getres | CX | missing | time | linux |
+| clock | | done (core) | | core |
+| clock_getres | CX | done (linux) | | linux |
 | clock_gettime | CX | done (linux) | | linux |
-| clock_nanosleep | CX | missing | os | linux |
-| clock_settime | CX | missing | os | linux |
-| difftime | | missing | pure | core |
-| gmtime | | missing | pure | core |
-| gmtime_r | CX | missing | pure | core |
-| localtime | | missing | os | linux |
-| localtime_r | CX | missing | os | linux |
-| mktime | | missing | os | linux |
+| clock_nanosleep | CX | done (linux) | | linux |
+| clock_settime | CX | done (linux) | | linux |
+| difftime | | done (core) | | core |
+| gmtime | | done (core) | | core |
+| gmtime_r | CX | done (core) | | core |
+| localtime | | done (core) | | core |
+| localtime_r | CX | done (core) | | core |
+| mktime | | done (core) | | core |
 | nanosleep | CX | done (linux) | | linux |
-| strftime | | missing | pure | core |
-| strftime_l | CX | missing | locale | core |
-| time | | missing | time | linux |
-| timer_create | CX | missing | os | linux |
-| timer_delete | CX | missing | os | linux |
-| timer_getoverrun | CX | missing | os | linux |
-| timer_gettime | CX | missing | os | linux |
-| timer_settime | CX | missing | os | linux |
-| timespec_get | | missing | time | linux |
-| tzset | CX | missing | os | linux |
+| strftime | | done (core) | | core |
+| strftime_l | CX | done (core) | | core |
+| time | | done (core) | | core |
+| timer_create | CX | done (linux) | | linux |
+| timer_delete | CX | done (linux) | | linux |
+| timer_getoverrun | CX | done (linux) | | linux |
+| timer_gettime | CX | done (linux) | | linux |
+| timer_settime | CX | done (linux) | | linux |
+| timespec_get | | done (core) | | core |
+| tzset | CX | done (core) | | core |
 
-`localtime`, `localtime_r`, `mktime` and `tzset` are `os` because they need the time zone (`TZ`). The page
-also requires `clock_t`, `struct tm`, `struct itimerspec`, `timer_t`, `locale_t`, `CLOCKS_PER_SEC`,
-`TIME_UTC` and `TIMER_ABSTIME`, and the variable `tzname` ([CX]); cstd's `time.h` has none of them (it has
-`struct timespec`, `CLOCK_REALTIME`, `CLOCK_MONOTONIC`).
+There is no time-zone database, so local time is UTC: `localtime`, `localtime_r`, `mktime` and `tzset`
+need no `TZ` and sit in the core (`time.sysl`). `time`, `clock` and `timespec_get` are in the core too,
+built on `clock_gettime` and compiled only for a freestanding target (a hosted program's are its libc's);
+on a board without a clock they fail as `clock_gettime`'s weak default does. Every `linux` row above has a
+weak `ENOSYS` default on a board (`stubs.sysl`). The header defines `clock_t`, `struct tm` (with
+POSIX.1-2024's `tm_gmtoff` and `tm_zone`), `struct timespec`, `struct itimerspec`, `timer_t` (the kernel's
+`int`), `locale_t` under the shared guard, `CLOCKS_PER_SEC`, `TIME_UTC`, `TIMER_ABSTIME` and the `CLOCK_`
+names, and declares `timegm`, which POSIX.1-2024 does not list (ISO C23 does; minmea calls it).
+
+Missing: the variable `tzname` ([CX]). A sysl bug refuses its initializer (FINDINGS.md 4), so `time.h`
+does not declare it. `struct sigevent` is declared incomplete, as `<signal.h>` does not define it yet;
+`timer_create` hands it to the kernel unread. `daylight` and `timezone` are [XSI].
 
 Out of scope:
 
@@ -885,9 +893,9 @@ In-scope functions only.
 | `strings.h` | 4 | 4 | 0 | | | | | | |
 | `sys/stat.h` | 14 | 3 | 11 | | | | 11 | | |
 | `sys/types.h` | 0 | 0 | 0 | | | | | | |
-| `time.h` | 22 | 2 | 20 | 4 | 1 | | 11 | 4 | |
+| `time.h` | 22 | 22 | 0 | | | | | | |
 | `unistd.h` | 75 | 14 | 61 | 2 | | | 58 | 1 | |
-| **total** | **521** | **266** | **255** | **79** | **6** | **4** | **110** | **5** | **51** |
+| **total** | **521** | **286** | **235** | **75** | **5** | **4** | **99** | **1** | **51** |
 
 Out of scope and missing: 57 functions (`fcntl.h` 2, `math.h` 6, `signal.h` 2, `stdio.h` 1,
 `stdlib.h` 23, `string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15). Out of scope but done: 3
@@ -901,14 +909,15 @@ cstd's. `<sys/types.h>` is included by `time.h`, `fcntl.h`, `signal.h`, `unistd.
 `<time.h>` by `sys/stat.h`. Both are offered.
 
 **Headers the standard's pages make the offered ones depend on.** `ctype.h`, `string.h`, `strings.h` and
-`time.h` must define `locale_t` "as described in `<locale.h>`"; `locale.h`, `ctype.h`, `string.h` and
-`strings.h` define it, each under the guard `__CSTD_LOCALE_T`, and `time.h` does not yet. `time.h` declares
-`struct sigevent` as defined in `<signal.h>`, whose types (`sigset_t`, `siginfo_t`, `struct sigaction`,
+`time.h` must define `locale_t` "as described in `<locale.h>`"; all five define it, each under the guard
+`__CSTD_LOCALE_T`. `time.h` declares `struct sigevent` as defined in `<signal.h>` (cstd's declares it
+incomplete), whose types (`sigset_t`, `siginfo_t`, `struct sigaction`,
 `union sigval`, `stack_t`, `pthread_t`) cstd's `signal.h` does not define.
 
-**Functions present under headers cstd does not offer.** None from POSIX. Two exported and declared
+**Functions present under headers cstd does not offer.** None from POSIX. Three exported and declared
 names are not POSIX functions at all: `brk` and `sbrk` (declared in `unistd.h`, exported by the Linux
-half's `malloc.sysl`). `__cstd_assert_fail` is `assert`'s failure path, and `cstd_sigsetjmp_tail` `sigsetjmp`'s ending. `cstd_start` is the Linux half's internal entry; `errno` and `environ` are
+half's `malloc.sysl`), and `timegm` (ISO C23's, declared in `time.h`, exported by the core's
+`time.sysl`). `__cstd_assert_fail` is `assert`'s failure path, and `cstd_sigsetjmp_tail` `sigsetjmp`'s ending. `cstd_start` is the Linux half's internal entry; `errno` and `environ` are
 variables.
 
 **Headers in `include/` that POSIX does not define.** One: `stdbit.h`, which is ISO C23 (section 7.18),

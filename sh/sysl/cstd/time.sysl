@@ -1,0 +1,414 @@
+module sh.sysl.cstd
+
+// `<time.h>`'s calendar: broken-down time, the conversions between it and seconds since the Epoch,
+// and `strftime`.
+//
+// **The calendar is proleptic Gregorian over the whole of `time_t`**, and there is no time-zone
+// database: local time is UTC. `localtime` is `gmtime`, `mktime` is `timegm`, `tzset` has nothing to
+// read. A `struct tm` this file fills says so in its own fields:
+// `tm_isdst` 0, `tm_gmtoff` 0, `tm_zone` "UTC".
+//
+// The day arithmetic is Howard Hinnant's `days_from_civil` and `civil_from_days`: years are counted
+// from 1 March, so the leap day is the last day of its year, and in 400-year eras of 146 097 days,
+// so every division is of a non-negative number. It is exact over every `time_t` and every `int`
+// year, in 64-bit integers, with no table and no loop.
+//
+// `time`, `clock` and `timespec_get` read a clock through `clock_gettime`, so they are compiled only
+// for a freestanding target, where cstd's Linux half or a board defines it and the clock numbers are
+// Linux's. A hosted program's are its libc's, whose clock numbers are its own.
+//
+// As elsewhere, `time_t`, `clock_t` and `tv_nsec` are C's `long` (`Long`, measured), so 32 bits on a
+// Cortex-M and 64 on an LP64 machine, and a C `char *` is a `*u8`.
+
+// `struct tm`, POSIX.1-2024's members in musl's and glibc's order.
+struct Tm
+    tm_sec: i32
+    tm_min: i32
+    tm_hour: i32
+    tm_mday: i32
+    tm_mon: i32
+    tm_year: i32
+    tm_wday: i32
+    tm_yday: i32
+    tm_isdst: i32
+    tm_gmtoff: Long
+    tm_zone: *u8
+
+struct Timespec
+    tv_sec: Long
+    tv_nsec: Long
+
+const SECONDS_PER_DAY: i64 = 86400
+
+// The time base `timespec_get` takes, and the clocks it and `time` and `clock` read.
+const TIME_UTC: i32 = 1
+const CLOCK_REALTIME: i32 = 0
+const CLOCK_PROCESS_CPUTIME_ID: i32 = 2
+const CLOCKS_PER_SEC: i64 = 1000000
+
+// Division and remainder rounding toward minus infinity, for a positive divisor.
+private floor_div(a: i64, b: i64) -> i64 = if a % b < 0 then a / b - 1 else a / b
+
+private floor_mod(a: i64, b: i64) -> i64 = a - floor_div(a, b) * b
+
+// Days from 1970-01-01 to the date `y`-`m`-`d`, `m` from 1 to 12.
+private days_from_civil(y: i64, m: i64, d: i64) -> i64
+    val yy = if m <= 2 then y - 1 else y
+    val era = floor_div(yy, 400)
+    val yoe = yy - era * 400
+    val mp = if m > 2 then m - 3 else m + 9
+    val doy = (153 * mp + 2) / 5 + d - 1
+    val doe = yoe * 365 + yoe / 4 - yoe / 100 + doy
+    era * 146097 + doe - 719468
+
+// The date `z` days after 1970-01-01, as year, month (1 to 12) and day.
+private civil_from_days(z: i64) -> (i64, i64, i64)
+    val zz = z + 719468
+    val era = floor_div(zz, 146097)
+    val doe = zz - era * 146097
+    val yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
+    val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
+    val mp = (5 * doy + 2) / 153
+    val d = doy - (153 * mp + 2) / 5 + 1
+    val m = if mp < 10 then mp + 3 else mp - 9
+    (yoe + era * 400 + (if m <= 2 then 1 else 0), m, d)
+
+private utc() -> *u8 = c"UTC"
+
+// Fills `tm` with the UTC time `t` seconds after the Epoch, or answers false, touching nothing,
+// where the year does not fit `tm_year`.
+private fill(t: i64, tm: *Tm) -> bool
+    val days = floor_div(t, SECONDS_PER_DAY)
+    val secs = t - days * SECONDS_PER_DAY
+    val (y, m, d) = civil_from_days(days)
+    val year = y - 1900
+    if year > i64(i32::Max) || year < i64(i32::Min) then return false
+    tm.tm_sec = i32(secs % 60)
+    tm.tm_min = i32(secs / 60 % 60)
+    tm.tm_hour = i32(secs / 3600)
+    tm.tm_mday = i32(d)
+    tm.tm_mon = i32(m - 1)
+    tm.tm_year = i32(year)
+    tm.tm_wday = i32(floor_mod(days + 4, 7))
+    tm.tm_yday = i32(days - days_from_civil(y, 1, 1))
+    tm.tm_isdst = 0
+    tm.tm_gmtoff = 0
+    tm.tm_zone = utc()
+    true
+end fill
+
+// The seconds since the Epoch that `tm`'s fields name read as UTC, each field taken at whatever
+// value it holds: a month of 13 is the next January, a day of 0 the last day of the month before, a
+// second of -1 the last second of the minute before. Every `int` field fits without overflow.
+private seconds_of(tm: *Tm) -> i64
+    val mon = i64(tm.tm_mon)
+    val y = i64(tm.tm_year) + 1900 + floor_div(mon, 12)
+    val days = days_from_civil(y, floor_mod(mon, 12) + 1, 1) + i64(tm.tm_mday) - 1
+    days * SECONDS_PER_DAY + i64(tm.tm_hour) * 3600 + i64(tm.tm_min) * 60 + i64(tm.tm_sec)
+
+// The one structure `gmtime` and `localtime` answer, which C lets them share.
+private var shared_tm: Tm
+
+@export("gmtime_r")
+gmtime_r(t: *Long, tm: *Tm) -> *Tm
+    if !fill(i64(*t), tm)
+        errno = EOVERFLOW
+        return null
+    tm
+
+@export("gmtime")
+gmtime(t: *Long) -> *Tm = gmtime_r(t, &shared_tm)
+
+@export("localtime_r")
+localtime_r(t: *Long, tm: *Tm) -> *Tm = gmtime_r(t, tm)
+
+@export("localtime")
+localtime(t: *Long) -> *Tm = gmtime_r(t, &shared_tm)
+
+// The fields are normalised in place, `tm_wday` and `tm_yday` set from the date, and `tm_isdst`,
+// which names no zone here, set to 0 whatever it was. A time `time_t` cannot hold, or a normalised
+// year `tm_year` cannot, is `EOVERFLOW` with `tm` untouched. -1 is also the answer for
+// 1969-12-31T23:59:59, which only `errno` tells apart.
+@export("timegm")
+timegm(tm: *Tm) -> Long
+    val t = seconds_of(tm)
+    val narrow = Long(t)
+    if i64(narrow) != t || !fill(t, tm)
+        errno = EOVERFLOW
+        return -1
+    narrow
+
+@export("mktime")
+mktime(tm: *Tm) -> Long = timegm(tm)
+
+// There is no `TZ` to read: the zone is UTC whatever the environment says.
+@export("tzset")
+tzset()
+    return
+
+// Two `time_t` of one sign cannot overflow their difference; of opposite signs the difference may
+// not fit, and is taken in `double`.
+@export("difftime")
+difftime(a: Long, b: Long) -> f64
+    val x = i64(a)
+    val y = i64(b)
+    if (x < 0) == (y < 0) then f64(x - y) else f64(x) - f64(y)
+
+#if freestanding
+
+private extern "clock_gettime" read_clock(clock: i32, ts: *Timespec) -> i32
+
+// A clock that cannot be read answers -1, with the `errno` `clock_gettime` set, and so does a store
+// through `out`.
+@export("time")
+time(out: *Long) -> Long
+    var ts: Timespec
+    val now: Long = if read_clock(CLOCK_REALTIME, &ts) == 0 then ts.tv_sec else -1
+    if out != null then *out = now
+    now
+
+// The process's processor time in microseconds, or -1 where it cannot be read or no longer fits a
+// `clock_t`.
+@export("clock")
+clock() -> Long
+    var ts: Timespec
+    if read_clock(CLOCK_PROCESS_CPUTIME_ID, &ts) != 0 then return -1
+    val us = i64(ts.tv_sec) * CLOCKS_PER_SEC + i64(ts.tv_nsec) / 1000
+    val narrow = Long(us)
+    if i64(narrow) != us then -1 else narrow
+
+@export("timespec_get")
+timespec_get(ts: *Timespec, base: i32) -> i32
+    if base != TIME_UTC || read_clock(CLOCK_REALTIME, ts) != 0 then return 0
+    base
+
+#endif
+
+// `strftime` in the C locale.
+//
+// The conversions are POSIX.1-2024's, the `E` and `O` modifiers are read and ignored, and the
+// optional flag (`0` or `+`) and minimum field width apply to `%C`, `%F`, `%G` and `%Y`, the ones the
+// standard gives them to; on any other conversion they are read and do nothing. Where the standard
+// leaves the answer open, musl's is taken: `%Y` with no width is at least four digits, zero-filled,
+// and a year past 9999 is preceded by `+`; `%G` is four digits; a conversion the standard does not
+// define makes `strftime` answer 0. Fields are read as they are, not normalised; a weekday or month
+// out of range has the name `?`.
+//
+// The bytes go through printf's `Sink`, which counts past the end of the buffer, so the result is
+// known to fit, NUL included, before `strftime` answers its length; otherwise it answers 0 with
+// `ERANGE`.
+
+private day_name(d: i32, full: bool) -> *u8 = d match
+    0 -> if full then c"Sunday" else c"Sun"
+    1 -> if full then c"Monday" else c"Mon"
+    2 -> if full then c"Tuesday" else c"Tue"
+    3 -> if full then c"Wednesday" else c"Wed"
+    4 -> if full then c"Thursday" else c"Thu"
+    5 -> if full then c"Friday" else c"Fri"
+    6 -> if full then c"Saturday" else c"Sat"
+    _ -> c"?"
+
+private month_name(m: i32, full: bool) -> *u8 = m match
+    0 -> if full then c"January" else c"Jan"
+    1 -> if full then c"February" else c"Feb"
+    2 -> if full then c"March" else c"Mar"
+    3 -> if full then c"April" else c"Apr"
+    4 -> if full then c"May" else c"May"
+    5 -> if full then c"June" else c"Jun"
+    6 -> if full then c"July" else c"Jul"
+    7 -> if full then c"August" else c"Aug"
+    8 -> if full then c"September" else c"Sep"
+    9 -> if full then c"October" else c"Oct"
+    10 -> if full then c"November" else c"Nov"
+    11 -> if full then c"December" else c"Dec"
+    _ -> c"?"
+
+private put_text(s: *Sink, text: *u8)
+    var i: usize = 0
+    while text[i] != 0
+        put(s, text[i])
+        i += 1
+
+// `v` in decimal, filled on the left to `width` characters with `fill`: zeros go after a minus
+// sign, spaces before it.
+private put_number(s: *Sink, v: i64, width: i64, fill: u8)
+    var digits: [20]u8
+    var n: usize = 0
+    var mag = if v < 0 then u64(-(v + 1)) + 1 else u64(v)
+    loop
+        digits[n] = u8(mag % 10) + '0'
+        n += 1
+        mag /= 10
+        if mag == 0 then break
+    val len = i64(n) + (if v < 0 then 1 else 0)
+    if fill == ' ' then for _ in len..<width do put(s, ' ')
+    if v < 0 then put(s, '-')
+    if fill == '0' then for _ in len..<width do put(s, '0')
+    while n > 0
+        n -= 1
+        put(s, digits[n])
+end put_number
+
+private is_leap(y: i64) -> bool = floor_mod(y, 4) == 0 && (floor_mod(y, 100) != 0 || floor_mod(y, 400) == 0)
+
+// ISO 8601's week-numbering: weeks begin on Monday and week 1 holds 4 January, so a year has 53
+// weeks where it begins on a Thursday, or on a Wednesday and is leap.
+private iso_weeks(y: i64) -> i64
+    val jan1 = floor_mod(days_from_civil(y, 1, 1) + 4, 7)
+    if jan1 == 4 || (jan1 == 3 && is_leap(y)) then 53 else 52
+
+// The week-based year and week number of `tm`'s date, from its year, day of the year and weekday.
+private iso_week(tm: *Tm) -> (i64, i64)
+    val y = i64(tm.tm_year) + 1900
+    val monday_based = floor_mod(i64(tm.tm_wday) + 6, 7)
+    val week = floor_div(i64(tm.tm_yday) - monday_based + 10, 7)
+    if week < 1 then return (y - 1, iso_weeks(y - 1))
+    if week > iso_weeks(y) then return (y + 1, 1)
+    (y, week)
+
+private year_of(tm: *Tm) -> i64 = i64(tm.tm_year) + 1900
+
+// A year's last two digits, of its magnitude: the year -1 is `01`.
+private last_two(y: i64) -> i64 = if y < 0 then -(y % 100) else y % 100
+
+// `%Y` with no width: four digits at least, and a `+` before a year past 9999.
+private put_year(s: *Sink, y: i64)
+    if y > 9999 then put(s, '+')
+    put_number(s, y, 4, '0')
+
+// One conversion, written to `s`; false for a conversion the standard does not define.
+private convert(s: *Sink, conv: u8, tm: *Tm) -> bool
+    conv match
+        'a' -> put_text(s, day_name(tm.tm_wday, false))
+        'A' -> put_text(s, day_name(tm.tm_wday, true))
+        'b' | 'h' -> put_text(s, month_name(tm.tm_mon, false))
+        'B' -> put_text(s, month_name(tm.tm_mon, true))
+        'c' -> return format(s, c"%a %b %e %T %Y", tm)
+        'C' -> put_number(s, year_of(tm) / 100, 2, '0')
+        'd' -> put_number(s, i64(tm.tm_mday), 2, '0')
+        'D' | 'x' -> return format(s, c"%m/%d/%y", tm)
+        'e' -> put_number(s, i64(tm.tm_mday), 2, ' ')
+        'F' -> return format(s, c"%Y-%m-%d", tm)
+        'g' ->
+            val (y, _) = iso_week(tm)
+            put_number(s, last_two(y), 2, '0')
+        'G' ->
+            val (y, _) = iso_week(tm)
+            put_number(s, y, 4, '0')
+        'H' -> put_number(s, i64(tm.tm_hour), 2, '0')
+        'I' ->
+            val h = floor_mod(i64(tm.tm_hour), 12)
+            put_number(s, if h == 0 then 12 else h, 2, '0')
+        'j' -> put_number(s, i64(tm.tm_yday) + 1, 3, '0')
+        'm' -> put_number(s, i64(tm.tm_mon) + 1, 2, '0')
+        'M' -> put_number(s, i64(tm.tm_min), 2, '0')
+        'n' -> put(s, '\n')
+        'p' -> put_text(s, if tm.tm_hour >= 12 then c"PM" else c"AM")
+        'r' -> return format(s, c"%I:%M:%S %p", tm)
+        'R' -> return format(s, c"%H:%M", tm)
+        's' -> put_number(s, seconds_of(tm), 1, '0')
+        'S' -> put_number(s, i64(tm.tm_sec), 2, '0')
+        't' -> put(s, '\t')
+        'T' | 'X' -> return format(s, c"%H:%M:%S", tm)
+        'u' -> put_number(s, if tm.tm_wday == 0 then 7 else i64(tm.tm_wday), 1, '0')
+        'U' -> put_number(s, floor_div(i64(tm.tm_yday) + 7 - i64(tm.tm_wday), 7), 2, '0')
+        'V' ->
+            val (_, w) = iso_week(tm)
+            put_number(s, w, 2, '0')
+        'w' -> put_number(s, i64(tm.tm_wday), 1, '0')
+        'W' -> put_number(s, floor_div(i64(tm.tm_yday) + 7 - floor_mod(i64(tm.tm_wday) + 6, 7), 7), 2, '0')
+        'y' -> put_number(s, last_two(year_of(tm)), 2, '0')
+        'Y' -> put_year(s, year_of(tm))
+        'z' ->
+            if tm.tm_isdst >= 0
+                val off = i64(tm.tm_gmtoff)
+                put(s, if off < 0 then '-' else '+')
+                val a = if off < 0 then -off else off
+                put_number(s, a / 3600 * 100 + a % 3600 / 60, 4, '0')
+        'Z' ->
+            if tm.tm_isdst >= 0
+                put_text(s, if tm.tm_zone != null then tm.tm_zone else utc())
+        '%' -> put(s, '%')
+        _ -> return false
+    true
+end convert
+
+private is_digit_byte(b: u8) -> bool = b >= '0' && b <= '9'
+
+// `%C`, `%F`, `%G` or `%Y` with a minimum field width, as POSIX lays it out: the conversion's own
+// text with its sign and leading zeros taken off, then a sign, then zeros to `width`. The sign is
+// `-` for a year before 0, and `+` under the `+` flag where the year's field would otherwise take
+// more than four bytes (two for `%C`).
+private put_padded(s: *Sink, conv: u8, tm: *Tm, width: i64, plus: bool) -> bool
+    var text: Sink
+    var bytes: [48]u8
+    text.dst = &bytes[0]
+    text.room = 48
+    if !convert(&text, conv, tm) then return false
+    var start: usize = 0
+    var k = i64(text.total)
+    if bytes[0] == '+' || bytes[0] == '-'
+        start = 1
+        k -= 1
+    while bytes[start] == '0' && is_digit_byte(bytes[start + 1])
+        start += 1
+        k -= 1
+    var room = if width < k then k else width
+    var digits: i64 = 0
+    while start + usize(digits) < usize(text.total) && is_digit_byte(bytes[start + usize(digits)])
+        digits += 1
+    if tm.tm_year < -1900
+        put(s, '-')
+        room -= 1
+    elif plus && digits + (room - k) >= (if conv == 'C' then 3 else 5)
+        put(s, '+')
+        room -= 1
+    for _ in k..<room do put(s, '0')
+    for i in start..<usize(text.total) do put(s, bytes[i])
+    true
+end put_padded
+
+private is_year_conv(c: u8) -> bool = c == 'C' || c == 'F' || c == 'G' || c == 'Y'
+
+private format(s: *Sink, fmt: *u8, tm: *Tm) -> bool
+    var i: usize = 0
+    loop
+        val c = fmt[i]
+        if c == 0 then return true
+        i += 1
+        if c != '%'
+            put(s, c)
+            continue
+        var plus = false
+        if fmt[i] == '0' || fmt[i] == '+'
+            plus = fmt[i] == '+'
+            i += 1
+        var width: i64 = 0
+        var has_width = false
+        while is_digit_byte(fmt[i])
+            if width < 1000000 then width = width * 10 + i64(fmt[i] - '0')
+            has_width = true
+            i += 1
+        if fmt[i] == 'E' || fmt[i] == 'O' then i += 1
+        val conv = fmt[i]
+        if conv == 0 then return false
+        i += 1
+        val done = if has_width && is_year_conv(conv) then put_padded(s, conv, tm, width, plus) else convert(s, conv, tm)
+        if !done then return false
+end format
+
+@export("strftime")
+strftime(dst: *u8, max: usize, fmt: *u8, tm: *Tm) -> usize
+    var s: Sink
+    s.dst = dst
+    s.room = max
+    val ok = format(&s, fmt, tm)
+    val fits = ok && s.total < max
+    if max > 0 then dst[if s.total < max then s.total else max - 1] = 0
+    if !fits
+        if ok then errno = ERANGE
+        return 0
+    s.total
+
+@export("strftime_l")
+strftime_l(dst: *u8, max: usize, fmt: *u8, tm: *Tm, locale: *u8) -> usize = strftime(dst, max, fmt, tm)

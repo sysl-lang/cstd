@@ -1,0 +1,418 @@
+module sh.sysl.cstd
+
+@tests
+
+// `<time.h>` (`time.sysl`): the proleptic Gregorian calendar checked against dates written out by
+// hand and against a day-by-day walk of the calendar from the year -400 to 9999, `mktime`'s
+// normalising, and every `strftime` conversion with its exact text.
+
+private val shows: string = raw"""
+    #include <time.h>
+
+    /* What vsnprintf wrote, exactly. */
+    static void out(const char *fmt, ...) {
+        char b[256];
+        va_list ap;
+        va_start(ap, fmt);
+        int n = vsnprintf(b, sizeof b, fmt, ap);
+        va_end(ap);
+        say_raw(b, (size_t)n < sizeof b ? (size_t)n : sizeof b - 1);
+    }
+
+    static void show(const struct tm *tm) {
+        out("%ld-%02d-%02d %02d:%02d:%02d wday=%d yday=%d isdst=%d gmtoff=%ld zone=%s\n",
+              (long)tm->tm_year + 1900, tm->tm_mon + 1, tm->tm_mday, tm->tm_hour, tm->tm_min,
+              tm->tm_sec, tm->tm_wday, tm->tm_yday, tm->tm_isdst, tm->tm_gmtoff, tm->tm_zone);
+    }
+
+    static void at(long t) {
+        struct tm tm;
+        errno = 0;
+        out("%ld: ", t);
+        if (!gmtime_r(&t, &tm)) {
+            out("null errno=%d\n", errno);
+            return;
+        }
+        show(&tm);
+    }
+
+    static struct tm fields(int year, int mon, int mday, int hour, int min, int sec) {
+        struct tm tm = {0};
+        tm.tm_year = year - 1900, tm.tm_mon = mon - 1, tm.tm_mday = mday;
+        tm.tm_hour = hour, tm.tm_min = min, tm.tm_sec = sec;
+        tm.tm_wday = 99, tm.tm_yday = 999, tm.tm_isdst = 1, tm.tm_gmtoff = 77;
+        return tm;
+    }
+
+    static void normalise(int year, int mon, int mday, int hour, int min, int sec) {
+        struct tm tm = fields(year, mon, mday, hour, min, sec);
+        errno = 0;
+        long t = mktime(&tm);
+        out("%ld errno=%d ", t, errno);
+        show(&tm);
+    }
+
+    static void ftime(const char *fmt, const struct tm *tm) {
+        char buf[128];
+        errno = 0;
+        size_t n = strftime(buf, sizeof buf, fmt, tm);
+        out("[%s] %zu errno=%d\n", buf, n, errno);
+    }
+    """
+
+@test("gmtime: the Epoch, a second before it, and dates written out by hand")
+gmtime_vectors()
+    c_case(raw"""
+        at(0);
+        at(-1);
+        at(951782400);
+        at(1000000000);
+        at(1234567890);
+        at(2147483647);
+        at(-2147483648L);
+        at(-2203891200L);
+        at(4107456000L);
+        at(4107542400L);
+        """, raw"""
+        0: 1970-01-01 00:00:00 wday=4 yday=0 isdst=0 gmtoff=0 zone=UTC
+        -1: 1969-12-31 23:59:59 wday=3 yday=364 isdst=0 gmtoff=0 zone=UTC
+        951782400: 2000-02-29 00:00:00 wday=2 yday=59 isdst=0 gmtoff=0 zone=UTC
+        1000000000: 2001-09-09 01:46:40 wday=0 yday=251 isdst=0 gmtoff=0 zone=UTC
+        1234567890: 2009-02-13 23:31:30 wday=5 yday=43 isdst=0 gmtoff=0 zone=UTC
+        2147483647: 2038-01-19 03:14:07 wday=2 yday=18 isdst=0 gmtoff=0 zone=UTC
+        -2147483648: 1901-12-13 20:45:52 wday=5 yday=346 isdst=0 gmtoff=0 zone=UTC
+        -2203891200: 1900-03-01 00:00:00 wday=4 yday=59 isdst=0 gmtoff=0 zone=UTC
+        4107456000: 2100-02-28 00:00:00 wday=0 yday=58 isdst=0 gmtoff=0 zone=UTC
+        4107542400: 2100-03-01 00:00:00 wday=1 yday=59 isdst=0 gmtoff=0 zone=UTC
+        """, shows)
+
+@test("gmtime: year 1, the year -400, far years, and a time whose year int cannot hold")
+gmtime_far()
+    c_case(raw"""
+        at(-62135596800L);
+        at(-62135596801L);
+        at(-74790000000L);
+        at(253402300799L);
+        at(253402300800L);
+        at(1000000000000L);
+        at(67768036191676799L);
+        at(67768036191676800L);
+        at(-67768040609740800L);
+        at(-67768040609740801L);
+        at(LONG_MAX);
+        at(LONG_MIN);
+        """, raw"""
+        -62135596800: 1-01-01 00:00:00 wday=1 yday=0 isdst=0 gmtoff=0 zone=UTC
+        -62135596801: 0-12-31 23:59:59 wday=0 yday=365 isdst=0 gmtoff=0 zone=UTC
+        -74790000000: -400-01-01 00:00:00 wday=6 yday=0 isdst=0 gmtoff=0 zone=UTC
+        253402300799: 9999-12-31 23:59:59 wday=5 yday=364 isdst=0 gmtoff=0 zone=UTC
+        253402300800: 10000-01-01 00:00:00 wday=6 yday=0 isdst=0 gmtoff=0 zone=UTC
+        1000000000000: 33658-09-27 01:46:40 wday=5 yday=269 isdst=0 gmtoff=0 zone=UTC
+        67768036191676799: 2147485547-12-31 23:59:59 wday=3 yday=364 isdst=0 gmtoff=0 zone=UTC
+        67768036191676800: null errno=75
+        -67768040609740800: -2147481748-01-01 00:00:00 wday=4 yday=0 isdst=0 gmtoff=0 zone=UTC
+        -67768040609740801: null errno=75
+        9223372036854775807: null errno=75
+        -9223372036854775808: null errno=75
+        """, shows)
+
+// An oracle that shares nothing with `time.sysl`'s arithmetic: month lengths and the leap rule,
+// stepped one day at a time, each day at a different second of the day.
+@test("gmtime and timegm agree with a day-by-day walk of the calendar from -400-01-01 to 9999-12-31")
+calendar_walk()
+    c_case(raw"""
+        long t = -74790000000L, y = -400, days = 0, bad = 0;
+        int m = 0, d = 1, wday = 6, yday = 0;
+        while (y < 10000) {
+            long s = (days * 7919) % 86400;
+            long at = t + s;
+            struct tm tm;
+            if (!gmtime_r(&at, &tm) || tm.tm_year != y - 1900 || tm.tm_mon != m || tm.tm_mday != d ||
+                tm.tm_wday != wday || tm.tm_yday != yday || tm.tm_hour != s / 3600 ||
+                tm.tm_min != s / 60 % 60 || tm.tm_sec != s % 60 || timegm(&tm) != at) {
+                if (bad++ < 3) out("bad at %ld\n", at);
+            }
+            int leap = (y % 4 == 0 && y % 100 != 0) || y % 400 == 0;
+            int len = m == 1 ? 28 + leap : (m == 3 || m == 5 || m == 8 || m == 10) ? 30 : 31;
+            t += 86400, days++, wday = (wday + 1) % 7, yday++;
+            if (++d > len) {
+                d = 1;
+                if (++m == 12) m = 0, y++, yday = 0;
+            }
+        }
+        out("days=%ld bad=%ld\n", days, bad);
+        """, "days=3798522 bad=0\n", shows)
+
+@test("timegm(gmtime(t)) is t over a fixed-seed spread of ten thousand times either side of the Epoch")
+round_trip()
+    c_case(raw"""
+        unsigned long long x = 20261016;
+        int ok = 0;
+        for (int i = 0; i < 10000; i++) {
+            x = x * 6364136223846793005ULL + 1442695040888963407ULL;
+            long t = (long)(x >> 22) - (1L << 41);
+            struct tm tm;
+            if (gmtime_r(&t, &tm) && tm.tm_sec >= 0 && tm.tm_sec < 60 && tm.tm_min >= 0 && tm.tm_min < 60 &&
+                tm.tm_hour >= 0 && tm.tm_hour < 24 && tm.tm_mday >= 1 && tm.tm_mday <= 31 &&
+                tm.tm_mon >= 0 && tm.tm_mon < 12 && tm.tm_wday >= 0 && tm.tm_wday < 7 &&
+                tm.tm_yday >= 0 && tm.tm_yday < 366 && timegm(&tm) == t)
+                ok++;
+        }
+        say_int(ok);
+        """, "10000\n", shows)
+
+@test("mktime normalises month 13, day 0, second 60 and -1, a negative month and a day past the year")
+mktime_normalises()
+    c_case(raw"""
+        normalise(2023, 13, 1, 0, 0, 0);
+        normalise(2024, 3, 0, 12, 0, 0);
+        normalise(2023, 3, 0, 12, 0, 0);
+        normalise(2016, 12, 31, 23, 59, 60);
+        normalise(2000, 1, 1, 0, 0, -1);
+        normalise(2024, 0, 15, 0, 0, 0);
+        normalise(2023, 1, 366, 0, 0, 0);
+        normalise(1970, 1, 1, 0, -1, 0);
+        normalise(2024, 2, 28, 47, 120, 3600);
+        normalise(1970, 1, 1, 0, 0, 0);
+        """, raw"""
+        1704067200 errno=0 2024-01-01 00:00:00 wday=1 yday=0 isdst=0 gmtoff=0 zone=UTC
+        1709208000 errno=0 2024-02-29 12:00:00 wday=4 yday=59 isdst=0 gmtoff=0 zone=UTC
+        1677585600 errno=0 2023-02-28 12:00:00 wday=2 yday=58 isdst=0 gmtoff=0 zone=UTC
+        1483228800 errno=0 2017-01-01 00:00:00 wday=0 yday=0 isdst=0 gmtoff=0 zone=UTC
+        946684799 errno=0 1999-12-31 23:59:59 wday=5 yday=364 isdst=0 gmtoff=0 zone=UTC
+        1702598400 errno=0 2023-12-15 00:00:00 wday=5 yday=348 isdst=0 gmtoff=0 zone=UTC
+        1704067200 errno=0 2024-01-01 00:00:00 wday=1 yday=0 isdst=0 gmtoff=0 zone=UTC
+        -60 errno=0 1969-12-31 23:59:00 wday=3 yday=364 isdst=0 gmtoff=0 zone=UTC
+        1709258400 errno=0 2024-03-01 02:00:00 wday=5 yday=60 isdst=0 gmtoff=0 zone=UTC
+        0 errno=0 1970-01-01 00:00:00 wday=4 yday=0 isdst=0 gmtoff=0 zone=UTC
+        """, shows)
+
+@test("mktime and timegm refuse a year int cannot hold with EOVERFLOW and leave the fields alone")
+mktime_overflow()
+    c_case(raw"""
+        struct tm tm = fields(2000, 1, 1, 0, 0, 0);
+        tm.tm_year = INT_MAX, tm.tm_mon = 12;
+        errno = 0;
+        long t = mktime(&tm);
+        out("%ld errno=%d year=%d mon=%d\n", t, errno, tm.tm_year, tm.tm_mon);
+        tm.tm_year = INT_MAX, tm.tm_mon = 11, tm.tm_mday = 31, tm.tm_hour = 23, tm.tm_min = 59, tm.tm_sec = 59;
+        errno = 0;
+        out("%ld errno=%d\n", timegm(&tm), errno);
+        """, raw"""
+        -1 errno=75 year=2147483647 mon=12
+        67768036191676799 errno=0
+        """, shows)
+
+@test("localtime and localtime_r are UTC; gmtime and localtime share one structure")
+localtime_is_utc()
+    c_case(raw"""
+        long t = 1709647629;
+        struct tm mine;
+        show(localtime_r(&t, &mine));
+        struct tm *a = gmtime(&t);
+        struct tm *b = localtime(&t);
+        say_int(a == b);
+        show(b);
+        tzset();
+        show(localtime(&t));
+        """, raw"""
+        2024-03-05 14:07:09 wday=2 yday=64 isdst=0 gmtoff=0 zone=UTC
+        1
+        2024-03-05 14:07:09 wday=2 yday=64 isdst=0 gmtoff=0 zone=UTC
+        2024-03-05 14:07:09 wday=2 yday=64 isdst=0 gmtoff=0 zone=UTC
+        """, shows)
+
+@test("difftime subtracts in double, without overflow where the signs differ")
+difftime_cases()
+    c_case(raw"""
+        out("%.1f %.1f %.1f\n", difftime(10, 3), difftime(3, 10), difftime(LONG_MAX, LONG_MIN));
+        """, "7.0 -7.0 18446744073709551616.0\n", shows)
+
+@test("strftime: every conversion POSIX lists, in the C locale")
+strftime_every_conversion()
+    c_case(raw"""
+        long t = 1709647629;
+        struct tm tm;
+        gmtime_r(&t, &tm);
+        ftime("%a|%A|%b|%B|%h", &tm);
+        ftime("%c", &tm);
+        ftime("%C|%d|%D|%e|%F", &tm);
+        ftime("%g|%G|%V|%U|%W|%u|%w|%j", &tm);
+        ftime("%H|%I|%M|%S|%p|%m|%y|%Y", &tm);
+        ftime("%r|%R|%T|%x|%X", &tm);
+        ftime("%s|%z|%Z|%%", &tm);
+        char buf[8];
+        out("%zu %d %d %d %d\n", strftime(buf, sizeof buf, "<%n%t>", &tm), buf[0], buf[1], buf[2], buf[3]);
+        ftime("%Ec|%EC|%Ex|%EX|%Ey|%EY", &tm);
+        ftime("%Ob|%OB|%Od|%Oe|%OH|%OI|%Om|%OM|%OS|%Ou|%OU|%OV|%Ow|%OW|%Oy", &tm);
+        """, raw"""
+        [Tue|Tuesday|Mar|March|Mar] 25 errno=0
+        [Tue Mar  5 14:07:09 2024] 24 errno=0
+        [20|05|03/05/24| 5|2024-03-05] 28 errno=0
+        [24|2024|10|09|10|2|2|065] 24 errno=0
+        [14|02|07|09|PM|03|24|2024] 25 errno=0
+        [02:07:09 PM|14:07|14:07:09|03/05/24|14:07:09] 44 errno=0
+        [1709647629|+0000|UTC|%] 22 errno=0
+        4 60 10 9 62
+        [Tue Mar  5 14:07:09 2024|20|03/05/24|14:07:09|24|2024] 53 errno=0
+        [Mar|March|05| 5|14|02|03|07|09|2|09|10|2|10|24] 46 errno=0
+        """, shows)
+
+@test("strftime: every weekday and month name, midnight and noon on the 12-hour clock")
+strftime_names_and_hours()
+    c_case(raw"""
+        struct tm tm = fields(2024, 1, 1, 0, 0, 0);
+        for (int i = 0; i < 7; i++) {
+            tm.tm_wday = i;
+            ftime("%a %A", &tm);
+        }
+        for (int i = 0; i < 12; i++) {
+            tm.tm_mon = i;
+            ftime("%b %B", &tm);
+        }
+        tm.tm_wday = 7, tm.tm_mon = -1;
+        ftime("%a %A %b %B", &tm);
+        int hours[] = {0, 1, 11, 12, 13, 23};
+        for (int i = 0; i < 6; i++) {
+            tm.tm_hour = hours[i];
+            ftime("%H %I %p", &tm);
+        }
+        """, raw"""
+        [Sun Sunday] 10 errno=0
+        [Mon Monday] 10 errno=0
+        [Tue Tuesday] 11 errno=0
+        [Wed Wednesday] 13 errno=0
+        [Thu Thursday] 12 errno=0
+        [Fri Friday] 10 errno=0
+        [Sat Saturday] 12 errno=0
+        [Jan January] 11 errno=0
+        [Feb February] 12 errno=0
+        [Mar March] 9 errno=0
+        [Apr April] 9 errno=0
+        [May May] 7 errno=0
+        [Jun June] 8 errno=0
+        [Jul July] 8 errno=0
+        [Aug August] 10 errno=0
+        [Sep September] 13 errno=0
+        [Oct October] 11 errno=0
+        [Nov November] 12 errno=0
+        [Dec December] 12 errno=0
+        [? ? ? ?] 7 errno=0
+        [00 12 AM] 8 errno=0
+        [01 01 AM] 8 errno=0
+        [11 11 AM] 8 errno=0
+        [12 12 PM] 8 errno=0
+        [13 01 PM] 8 errno=0
+        [23 11 PM] 8 errno=0
+        """, shows)
+
+// 2021-01-01 is a Friday in 2020's week 53; 2018-12-31 a Monday in 2019's week 1; 2020-12-31 a
+// Thursday in 2020's week 53; 2023-01-01 a Sunday, week 1 of %U and week 0 of %W; 2026-12-31 a
+// Thursday in 2026's week 53, 2027-01-01 a Friday in it too.
+@test("strftime: ISO 8601 week-based years and weeks at the year's edges, and %U and %W")
+strftime_weeks()
+    c_case(raw"""
+        int dates[][3] = {{2021, 1, 1}, {2018, 12, 31}, {2020, 12, 31}, {2023, 1, 1}, {2026, 12, 31},
+                          {2027, 1, 1}, {2027, 1, 4}, {2004, 1, 1}, {2009, 12, 31}, {2010, 1, 3}};
+        for (int i = 0; i < 10; i++) {
+            struct tm tm = fields(dates[i][0], dates[i][1], dates[i][2], 0, 0, 0);
+            timegm(&tm);
+            ftime("%F %a %G-W%V-%u %g %U %W", &tm);
+        }
+        """, raw"""
+        [2021-01-01 Fri 2020-W53-5 20 00 00] 34 errno=0
+        [2018-12-31 Mon 2019-W01-1 19 52 53] 34 errno=0
+        [2020-12-31 Thu 2020-W53-4 20 52 52] 34 errno=0
+        [2023-01-01 Sun 2022-W52-7 22 01 00] 34 errno=0
+        [2026-12-31 Thu 2026-W53-4 26 52 52] 34 errno=0
+        [2027-01-01 Fri 2026-W53-5 26 00 00] 34 errno=0
+        [2027-01-04 Mon 2027-W01-1 27 01 01] 34 errno=0
+        [2004-01-01 Thu 2004-W01-4 04 00 00] 34 errno=0
+        [2009-12-31 Thu 2009-W53-4 09 52 52] 34 errno=0
+        [2010-01-03 Sun 2009-W53-7 09 01 00] 34 errno=0
+        """, shows)
+
+@test("strftime: %z and %Z from tm_gmtoff and tm_zone, and nothing for either where tm_isdst is negative")
+strftime_zone()
+    c_case(raw"""
+        struct tm tm = fields(2024, 3, 5, 14, 7, 9);
+        tm.tm_isdst = 0, tm.tm_gmtoff = -18000, tm.tm_zone = "EST";
+        ftime("%z %Z", &tm);
+        tm.tm_gmtoff = 19800, tm.tm_zone = "IST";
+        ftime("%z %Z", &tm);
+        tm.tm_gmtoff = -1800, tm.tm_zone = 0;
+        ftime("%z %Z", &tm);
+        tm.tm_isdst = -1;
+        ftime("<%z%Z>", &tm);
+        """, raw"""
+        [-0500 EST] 9 errno=0
+        [+0530 IST] 9 errno=0
+        [-0030 UTC] 9 errno=0
+        [<>] 2 errno=0
+        """, shows)
+
+@test("strftime: years before 1000, past 9999 and before 0, with and without the 0 and + flags and a width")
+strftime_years()
+    c_case(raw"""
+        int years[] = {2024, 1, 999, 12345, -1, 0};
+        for (int i = 0; i < 6; i++) {
+            struct tm tm = fields(years[i], 3, 5, 0, 0, 0);
+            ftime("%Y|%C|%y|%F|%+6Y|%06Y|%+4Y|%+3C|%05Y|%+12F|%010F", &tm);
+        }
+        """, raw"""
+        [2024|20|24|2024-03-05|+02024|002024|2024|+20|02024|+02024-03-05|2024-03-05] 74 errno=0
+        [0001|00|01|0001-03-05|+00001|000001|0001|+00|00001|+00001-03-05|0001-03-05] 74 errno=0
+        [0999|09|99|0999-03-05|+00999|000999|0999|+09|00999|+00999-03-05|0999-03-05] 74 errno=0
+        [+12345|123|45|+12345-03-05|+12345|012345|+12345|+123|12345|+12345-03-05|12345-03-05] 83 errno=0
+        [-001|00|01|-001-03-05|-00001|-00001|-001|-00|-0001|-00001-03-05|-001-03-05] 74 errno=0
+        [0000|00|00|0000-03-05|+00000|000000|0000|+00|00000|+00000-03-05|0000-03-05] 74 errno=0
+        """, shows)
+
+@test("strftime: a buffer one byte short answers 0 with ERANGE; an exact fit answers the length")
+strftime_buffer()
+    c_case(raw"""
+        struct tm tm = fields(2024, 3, 5, 14, 7, 9);
+        char buf[16];
+        errno = 0;
+        out("%zu errno=%d [%s]\n", strftime(buf, 8, "%Y-%m", &tm), errno, buf);
+        errno = 0;
+        out("%zu errno=%d\n", strftime(buf, 7, "%Y-%m", &tm), errno);
+        errno = 0;
+        out("%zu errno=%d\n", strftime(buf, 1, "x", &tm), errno);
+        errno = 0;
+        out("%zu errno=%d [%s]\n", strftime(buf, 1, "", &tm), errno, buf);
+        errno = 0;
+        out("%zu errno=%d\n", strftime(buf, 0, "", &tm), errno);
+        errno = 0;
+        out("%zu errno=%d\n", strftime_l(buf, sizeof buf, "%T", &tm, (locale_t)0), errno);
+        say_str(buf);
+        """, raw"""
+        7 errno=0 [2024-03]
+        0 errno=34
+        0 errno=34
+        0 errno=0 []
+        0 errno=34
+        8 errno=0
+        14:07:09
+        """, shows)
+
+@test("strftime: a conversion the standard does not define, or a lone % at the end, answers 0")
+strftime_unknown()
+    c_case(raw"""
+        struct tm tm = fields(2024, 3, 5, 14, 7, 9);
+        char buf[16];
+        errno = 0;
+        out("%zu errno=%d\n", strftime(buf, sizeof buf, "a%Qb", &tm), errno);
+        out("%zu errno=%d\n", strftime(buf, sizeof buf, "ab%", &tm), errno);
+        """, raw"""
+        0 errno=0
+        0 errno=0
+        """, shows)
+
+// `tests/qemu/clock.c` defines a fixed `clock_gettime`; `time`, `clock`, `timespec_get` and the
+// calendar run on a Cortex-M4F, where `time_t` is 32 bits.
+@test("on QEMU's MPS2 AN386 time, clock and timespec_get read a board's clock_gettime, and the calendar holds at 32 bits")
+board_clock()
+    qemu_run("tests/qemu/archive", "clock", "clock: ok\n", "thumbv7em-freestanding",
+             ["--target=thumbv7em-none-eabihf", "-mcpu=cortex-m4", "-mfpu=fpv4-sp-d16", "-mfloat-abi=hard"],
+             "start_thumb.s", "thumb.ld", "qemu-system-arm", ["-M", "mps2-an386"])

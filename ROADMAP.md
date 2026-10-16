@@ -24,8 +24,8 @@ How it is checked:
 
 1. **`errno` as a thread-local macro**, in place of today's plain `extern int errno`.
 2. **The OS-facing headers**, one per item: stdio's `FILE` layer (buffered over `read`/`write`, with
-   memory streams in the core), `unistd.h`, `fcntl.h`, `sys/stat.h`, `time.h` (with `struct tm` and
-   `timegm`), `signal.h`. Each new operating-system call gets its weak `ENOSYS` default in
+   memory streams in the core), `unistd.h`, `fcntl.h`, `sys/stat.h`, `signal.h` (`time.h` is done,
+   but for `tzname`, FINDINGS.md 4). Each new operating-system call gets its weak `ENOSYS` default in
    `stubs.sysl` beside its Linux definition.
 3. **`brk`/`sbrk` out of `unistd.h`**, into a header of cstd's own.
 4. **The headers busybox adds**, in the order a trial build asks for them.
