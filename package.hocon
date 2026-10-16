@@ -8,7 +8,7 @@
 // This is the block a consumer writes to reach it:
 //
 //     dependencies {
-//       cstd { git = "github.com/sysl-lang/cstd", version = "0.1.1", if = "!libc" }
+//       cstd { git = "github.com/sysl-lang/cstd", version = "0.1.2", if = "!libc" }
 //     }
 //
 // `if = "!libc"` takes cstd only where the machine has no C library under the program: on a board
@@ -18,7 +18,7 @@
 
 package {
   name    = "cstd"
-  version = "0.1.1"
+  version = "0.1.2"
 }
 
 // `include/` is the C standard library's headers. Where the target has no libc, every dependent's C
