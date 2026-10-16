@@ -1,0 +1,80 @@
+module sh.sysl.cstd
+
+@tests
+
+// `errno` (`errno.sysl`): reached through `__errno_location` and the header's macro, one copy per
+// thread wherever the build has thread-local storage, one object on a board, and the Linux half's
+// first thread given its block before anything reads it.
+
+import sysl.buf.{Buf, buf}
+import sysl.process.capture
+import sysl.testing.skip
+import sysl.text.Search
+
+// The host's threads, declared by hand: the case is compiled against cstd's headers alone, and
+// cstd has no `<pthread.h>`. Both Darwin's `pthread_t` and glibc's are one pointer-sized word.
+private val pthreads: string = raw"""
+    typedef void *pthread_t;
+    int pthread_create(pthread_t *, const void *, void *(*)(void *), void *);
+    int pthread_join(pthread_t, void **);
+
+    // A second thread's errno: it starts at zero whatever the first thread's holds, takes its own
+    // value, and lives somewhere else.
+    static void *other(void *first) {
+        int started = errno;
+        errno = 11;
+        return (void *)(long)(started == 0 && errno == 11 && &errno != (int *)first);
+    }
+    """
+
+@test("on the host each thread has its own errno, reached through the header's macro")
+errno_is_per_thread()
+    c_case(raw"""
+        errno = 22;
+        pthread_t t;
+        void *answer = 0;
+        say_int(pthread_create(&t, 0, other, &errno));
+        say_int(pthread_join(t, &answer));
+        say_int((long)answer);
+        say_int(errno);
+        say_ptr_eq(&errno, __errno_location());
+        """, raw"""
+        0
+        0
+        1
+        22
+        1
+        """, pthreads)
+
+// Homebrew's LLVM, whose objdump knows RISC-V and AArch64 ELF as well as Arm.
+private val objdump: string = "/opt/homebrew/opt/llvm/bin/llvm-objdump"
+
+private dump(project: string, target: string, name: string, flags: []string) -> string
+    if absent(objdump) then skip(f"$objdump is not on this machine")
+    val _ = global_symbols(project, target, name)
+    var args: Buf[string] = buf()
+    for f in flags do args.push(f)
+    args.push(f".sysl/stubs-tests/$name-$target/lib$name.a")
+    val listed = capture(objdump, args.view(), stderr = true).unwrap()
+    assert(listed.status.ok(), listed.err.unwrap_or(""))
+    listed.text
+
+@test("in the Linux half errno is thread-local, read off tpidr_el0, and cstd_start sets that register")
+linux_half_errno_is_thread_local()
+    val table = dump("linux", "aarch64-freestanding", "cstd_linux", ["-t"])
+    assert(table.contains(".tbss..Lcstd.sh.sysl.cstd$errno"), table)
+    val code = dump("linux", "aarch64-freestanding", "cstd_linux", ["-d"])
+    assert(code.contains("mrs\tx8, TPIDR_EL0"), code)
+    assert(code.contains("msr\tTPIDR_EL0"), code)
+
+// On a board `__errno_location` answers an ordinary address: no thread-pointer-relative relocation
+// in it (`R_ARM_TLS_*`, `R_RISCV_TPREL_*`), and nothing thread-local in the archive. riscv32 merges
+// the storage into its small-data globals, so the code is what is read, not a symbol of errno's own.
+@test("on thumbv7em and riscv32 errno is one object, not thread-local")
+board_errno_is_one_object()
+    for target in ["thumbv7em-freestanding", "riscv32-freestanding"]
+        val code = dump("tests/qemu/archive", target, "cstd", ["-dr", "--disassemble-symbols=__errno_location"])
+        assert(code.contains("<__errno_location>:"), f"$target:\n$code")
+        assert(!code.contains("TLS") && !code.contains("TPREL"), f"$target:\n$code")
+        val table = dump("tests/qemu/archive", target, "cstd", ["-t"])
+        assert(!table.contains(".tbss"), f"$target has thread-local storage")

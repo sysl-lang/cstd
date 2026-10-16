@@ -186,5 +186,11 @@ variables, and every function in the portable half setting the wrong one); a man
 consumer has to remember to turn on (the silent loss finding 3 describes); naming a thread pointer in
 the portable package's own manifest, which would make every bare AArch64 consumer give up a register.
 
-**Status: reported to sysl; held.** Branch `errno` carries `__errno_location`, the macro, the probe
-spelling above and the Linux half's `thread_pointer`, and is not merged.
+**Fixed in sysl 0.1.4** by the `#if` symbol `thread_local`: true on a hosted target, and on bare
+AArch64 when the root manifest names a `thread_pointer`. `errno.sysl` writes `#if thread_local` over
+`@thread_local`, and `errno_tests.sysl` checks all three builds.
+
+The same work found that a build taking a package with `c const` probes (cstd) on a machine with no
+operating system emptied every `@requires(os)` standard module, so `sysl.threads.tls_place`, which the
+Linux half's `_start` needs to lay the first thread's block, read as `'sysl.threads' declares no
+'tls_place'`. Also fixed in 0.1.4.

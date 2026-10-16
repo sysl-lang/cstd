@@ -27,6 +27,8 @@ targets {
   }
 }
 
+// Linux gives every thread its own `tpidr_el0`, so `errno` is thread-local here; `_start` lays the
+// first thread's block and points the register at it.
 codegen {
   thread_pointer = "tpidr_el0"
 }

@@ -935,8 +935,8 @@ the Summary, which covers POSIX alone. The other eighteen headers are POSIX head
 
 ## Declarations that disagree
 
-- **`errno`.** `errno.h` declares `extern int errno;`. POSIX requires a *macro* `errno` that "shall
-  expand to a modifiable lvalue of type int" with "thread local storage duration".
+- **`errno`** has thread-local storage duration only where the build has thread-local storage: on
+  a board it is one object. It is POSIX's macro, `(*__errno_location())`, everywhere.
 - **`brk`, `sbrk`** in `unistd.h` are not in POSIX.1-2024's `<unistd.h>`.
 - Every other declared prototype matches the standard's (parameter names aside; cstd writes
   `__restrict` for `restrict` so the headers also read as C++, which is equivalent).
@@ -954,8 +954,9 @@ the Summary, which covers POSIX alone. The other eighteen headers are POSIX head
 4. The `FILE` layer: its buffering, where `stdin`/`stdout`/`stderr` come from on a board, whether
    `printf`/`vprintf` become `fprintf(stdout, …)` while `dprintf` stays over `write`, and whether the
    memory-only parts (`sscanf`, `fmemopen`, `open_memstream`) sit in the core.
-5. `errno` as POSIX's macro over a thread-local lvalue: how that is expressed on each target, against
-   today's plain `extern int errno`.
+5. `errno` as POSIX's macro over a thread-local lvalue: settled. The macro is `(*__errno_location())`,
+   as in glibc and musl, and the storage is `@thread_local` under sysl's `#if thread_local`, a plain
+   object on a board.
 6. Process, signal, timer, id and terminal functions: which of them keel's system calls can answer,
    and what the Linux half does for the ones it cannot (fail with `ENOSYS`, or leave them out).
 7. `brk` and `sbrk`: whether `unistd.h` keeps declaring these non-POSIX names or they move to a header
