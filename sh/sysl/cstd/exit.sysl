@@ -1,0 +1,65 @@
+module sh.sysl.cstd
+
+// How a program ends. The `atexit` table is the same on every machine, so it lives here and both
+// ends of the library use it: cstd's Linux half registers and runs its handlers through it, and on a
+// bare-metal target the weak defaults below do.
+//
+// A board has no process to end and no signal to raise, so its defaults are traps: `abort` and
+// `_Exit` stop the processor where they are, and `exit` runs the handlers first. A board that can
+// do better — semihosting's exit, a reset, a power-off — defines `_Exit` and `_exit` strongly, and
+// `exit` ends through its `_Exit`.
+
+// How many handlers `atexit` keeps. C requires room for at least 32.
+const ATEXIT_MAX: usize = 32
+
+private var handlers: [ATEXIT_MAX]*extern() -> unit
+private var registered: usize = 0
+
+// Adds `f` to the handlers `exit` runs: 0, or -1 when all `ATEXIT_MAX` places are taken.
+atexit_register(f: *extern() -> unit) -> i32
+    if registered == ATEXIT_MAX then return -1
+    handlers[registered] = f
+    registered += 1
+    0
+
+// Runs every registered handler, last registered first. Each runs once, even one that calls `exit`
+// again: it is taken off the list before it is called.
+run_atexit_handlers()
+    while registered > 0
+        registered -= 1
+        handlers[registered]()
+
+#if freestanding
+
+// The processor's undefined instruction, which faults; where a machine has none, it spins.
+private machine_trap() -> never
+    loop
+        asm
+            [thumb]            "udf #0"
+            [aarch64]          "udf #0"
+            [riscv32, riscv64] "unimp"
+            [x86_64]           "ud2"
+            [craft]
+            [wasm32]
+
+@export("atexit", weak)
+board_atexit(f: *extern() -> unit) -> i32 = atexit_register(f)
+
+private extern "_Exit" c_Exit(status: i32) -> never
+
+@export("exit", weak)
+board_exit(status: i32) -> never
+    run_atexit_handlers()
+    c_Exit(status)
+
+// A trap rather than a spin: a debugger stops on it, and a board's fault handler sees it.
+@export("_Exit", weak)
+board_Exit(status: i32) -> never = machine_trap()
+
+@export("_exit", weak)
+board_exit_now(status: i32) -> never = machine_trap()
+
+@export("abort", weak)
+board_abort() -> never = machine_trap()
+
+#endif

@@ -1,6 +1,8 @@
-// A board's package: it takes cstd as its C library, as a board does, and its C supplies the one
-// operating-system call the board has, a strong `write` to the debug console. cstd's own `write` is
-// a weak ENOSYS default, so the link keeps this one; every other call stays cstd's default.
+// A board's package: it takes cstd as its C library, as a board does, and its C supplies what the
+// board has: a strong `write` to the debug console and `_Exit`/`_exit` through semihosting
+// (`board.c`), and `sbrk` over a static array (`board_heap.c`, linked only where the program calls
+// `board_heap_init`). cstd's own definitions are weak defaults, so the link keeps these; every other
+// call stays cstd's default.
 // `sh/sysl/cstd/stubs_tests.sysl` builds it for a Cortex-M and runs it under QEMU.
 
 package {
@@ -15,6 +17,6 @@ dependencies {
 c {
   board {
     root    = "c"
-    sources = ["board.c"]
+    sources = ["board.c", "board_heap.c"]
   }
 }

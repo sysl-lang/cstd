@@ -206,8 +206,10 @@ own `write` and `malloc`, which these would replace.
 Each call is one `svc #0` (x8 the number, x0–x5 the arguments); an answer from -4095 to -1 sets
 `errno` and answers -1. `errno`'s numbers are Linux's.
 
-`malloc` is `sh.sysl.cstd`'s `Heap` (`heap.sysl`, tested on the host with an array standing in for
-the break) over `brk`: first fit from an address-ordered free list, freed neighbours merged at once,
+`malloc` is `sh.sysl.cstd`'s `BreakHeap` (`malloc.sysl`), the same allocator a board's defaults
+are, over this half's `sbrk`; its bookkeeping is `Heap` (`heap.sysl`, tested on the host with an
+array standing in for the break). The break moves 64 KiB at a time where the kernel allows it, and
+by exactly what is needed where it does not. First fit from an address-ordered free list, freed neighbours merged at once,
 16-byte aligned payloads, `realloc` in place where the block can be cut, can take its free
 neighbour, or is the last before the break. **It is not thread-safe**: one heap, no lock, until
 pthreads arrive. A program that moves the break itself after its first `malloc` gets `ENOMEM` from
@@ -233,6 +235,18 @@ static linker does not pull an archive member in to replace
 a weak definition it already has, so a definition in a board's C is kept where something else in that
 file is linked too — its startup code, or a function the board calls. A hosted target has none of
 the defaults: its calls are the host libc's.
+
+The `stdlib.h` row is defaulted too, so a board program links with nothing of its own — sysl's
+runtime reaches `malloc`, `free` and `abort` for any sysl code that allocates or traps:
+
+| function | the default |
+|---|---|
+| `malloc` `calloc` `realloc` `free` | the same `Heap` as the Linux half, growing through `sbrk` (`malloc.sysl`). With cstd's own `sbrk` every allocation is null with `ENOMEM`; a board that defines `sbrk` over its heap region has a working allocator with nothing else written. The heap grows 4 KiB at a time where the region has room, and by exactly what it needs where it does not |
+| `atexit` `exit` | the Linux half's 32-slot table, which lives in the core and serves both (`exit.sysl`); `exit` runs the handlers last first and then calls `_Exit` |
+| `_Exit` `_exit` `abort` | trap: the processor's undefined instruction (`udf` on Arm), so a debugger stops there and the board's fault handler sees it, rather than a spin nothing reports. A board that can end a run — semihosting, a reset — defines `_Exit` and `_exit`, and `exit` ends through them |
+
+The four allocation functions are one allocator: a board with its own replaces all four, since cstd's
+`realloc` and `free` only understand blocks cstd's `malloc` handed out.
 
 ## Using it from C
 
@@ -350,6 +364,16 @@ shadow is cleared without cstd doing anything.
 strong `write` over semihosting — prints through the board's `write` and sees every other call answer
 its failure value with `errno` ENOSYS. Making the default `write` strong turns that link into
 `duplicate symbol: write`.
+
+**The allocator and exit defaults** are checked by `board_defaults_tests.sysl`, the same way: `W` on
+thumbv7em and `T` alone in the Linux half for all nine; on `mps2-an386`, `tests/qemu/heap.c` with the
+board's `sbrk` over an 8 KiB array (`tests/board_probe/c/board_heap.c`) writes and reads back,
+sees `calloc` zero a reused block, `realloc` keep the bytes as it moves, `free` then `malloc` reuse
+the block, `ENOMEM` past the region and from an overflowing `calloc`, and 32 `atexit` handlers (a 33rd
+refused) run last first by `exit` before the board's `_Exit`; `tests/qemu/nosbrk.c`, which leaves the
+board's `sbrk` out of the link, sees `malloc`, `calloc` and `realloc` answer null with `ENOMEM`; and
+`tests/qemu/sysl_alloc.c` links `tests/alloc_probe` — sysl code filling a growable buffer — into a
+whole image with no `malloc`, `free` or `abort` of its own and gets the right sum.
 
 ## What is deliberately absent, and why
 
