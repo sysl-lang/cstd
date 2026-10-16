@@ -188,7 +188,8 @@ The page's macros are all defined: `fpclassify`, `isfinite`, `isinf`, `isnan`, `
 and the six quiet comparisons as the compiler's generic builtins; `HUGE_VAL`, `HUGE_VALF`,
 `HUGE_VALL`, `INFINITY`, `NAN`; `FP_INFINITE`, `FP_NAN`, `FP_NORMAL`, `FP_SUBNORMAL`, `FP_ZERO`,
 `FP_ILOGB0` and `FP_ILOGBNAN` (both `INT_MIN`); `MATH_ERRNO`, `MATH_ERREXCEPT`, and `math_errhandling`,
-which is `MATH_ERRNO`. `FP_FAST_FMA` is not defined: `fma` is computed in integer arithmetic. The types
+which is `MATH_ERRNO`. `FP_FAST_FMA` is not defined: `fma` is the machine's fused instruction only where the target has
+one, and integer arithmetic elsewhere. The types
 `float_t` and `double_t` are `float` and `double` (`FLT_EVAL_METHOD` 0 on every target). The [XSI]
 constants `M_E` to `M_SQRT1_3` and their `l` forms are defined too, though out of scope.
 
@@ -388,7 +389,7 @@ The [XSI] variable `signgam`, which `lgamma` sets on an XSI system, is not defin
 | siglongjmp | CX | done (core) | | core |
 | sigsetjmp | CX | done (core) | | core |
 
-Written for aarch64, thumb without a floating-point unit, and riscv32 without F; the header refuses to
+Written for aarch64, thumb (saving s16–s31 where the target has them), and riscv32 without F; the header refuses to
 compile anywhere else (see the README). `sigsetjmp` with a non-zero `savemask` reads and restores the
 mask through an external `sigprocmask`, which the platform supplies as it supplies `write`; cstd's own
 `sigprocmask` comes with `<signal.h>`'s functions. `jmp_buf` and `sigjmp_buf` are one type.

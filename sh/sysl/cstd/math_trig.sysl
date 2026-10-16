@@ -19,7 +19,7 @@ module sh.sysl.cstd
 //     provided that this notice is preserved.
 
 private val toint_rem: real = 6755399441055744.0                // 1.5 / DBL_EPSILON
-private val pio4: real = 0.7853981633974483                    // 0x1.921fb54442d18p-1
+private val pio4: real = 0x1.921fb54442d18p-1
 private val invpio2: real = 6.36619772367581382433e-1           // 0x3FE45F30 0x6DC9C883
 private val pio2_1: real = 1.57079632673412561417e0             // 0x3FF921FB 0x54400000
 private val pio2_1t: real = 6.07710050650619224932e-11          // 0x3DD0B461 0x1A626331

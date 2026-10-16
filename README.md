@@ -33,10 +33,8 @@ require, exported under its C name with `@export`.
 
 - **`setjmp` is assembly per processor** (`sh/sysl/cstd/setjmp.sysl`): aarch64 (x19–x30, sp,
   d8–d15; x18 left alone), thumb in Armv6-M's instructions so every Cortex-M runs it (r4–r11, sp,
-  lr), and riscv32 (ra, sp, s0–s11). `<setjmp.h>` refuses to compile anywhere else, and on a thumb
-  build with a floating-point unit (`__ARM_FP`: `thumb-freestanding`, `thumb-freestanding-softfp`,
-  `thumbv7em-freestanding`), because s16–s31 are not saved yet: an asm arm cannot tell those
-  targets from the ones without a unit. `longjmp` with 0 makes `setjmp` return 1.
+  lr, and s16–s31 where the target has floating-point registers, `#if fpu`), and riscv32 (ra, sp,
+  s0–s11). `<setjmp.h>` refuses to compile anywhere else. `longjmp` with 0 makes `setjmp` return 1.
 - `sigjmp_buf` is `jmp_buf`, and `siglongjmp` is `longjmp`. `sigsetjmp` with a non-zero `savemask`
   reads the mask, and puts it back after a `siglongjmp`, through an external `sigprocmask` that the
   platform supplies, as it supplies `write`. `sigsetjmp` sits in a section of its own, so a board
@@ -112,8 +110,10 @@ require, exported under its C name with `@export`.
   forms measure between 1.2 and 10 ulp, and its `tgamma` (Lanczos) and `acosh` for negative
   arguments are not used at all.
 - **Nothing calls a C library.** `sqrt` is AArch64's `fsqrt` or x86-64's `sqrtsd` through
-  `llvm.sqrt`, and elsewhere musl's integer square root; `fma` is musl's 128-bit integer version on
-  every target; the roundings are integer operations on the bits. A test checks the archive's
+  `llvm.sqrt`, and elsewhere musl's integer square root; `fma` and `fmaf` are the machine's fused
+  instruction through `llvm.fma` where it has one at that width (`#if fma_dp`, `#if fma`), and
+  elsewhere musl's 128-bit integer `fma` and a `fmaf` rounded to odd; the roundings are integer
+  operations on the bits. A test checks the archive's
   undefined symbols on the host, on 32-bit Arm and on AArch64.
 - **`float` computes in `double` and rounds once**, except where a function of its own is needed to
   be exact: `fmaf` rounds the double sum to odd before narrowing, which is correct even into float's
@@ -288,11 +288,18 @@ sysl build-lib . --target riscv32-freestanding
 sysl build-lib . --target aarch64-freestanding
 ```
 
+**cstd as a package's C library** is checked by `libc_probe_tests.sysl` over `tests/libc_probe`, a
+package that vendors a C file including `<string.h>`, `<ctype.h>`, `<inttypes.h>` and `<math.h>` and
+takes cstd with `if = "!libc"`. Built with `sysl build-c` for `thumbv7em-freestanding` and
+`riscv32-freestanding`, its archive must define `strlen`, `toupper`, `strtoimax` and `sqrt`; built for
+the host, where the real libc answers, it must define nothing but the probe's own symbols.
+
 The `setjmp` cases run on the host, which is aarch64: a jump across frames, 0 becoming 1, volatile
 locals, x19–x28 and d8–d15 overwritten by the skipped frames and put back, nested buffers, a
 hundred thousand jumps with the stack where it was, and `sigsetjmp`'s mask through the host's
 `sigprocmask`. The thumb and riscv32 arms run on QEMU (`microbit`, a Cortex-M0; `mps2-an385`, a
-Cortex-M3; `virt`, RV32): `tests/qemu/setjmp.c` is linked against cstd built for the target by
+Cortex-M3; `virt`, RV32; `mps2-an386`, a Cortex-M4F, where s16–s31 are overwritten by the skipped frames and
+must come back): `tests/qemu/setjmp.c` is linked against cstd built for the target by
 `tests/qemu/archive` and reports through semihosting. Those three cases need `qemu-system-arm`,
 `qemu-system-riscv32`, `ld.lld` and Homebrew's LLVM clang, skip where any is missing, and skip
 under ASan, whose flags would reach the bare-metal build. Under ASan a C caller of `longjmp` calls

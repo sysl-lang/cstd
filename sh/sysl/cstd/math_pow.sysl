@@ -15,18 +15,18 @@ module sh.sysl.cstd
 private val pow_log_table_bits: u64 = 7
 private val pow_off: u64 = 0x3fe6955500000000
 
-private val pow_ln2hi: real = 0.6931471805598903      // 0x1.62e42fefa3800p-1
-private val pow_ln2lo: real = 5.497923018708371e-14   // 0x1.ef35793c76730p-45
+private val pow_ln2hi: real = 0x1.62e42fefa3800p-1
+private val pow_ln2lo: real = 0x1.ef35793c76730p-45
 
 // log1p(r) on |r| < 0x1.6bp-8, relative error 0x1.11922ap-70, the coefficients scaled by the
 // powers of -2 the evaluation divides out.
-private val pow_a0: real = -0.5                        // -0x1p-1
-private val pow_a1: real = -0.6666666666666679         // 0x1.555555555556p-2 × -2
-private val pow_a2: real = 0.5000000000000007          // -0x1.0000000000006p-2 × -2
-private val pow_a3: real = 0.7999999995323976          // 0x1.999999959554ep-3 × 4
-private val pow_a4: real = -0.6666666663487739         // -0x1.555555529a47ap-3 × 4
-private val pow_a5: real = -1.142909628459501          // 0x1.2495b9b4845e9p-3 × -8
-private val pow_a6: real = 1.0000415263675542          // -0x1.0002b8b263fc3p-3 × -8
+private val pow_a0: real = -0x1p-1
+private val pow_a1: real = -0x1.5555555555560p-1  // musl's 0x1.555555555556p-2 × -2
+private val pow_a2: real = 0x1.0000000000006p-1  // musl's -0x1.0000000000006p-2 × -2
+private val pow_a3: real = 0x1.999999959554ep-1  // musl's 0x1.999999959554ep-3 × 4
+private val pow_a4: real = -0x1.555555529a47ap-1  // musl's -0x1.555555529a47ap-3 × 4
+private val pow_a5: real = -0x1.2495b9b4845e9p+0  // musl's 0x1.2495b9b4845e9p-3 × -8
+private val pow_a6: real = 0x1.0002b8b263fc3p+0  // musl's -0x1.0002b8b263fc3p-3 × -8
 
 // For each of the 128 subintervals: 1/c (a short number, so z/c - 1 is exact), log(c), and the
 // part of log(c) a double misses.

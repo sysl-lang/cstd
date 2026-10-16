@@ -114,8 +114,8 @@ private[cstd] log_dd(ah: real, al: real) -> (real, real)
     fast_two_sum(h, t + al / ah)
 
 // ln 2 in two parts: the first with its low bits clear.
-private[cstd] val ln2_hi: real = 0.6931471805598903     // 0x1.62e42fefa3800p-1
-private[cstd] val ln2_lo: real = 5.497923018708371e-14  // 0x1.ef35793c76730p-45
+private[cstd] val ln2_hi: real = 0x1.62e42fefa3800p-1
+private[cstd] val ln2_lo: real = 0x1.ef35793c76730p-45
 
 // log(x) + ln 2, rounded once: log(2x) for an x too large to double.
 private[cstd] log_twice(x: real) -> real

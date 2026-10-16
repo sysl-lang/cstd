@@ -22,28 +22,28 @@ module sh.sysl.cstd
 private val log_table_bits: u64 = 7
 private val log_off: u64 = 0x3fe6000000000000
 
-private val log_ln2hi: real = 0.6931471805598903     // 0x1.62e42fefa3800p-1
-private val log_ln2lo: real = 5.497923018708371e-14  // 0x1.ef35793c76730p-45
+private val log_ln2hi: real = 0x1.62e42fefa3800p-1
+private val log_ln2lo: real = 0x1.ef35793c76730p-45
 
 // log1p(r) - r on |r| < 1/256: relative error 0x1.926199e8p-56.
-private val log_a0: real = -0.5000000000000001       // -0x1.0000000000001p-1
-private val log_a1: real = 0.33333333331825593       // 0x1.555555551305bp-2
-private val log_a2: real = -0.2499999999622955       // -0x1.fffffffeb459p-3
-private val log_a3: real = 0.20000304511814496       // 0x1.999b324f10111p-3
-private val log_a4: real = -0.16667054827627667      // -0x1.55575e506c89fp-3
+private val log_a0: real = -0x1.0000000000001p-1
+private val log_a1: real = 0x1.555555551305bp-2
+private val log_a2: real = -0x1.fffffffeb459p-3
+private val log_a3: real = 0x1.999b324f10111p-3
+private val log_a4: real = -0x1.55575e506c89fp-3
 
 // log1p(r) on r in [-1/16, 0x1.09p-4]: relative error 0x1.c04d76cp-63.
-private val log_b0: real = -0.5                      // -0x1p-1
-private val log_b1: real = 0.3333333333333352        // 0x1.5555555555577p-2
-private val log_b2: real = -0.24999999999998432      // -0x1.ffffffffffdcbp-3
-private val log_b3: real = 0.19999999999320328       // 0x1.999999995dd0cp-3
-private val log_b4: real = -0.16666666669929706      // -0x1.55555556745a7p-3
-private val log_b5: real = 0.14285715076560868       // 0x1.24924a344de3p-3
-private val log_b6: real = -0.12499997863982555      // -0x1.fffffa4423d65p-4
-private val log_b7: real = 0.11110712032936046       // 0x1.c7184282ad6cap-4
-private val log_b8: real = -0.10000486757818193      // -0x1.999eb43b068ffp-4
-private val log_b9: real = 0.09181994006195467       // 0x1.78182f7afd085p-4
-private val log_b10: real = -0.08328363062289341     // -0x1.5521375d145cdp-4
+private val log_b0: real = -0x1p-1
+private val log_b1: real = 0x1.5555555555577p-2
+private val log_b2: real = -0x1.ffffffffffdcbp-3
+private val log_b3: real = 0x1.999999995dd0cp-3
+private val log_b4: real = -0x1.55555556745a7p-3
+private val log_b5: real = 0x1.24924a344de3p-3
+private val log_b6: real = -0x1.fffffa4423d65p-4
+private val log_b7: real = 0x1.c7184282ad6cap-4
+private val log_b8: real = -0x1.999eb43b068ffp-4
+private val log_b9: real = 0x1.78182f7afd085p-4
+private val log_b10: real = -0x1.5521375d145cdp-4
 
 // 1/c and log(c), interleaved, for the 128 subintervals of [0.6875, 1.375).
 private val log_tab: [256]u64 = [
@@ -372,28 +372,28 @@ logf(x: f32) -> f32 = f32(log(real(x)))
 
 private val log2_table_bits: u64 = 6
 
-private val log2_invln2hi: real = 1.4426950407214463      // 0x1.7154765200000p+0
-private val log2_invln2lo: real = 1.6751713164886512e-10  // 0x1.705fc2eefa200p-33
+private val log2_invln2hi: real = 0x1.7154765200000p+0
+private val log2_invln2lo: real = 0x1.705fc2eefa200p-33
 
 // log2(1 + r) - r/ln2 on |r| < 0x1.f45p-8, over r²: relative error 0x1.a72c2bf8p-58.
-private val log2_a0: real = -0.7213475204444882    // -0x1.71547652b8339p-1
-private val log2_a1: real = 0.4808983469629985     // 0x1.ec709dc3a04bep-2
-private val log2_a2: real = -0.36067375954075914   // -0x1.7154764702ffbp-2
-private val log2_a3: real = 0.2885390073180969     // 0x1.2776c50034c48p-2
-private val log2_a4: real = -0.2404693555628422    // -0x1.ec7b328ea92bcp-3
-private val log2_a5: real = 0.2061202382173603     // 0x1.a6225e117f92ep-3
+private val log2_a0: real = -0x1.71547652b8339p-1
+private val log2_a1: real = 0x1.ec709dc3a04bep-2
+private val log2_a2: real = -0x1.7154764702ffbp-2
+private val log2_a3: real = 0x1.2776c50034c48p-2
+private val log2_a4: real = -0x1.ec7b328ea92bcp-3
+private val log2_a5: real = 0x1.a6225e117f92ep-3
 
 // The same near 1, on [-0x1.5b51p-5, 0x1.6ab2p-5]: relative error 0x1.2fad8188p-63.
-private val log2_b0: real = -0.7213475204444817    // -0x1.71547652b82fep-1
-private val log2_b1: real = 0.48089834696298744    // 0x1.ec709dc3a03f7p-2
-private val log2_b2: real = -0.360673760222145     // -0x1.71547652b7c3fp-2
-private val log2_b3: real = 0.2885390081805197     // 0x1.2776c50f05be4p-2
-private val log2_b4: real = -0.24044917405728863   // -0x1.ec709dd768fe5p-3
-private val log2_b5: real = 0.2060992861022954     // 0x1.a61761ec4e736p-3
-private val log2_b6: real = -0.18033596705327856   // -0x1.7153fbc64a79bp-3
-private val log2_b7: real = 0.1603032746063156     // 0x1.484d154f01b4ap-3
-private val log2_b8: real = -0.14483316576701266   // -0x1.289e4a72c383cp-3
-private val log2_b9: real = 0.13046826811283835    // 0x1.0b32f285aee66p-3
+private val log2_b0: real = -0x1.71547652b82fep-1
+private val log2_b1: real = 0x1.ec709dc3a03f7p-2
+private val log2_b2: real = -0x1.71547652b7c3fp-2
+private val log2_b3: real = 0x1.2776c50f05be4p-2
+private val log2_b4: real = -0x1.ec709dd768fe5p-3
+private val log2_b5: real = 0x1.a61761ec4e736p-3
+private val log2_b6: real = -0x1.7153fbc64a79bp-3
+private val log2_b7: real = 0x1.484d154f01b4ap-3
+private val log2_b8: real = -0x1.289e4a72c383cp-3
+private val log2_b9: real = 0x1.0b32f285aee66p-3
 
 // 1/c and log2(c), interleaved, for the 64 subintervals.
 private val log2_tab: [128]u64 = [

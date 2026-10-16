@@ -11,7 +11,7 @@ module sh.sysl.cstd
 // | processor | saved, in order | bytes before the mask |
 // |---|---|---|
 // | aarch64 | x19–x30, sp, d8–d15; two words for `sigsetjmp` | 192 |
-// | thumb | r4–r11, sp, lr; s16–s31's place; two words for `sigsetjmp` | 112 |
+// | thumb | r4–r11, sp, lr; s16–s31 where the target has them; two words for `sigsetjmp` | 112 |
 // | riscv32 | ra, sp, s0–s11; two words for `sigsetjmp` | 64 |
 //
 // Each `jmp_buf` ends in 128 bytes for a signal mask, as musl's does, so that `sigjmp_buf` is the
@@ -21,10 +21,10 @@ module sh.sysl.cstd
 //   convention makes it a temporary nobody may assume survives a call. macOS also names a C symbol
 //   with a leading underscore, which a label at the top of a file must spell out.
 // - **thumb is written in Armv6-M's instructions**, which every Cortex-M executes: `stm` and `ldm`
-//   reach r0–r7 only, so r8–r11, sp and lr travel through low registers. It saves no floating
-//   register, which is correct for a part built without a unit. A part with one keeps s16–s31
-//   across calls, and nothing a `[thumb]` arm can test tells the two apart, so `include/setjmp.h`
-//   refuses to compile where `__ARM_FP` is defined rather than lose them silently.
+//   reach r0–r7 only, so r8–r11, sp and lr travel through low registers. Where the target has
+//   floating-point registers (`#if fpu`, whichever ABI passes a float) s16–s31 are callee-saved, and
+//   they go in the 64 bytes after lr; a target without them leaves those bytes alone, since an
+//   instruction naming `s16` faults on a core that has none.
 // - **riscv32 saves no floating register**: `riscv32-freestanding` is built without F and D.
 //
 // The other processors have no arm that can be selected: both blocks are behind `#if`, and
@@ -112,6 +112,9 @@ asm
         "mov r2, sp"
         "mov r3, lr"
         "stmia r0!, {{r1-r3}}"
+#if fpu
+        "vstmia r0, {{s16-s31}}"
+#endif
         "movs r0, #0"
         "bx lr"
         ".thumb_func"
@@ -131,6 +134,9 @@ asm
         "mov r11, r1"
         "mov sp, r2"
         "mov lr, r3"
+#if fpu
+        "vldmia r0, {{s16-s31}}"
+#endif
         "subs r0, #40"
         "ldmia r0!, {{r4-r7}}"
         "mov r0, r12"

@@ -1,0 +1,58 @@
+module sh.sysl.cstd
+
+@tests
+
+// cstd as a package's C library. `tests/libc_probe` vendors a C file that includes `<string.h>`,
+// `<ctype.h>`, `<inttypes.h>` and `<math.h>` by their system names, and takes cstd with
+// `if = "!libc"`. On a bare-metal target that file compiles against `include/` and the archive
+// carries cstd's definitions of what it calls; on the host the dependency is dropped, the real libc
+// answers, and the archive defines nothing but the probe's own symbols.
+
+import sysl.buf.{Buf, buf}
+import sysl.fs.make_dir_all
+import sysl.process.capture
+import sysl.testing.compiler
+import sysl.text.{Search, split}
+
+// The functions `probe.c` calls, one per header.
+private val called: []string = ["strlen", "toupper", "strtoimax", "sqrt"]
+
+// The global symbols the archive `build-c` writes for `tests/libc_probe` defines, one name per line.
+private probe_defines(target: string) -> string
+    val dir = f".sysl/libc-probe-tests/$target"
+    make_dir_all(dir).unwrap()
+    val lib = f"$dir/libprobe.a"
+    var args: Buf[string] = buf()
+    for a in ["build-c", "tests/libc_probe", "-o", lib] do args.push(a)
+    if target != "host"
+        args.push("--target")
+        args.push(target)
+    val built = capture(compiler(), args.view(), stderr = true).unwrap()
+    if !built.status.ok() then panic(f"build-c of the probe for $target failed:\n${built.err.unwrap_or("")}")
+    val listed = capture("nm", ["-g", lib]).unwrap()
+    assert(listed.status.ok())
+    var defined = "\n"
+    for line in split(listed.text, "\n")
+        val t = line.index_of(" T ")
+        if t.is_some() then defined += f"${line[t.unwrap() + 3..<line.len]}\n"
+    defined
+
+private bare_case(target: string)
+    val defined = probe_defines(target)
+    assert(defined.contains("\ncstd_libc_probe\n"), defined)
+    for n in called
+        if !defined.contains(f"\n$n\n") then panic(f"$target: the probe's archive does not define $n, so cstd was not its libc")
+
+@test("on thumbv7em the vendored C is compiled against cstd's headers and the archive defines what it calls")
+libc_probe_thumbv7em() = bare_case("thumbv7em-freestanding")
+
+@test("on riscv32 the vendored C is compiled against cstd's headers and the archive defines what it calls")
+libc_probe_riscv32() = bare_case("riscv32-freestanding")
+
+@test("on the host the dependency is dropped and the archive defines only the probe's own symbols")
+libc_probe_host()
+    val defined = probe_defines("host")
+    assert(defined.contains("\n_cstd_libc_probe\n"), defined)
+    for line in split(defined, "\n")
+        if line != "" && !line.contains("cstd_libc_probe")
+            panic(f"the host probe's archive defines $line, which belongs to the real libc")

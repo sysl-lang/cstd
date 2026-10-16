@@ -42,6 +42,6 @@ How it is checked:
 ## Meanwhile
 
 - `math.h` (in progress, against an MPFR oracle).
-- On alpha.14: `setjmp`'s s16–s31 arm for Arm targets with an FPU (`target-fpu`); cstd as a
-  freestanding-only dependency of the vendored packages (`vendored-c`, `target-deps`); `inttypes.h`
-  et al. reached from them.
+- The remaining `math.h` constants written in decimal (fdlibm's `erf`, `lgamma`/`tgamma`, inverse
+  trigonometric and trigonometric coefficient tables) as hex floats, and a fused `fma` in the
+  double-double and logarithm kernels (`math_dd.sysl`, `math_log.sysl`) where `#if fma_dp`.

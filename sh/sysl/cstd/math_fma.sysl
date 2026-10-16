@@ -4,10 +4,15 @@ import sysl.math.Bits
 
 // `<math.h>`'s fused multiply-add: x × y + z rounded once.
 //
+// **Where the machine has a fused instruction at that width, it is the instruction**: `llvm.fma`
+// is AArch64's `fmadd` and a Cortex-M4F's `vfma.f32`, rounded once by IEEE 754, and `#if fma_dp` and
+// `#if fma` say where it is one. Elsewhere `llvm.fma` would lower to a call to `fma`, which is this
+// function, so there it is computed in integer arithmetic. `soft_fma` and `soft_fmaf` are compiled
+// on every machine, so the host's tests hold them to the instruction.
+//
 // The double form is musl's `fma.c`: each operand's significand as a 64-bit integer, the product
 // exact in 128 bits as two halves, the addend shifted to line up with a sticky bit for what falls
-// off, the sum, and one conversion to double that rounds. sysl has no intrinsic for the machine's
-// `fmadd`, so this is the function on every target.
+// off, the sum, and one conversion to double that rounds.
 //
 // The float form computes in double, where x × y is exact (48 bits of 53), and the sum is rounded
 // **to odd**: rounded to nearest, then moved one place away from the even neighbour when the sum was
@@ -57,8 +62,37 @@ private mul_wide(x: u64, y: u64) -> (u64, u64)
     val hi = t3 + (t2 >> 32) + (if t1 > lo then 1u64 else 0)
     (hi, lo)
 
+#if fma_dp
+private extern "llvm.fma" machine_fma(x: real, y: real, z: real) -> real
+
+// The instruction's answer with C's `errno`: `EDOM` for a NaN from operands that were not, `ERANGE`
+// for an infinity from finite ones.
 @export("fma")
 fma(x: real, y: real, z: real) -> real
+    val r = machine_fma(x, y, z)
+    if r != r then return fma_special(x, y, z, r)
+    if x - x == 0.0 && y - y == 0.0 && z - z == 0.0 then checked_overflow(r) else r
+#else
+@export("fma")
+fma(x: real, y: real, z: real) -> real = soft_fma(x, y, z)
+#endif
+
+#if fma
+private extern "llvm.fma" machine_fmaf(x: f32, y: f32, z: f32) -> f32
+
+@export("fmaf")
+fmaf(x: f32, y: f32, z: f32) -> f32
+    val r = machine_fmaf(x, y, z)
+    if r != r && x == x && y == y && z == z then errno = EDOM
+    if (r == f32.infinity || r == -f32.infinity) && x - x == 0.0 && y - y == 0.0 && z - z == 0.0
+        errno = ERANGE
+    r
+#else
+@export("fmaf")
+fmaf(x: f32, y: f32, z: f32) -> f32 = soft_fmaf(x, y, z)
+#endif
+
+private[cstd] soft_fma(x: real, y: real, z: real) -> real
     val nx = fma_normalize(x)
     val ny = fma_normalize(y)
     val nz = fma_normalize(z)
@@ -156,7 +190,7 @@ fma(x: real, y: real, z: real) -> real
             if sign then i = -i
             r = real(i)
     checked_overflow(scalbn(r, e))
-end fma
+end soft_fma
 
 // x × y + z when an operand is zero, infinite or NaN: the IEEE answer, and `EDOM` for the invalid
 // ones -- zero times infinity, or infinities of opposite signs added.
@@ -164,8 +198,7 @@ private fma_special(x: real, y: real, z: real, r: real) -> real
     if r != r && x == x && y == y && z == z then errno = EDOM
     r
 
-@export("fmaf")
-fmaf(x: f32, y: f32, z: f32) -> f32
+private[cstd] soft_fmaf(x: f32, y: f32, z: f32) -> f32
     val xy = real(x) * real(y)
     val s = xy + real(z)
     if s != s
@@ -180,4 +213,4 @@ fmaf(x: f32, y: f32, z: f32) -> f32
         // Round to odd: one step toward the exact value, onto the odd neighbour.
         if (t > 0.0) != sign_bit(s) then u += 1 else u -= 1
     narrow(real.from_bits(u))
-end fmaf
+end soft_fmaf

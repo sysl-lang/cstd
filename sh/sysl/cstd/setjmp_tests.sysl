@@ -342,9 +342,8 @@ siglongjmp_zero_is_one()
         """, masks)
 
 // Where no arm can be right, the header says so at compile time rather than link a `setjmp` that
-// loses registers: a thumb build with a floating-point unit, whose s16-s31 are not saved, and a
-// processor with no arm at all.
-private header_refusal(flags: []string) -> string
+// loses registers; a thumb build with a floating-point unit, whose s16-s31 are saved, is accepted.
+private header_compile(flags: []string) -> (bool, string)
     make_dir_all(".sysl/c-tests").unwrap()
     val source = ".sysl/c-tests/setjmp-refusal.c"
     write_text(source, "#include <setjmp.h>\nint main(void) { return 0; }\n").unwrap()
@@ -352,16 +351,16 @@ private header_refusal(flags: []string) -> string
     for f in flags do args.push(f)
     for a in ["-ffreestanding", "-nostdinc", "-I", "include", "-fsyntax-only", source] do args.push(a)
     val ran = capture("clang", args.view(), stderr = true).unwrap()
-    assert(!ran.status.ok())
-    ran.err.unwrap_or("")
+    (ran.status.ok(), ran.err.unwrap_or(""))
 
-@test("setjmp.h refuses a thumb build with a floating-point unit, and a processor with no arm")
+@test("setjmp.h accepts a thumb build with a floating-point unit, and refuses a processor with no arm")
 setjmp_header_refuses()
-    val fpu = header_refusal(["--target=thumbv7em-none-eabihf", "-mfpu=fpv4-sp-d16", "-mfloat-abi=hard"])
-    assert(fpu.contains("cstd's setjmp does not save s16-s31"), fpu)
-    val softfp = header_refusal(["--target=thumbv8m.main-none-eabi", "-mfpu=fpv5-sp-d16", "-mfloat-abi=softfp"])
-    assert(softfp.contains("cstd's setjmp does not save s16-s31"), softfp)
-    val x86 = header_refusal(["--target=x86_64-unknown-linux-gnu"])
+    val (fpu_ok, fpu) = header_compile(["--target=thumbv7em-none-eabihf", "-mfpu=fpv4-sp-d16", "-mfloat-abi=hard"])
+    assert(fpu_ok, fpu)
+    val (softfp_ok, softfp) = header_compile(["--target=thumbv8m.main-none-eabi", "-mfpu=fpv5-sp-d16", "-mfloat-abi=softfp"])
+    assert(softfp_ok, softfp)
+    val (x86_ok, x86) = header_compile(["--target=x86_64-unknown-linux-gnu"])
+    assert(!x86_ok)
     assert(x86.contains("cstd's setjmp is written for aarch64"), x86)
 
 // The thumb and riscv32 arms, run where they are meant to run. `tests/qemu/setjmp.c` checks a jump
@@ -426,6 +425,12 @@ qemu_cortex_m0()
 qemu_cortex_m3()
     qemu_case("thumbv7m-freestanding", ["--target=thumbv7m-none-eabi", "-mcpu=cortex-m3", "-mfloat-abi=soft"],
               "start_thumb.s", "thumb.ld", "qemu-system-arm", ["-M", "mps2-an385"])
+
+@test("setjmp on QEMU's MPS2 AN386, a Cortex-M4F: s16-s31 are saved and put back with the core registers")
+qemu_cortex_m4f()
+    qemu_case("thumbv7em-freestanding", ["--target=thumbv7em-none-eabihf", "-mcpu=cortex-m4",
+              "-mfpu=fpv4-sp-d16", "-mfloat-abi=hard"], "start_thumb.s", "thumb.ld", "qemu-system-arm",
+              ["-M", "mps2-an386"])
 
 @test("setjmp on QEMU's RV32 virt machine: the riscv32 arm holds")
 qemu_riscv32()

@@ -19,7 +19,7 @@ module sh.sysl.cstd
 // exp(x - k ln2) × 2^(k - 1) for k = 2043, which reaches the top of the range without overflowing
 // on the way: 2^1021 is applied twice, last. The double below is 2.8 × 10^-17 from k ln2, which
 // costs 0.13 ulp on top of exp's own error.
-private val expo2_kln2: real = 1416.0996898839683  // 0x1.62066151add8bp+10
+private val expo2_kln2: real = 0x1.62066151add8bp+10
 
 private expo2(x: real, sign: real) -> real
     val scale = from_words(u32(0x3ff + 2043 / 2) << 20, 0)

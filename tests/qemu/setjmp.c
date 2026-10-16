@@ -66,14 +66,39 @@ __attribute__((noinline)) static void first(int v) { second(v); }
 /* The callee-saved registers: probe() sets known values and calls cstd_run(), which takes a
  * setjmp and calls smash(). smash() overwrites them (its prologue saves them, its epilogue never
  * runs) and jumps back, so only longjmp can have put them back. r7 is the frame pointer on thumb
- * and is left out. */
+ * and is left out. On a Cortex-M with floating-point registers s16-s31 are callee-saved too:
+ * probe() gives them 2.0 to 17.0 and stores them before and after, and smash() sets them to 1.0. */
 static int jumped;
+
+#if defined(__thumb__) && defined(__ARM_FP)
+#define FP_SET                                                                                    \
+    "vmov.f32 s16, #2.0\n vmov.f32 s17, #3.0\n vmov.f32 s18, #4.0\n vmov.f32 s19, #5.0\n"         \
+    "vmov.f32 s20, #6.0\n vmov.f32 s21, #7.0\n vmov.f32 s22, #8.0\n vmov.f32 s23, #9.0\n"         \
+    "vmov.f32 s24, #10.0\n vmov.f32 s25, #11.0\n vmov.f32 s26, #12.0\n vmov.f32 s27, #13.0\n"     \
+    "vmov.f32 s28, #14.0\n vmov.f32 s29, #15.0\n vmov.f32 s30, #16.0\n vmov.f32 s31, #17.0\n"     \
+    "vstmia r2, {s16-s31}\n"
+#define FP_SAVE "adds r2, #64\n vstmia r2, {s16-s31}\n"
+#define FP_CLOBBERS , "s16", "s17", "s18", "s19", "s20", "s21", "s22", "s23", "s24", "s25", "s26", \
+                      "s27", "s28", "s29", "s30", "s31"
+#else
+#define FP_SET ""
+#define FP_SAVE ""
+#define FP_CLOBBERS
+#endif
 
 __attribute__((noinline)) static void smash(void) {
 #if defined(__thumb__)
     __asm__ volatile("movs r4, #1\n movs r5, #1\n movs r6, #1\n"
                      "mov r8, r4\n mov r9, r4\n mov r10, r4\n mov r11, r4\n"
                      ::: "r4", "r5", "r6", "r8", "r9", "r10", "r11");
+#if defined(__ARM_FP)
+    __asm__ volatile("vmov.f32 s16, #1.0\n vmov.f32 s17, s16\n vmov.f32 s18, s16\n vmov.f32 s19, s16\n"
+                     "vmov.f32 s20, s16\n vmov.f32 s21, s16\n vmov.f32 s22, s16\n vmov.f32 s23, s16\n"
+                     "vmov.f32 s24, s16\n vmov.f32 s25, s16\n vmov.f32 s26, s16\n vmov.f32 s27, s16\n"
+                     "vmov.f32 s28, s16\n vmov.f32 s29, s16\n vmov.f32 s30, s16\n vmov.f32 s31, s16\n"
+                     ::: "s16", "s17", "s18", "s19", "s20", "s21", "s22", "s23", "s24", "s25", "s26",
+                         "s27", "s28", "s29", "s30", "s31");
+#endif
 #else
     __asm__ volatile("li s1, 1\n li s2, 1\n li s3, 1\n li s4, 1\n li s5, 1\n li s6, 1\n"
                      "li s7, 1\n li s8, 1\n li s9, 1\n li s10, 1\n li s11, 1\n"
@@ -89,23 +114,28 @@ __attribute__((noinline)) void cstd_run(void) {
 }
 
 static long regs[11];
+static unsigned long fregs[32]; /* s16-s31 as set, then s16-s31 after the jump */
 
 __attribute__((noinline)) static void probe(void) {
 #if defined(__thumb__)
     register long *p __asm__("r0") = regs;
+    register unsigned long *q __asm__("r2") = fregs;
     __asm__ volatile(
-        "push {r0}\n"
+        "push {r0, r2}\n"
+        FP_SET
         "movs r4, #4\n movs r5, #5\n movs r6, #6\n"
         "movs r1, #8\n mov r8, r1\n movs r1, #9\n mov r9, r1\n"
         "movs r1, #10\n mov r10, r1\n movs r1, #11\n mov r11, r1\n"
         "bl cstd_run\n"
-        "pop {r0}\n"
+        "pop {r0, r2}\n"
+        FP_SAVE
         "str r4, [r0, #0]\n str r5, [r0, #4]\n str r6, [r0, #8]\n"
         "mov r1, r8\n str r1, [r0, #12]\n mov r1, r9\n str r1, [r0, #16]\n"
         "mov r1, r10\n str r1, [r0, #20]\n mov r1, r11\n str r1, [r0, #24]\n"
-        : "+r"(p)
+        : "+r"(p), "+r"(q)
         :
-        : "r1", "r2", "r3", "r4", "r5", "r6", "r8", "r9", "r10", "r11", "r12", "lr", "memory", "cc");
+        : "r1", "r3", "r4", "r5", "r6", "r8", "r9", "r10", "r11", "r12", "lr", "memory", "cc"
+          FP_CLOBBERS);
 #else
     register long *p __asm__("a0") = regs;
     __asm__ volatile(
@@ -137,6 +167,11 @@ __attribute__((noinline)) static void dive(int i) {
 }
 
 int main(void) {
+#if defined(__thumb__) && defined(__ARM_FP)
+    /* CPACR: full access to coprocessors 10 and 11, the floating-point unit, before any uses it. */
+    *(volatile unsigned *)0xE000ED88 |= 0xFu << 20;
+    __asm__ volatile("dsb\n isb" ::: "memory");
+#endif
     volatile int r = setjmp(env);
     if (r == 0) first(42);
     check("value", r, 42);
@@ -150,6 +185,10 @@ int main(void) {
 #if defined(__thumb__)
     static const long want[7] = {4, 5, 6, 8, 9, 10, 11};
     for (int i = 0; i < 7; i++) check("register", regs[i], want[i]);
+#if defined(__ARM_FP)
+    check("s16 as set", (long)fregs[0], 0x40000000); /* 2.0f */
+    for (int i = 0; i < 16; i++) check("fp register", (long)fregs[16 + i], (long)fregs[i]);
+#endif
 #else
     for (int i = 0; i < 11; i++) check("register", regs[i], 101 + i);
 #endif

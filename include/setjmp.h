@@ -16,16 +16,14 @@ extern "C" {
 /* x19-x30, sp, d8-d15, and two words sigsetjmp keeps. */
 #define __CSTD_JMP_WORDS 24
 #elif defined(__thumb__)
-#if defined(__ARM_FP)
-#error "cstd's setjmp does not save s16-s31, which this floating-point build keeps across calls"
-#endif
-/* r4-r11, sp, lr, the place s16-s31 will take, and two words sigsetjmp keeps. */
+/* r4-r11, sp, lr, s16-s31 where the core has floating-point registers, and two words sigsetjmp
+ * keeps. */
 #define __CSTD_JMP_WORDS 14
 #elif defined(__riscv) && __riscv_xlen == 32 && !defined(__riscv_flen)
 /* ra, sp, s0-s11, and two words sigsetjmp keeps. */
 #define __CSTD_JMP_WORDS 8
 #else
-#error "cstd's setjmp is written for aarch64, thumb without a floating-point unit, and riscv32 without F"
+#error "cstd's setjmp is written for aarch64, thumb, and riscv32 without F"
 #endif
 
 typedef struct __cstd_jmp_buf {

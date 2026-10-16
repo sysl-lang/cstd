@@ -104,6 +104,7 @@ The workaround not taken: both variants in the archive, the floating one assembl
 `include/setjmp.h` stops with `#error` wherever `__ARM_FP` is defined, so no build silently loses
 s16–s31.
 
-**Status: accepted for alpha.14** (sysl branch `target-fpu`): the target-derived symbols `fpu`,
-`fpu_dp`, `hardfloat` and `softfp`, defined true or false on every target, usable in `#if` and in `asm`
-arm selection. On alpha.14 the s16–s31 save becomes one `#if fpu` arm and the header's `#error` goes.
+**Fixed** by the target-derived symbols `fpu`, `fpu_dp`, `hardfloat` and `softfp`, defined true or
+false on every target and usable in `#if` inside an `asm` arm. The thumb arm saves s16–s31 under
+`#if fpu`, the header's `#error` is gone, and the Cortex-M4F QEMU case in `setjmp_tests.sysl` is the
+regression test.
