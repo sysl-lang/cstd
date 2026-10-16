@@ -1,0 +1,47 @@
+module sh.sysl.cstd
+
+@tests
+
+// The allocator and the exits as a bare-metal target's weak defaults (`malloc.sysl`, `exit.sysl`):
+// weak on a board and strong in the Linux half; under QEMU, a working heap where the board supplies
+// `sbrk`, ENOMEM where it does not, `atexit` handlers run last first by `exit`, and sysl code that
+// allocates linking to a whole image with nothing else supplied.
+
+// Every function the two files default.
+private val board_defaults: []string = ["malloc", "calloc", "realloc", "free", "abort", "exit", "_Exit",
+                                        "_exit", "atexit"]
+
+private val m4f_flags: []string = ["--target=thumbv7em-none-eabihf", "-mcpu=cortex-m4", "-mfpu=fpv4-sp-d16",
+                                   "-mfloat-abi=hard"]
+
+private m4f_run(project: string, name: string, expect: string) =
+    qemu_run(project, name, expect, "thumbv7em-freestanding", m4f_flags, "start_thumb.s", "thumb.ld",
+             "qemu-system-arm", ["-M", "mps2-an386"])
+
+@test("on thumbv7em the allocator and the exits are weak definitions")
+board_defaults_are_weak()
+    val kinds = global_symbols("tests/qemu/archive", "thumbv7em-freestanding", "cstd")
+    for n in board_defaults
+        if !kinds.contains(f"\nW $n\n") then panic(f"$n is not a weak definition on thumbv7em:$kinds")
+
+@test("cstd's Linux half defines the allocator and the exits strongly, with no weak copy beside them")
+linux_half_replaces_board_defaults()
+    val kinds = global_symbols("linux", "aarch64-freestanding", "cstd_linux")
+    for n in board_defaults
+        if !kinds.contains(f"\nT $n\n") then panic(f"the Linux half does not define $n:$kinds")
+        if kinds.contains(f"\nW $n\n") then panic(f"the Linux half's archive still carries the default $n")
+
+// `tests/qemu/heap.c`: write, read back, calloc zeroing a reused block, realloc keeping the bytes,
+// free and malloc reusing, ENOMEM past the board's 8 KiB, and 32 `atexit` handlers (a 33rd refused)
+// run in reverse by `exit`.
+@test("on QEMU's MPS2 AN386 malloc grows through the board's sbrk and exit runs the atexit handlers last first")
+board_heap_and_exit()
+    m4f_run("tests/board_probe", "heap", "heap: ok\natexit 3\natexit 2\natexit 1 after 29\n")
+
+@test("on QEMU's MPS2 AN386 with no sbrk from the board, malloc, calloc and realloc answer null with ENOMEM")
+board_without_sbrk()
+    m4f_run("tests/board_probe", "nosbrk", "nosbrk: ok\n")
+
+@test("on QEMU's MPS2 AN386 sysl code that allocates links with no malloc, free or abort of the program's own")
+sysl_allocates_on_a_board()
+    m4f_run("tests/alloc_probe", "sysl_alloc", "sysl_alloc: ok\n")

@@ -1,0 +1,13 @@
+// A program's package on a board: sysl code that allocates, over `tests/board_probe` and cstd. sysl's
+// own runtime reaches `malloc`, `free` and `abort` for it, and on a bare-metal target only cstd's
+// weak defaults define them, so the image links with nothing else supplied.
+// `sh/sysl/cstd/board_defaults_tests.sysl` builds it for a Cortex-M and runs it under QEMU.
+
+package {
+  name    = "cstd_alloc_probe"
+  version = "0.0.1"
+}
+
+dependencies {
+  cstd_board_probe { path = "../board_probe" }
+}

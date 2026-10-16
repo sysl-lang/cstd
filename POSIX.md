@@ -43,7 +43,8 @@ redefined from the state of `NDEBUG` each time the header is included. cstd's he
 guard around it for that reason, supplies `static_assert` as `_Static_assert` before C23, and its
 failure path is the exported helper `__cstd_assert_fail` (not a POSIX name), which writes
 `Assertion failed: <expression> (<file>: <function>: <line>)` to descriptor 2 and calls `abort`.
-`abort` is the platform's (`stdlib.h`'s, supplied by cstd's Linux half or the host libc).
+`abort` is the platform's (`stdlib.h`'s, supplied by cstd's Linux half, the host libc, or on a board
+cstd's weak default, which traps).
 
 | macro | codes | status | needs | half |
 |---|---|---|---|---|
@@ -524,6 +525,11 @@ Out of scope:
 | tmpnam | OB | missing |
 
 ## `<stdlib.h>`
+
+`malloc`, `calloc`, `realloc`, `free`, `atexit`, `exit`, `_Exit` and `abort` are the Linux half's; on
+any other bare-metal target the core gives each a weak default a board replaces (`malloc.sysl`,
+`exit.sysl`): the allocator over `sbrk`, `exit` running the `atexit` table (one table, the core's, for
+both halves) and then `_Exit`, and `_Exit` and `abort` trapping.
 
 | function | codes | status | needs | half |
 |---|---|---|---|---|

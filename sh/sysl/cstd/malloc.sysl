@@ -1,0 +1,78 @@
+module sh.sysl.cstd
+
+// `malloc` and its family as a bare-metal target's defaults: `Heap` (`heap.sysl`) does the
+// bookkeeping, and the heap grows through `sbrk`. With cstd's own `sbrk`, which answers ENOSYS,
+// every allocation fails with ENOMEM; a board that defines `sbrk` over its heap region has a working
+// allocator with nothing else to write. Each is weak, so a board with an allocator of its own
+// replaces any of them. One heap and no lock, as in the Linux half.
+
+#if freestanding
+
+private var board_heap: Heap = Heap(0, 0, 0)
+
+private extern "sbrk" c_sbrk(by: isize) -> *u8
+
+// `sbrk`'s failure answer, `(void *)-1`.
+private const NO_BREAK: usize = usize::Max
+
+// How much the break moves at least each time the heap grows, where the board's region has room for
+// it; otherwise the heap grows by exactly what it needs.
+private const BOARD_GROW_STEP: usize = 4 * 1024
+
+private round_to(n: usize, to: usize) -> usize = (n + to - 1) & ~(to - 1)
+
+// Moves the break so the heap has `more` bytes past its top. The first growth also aligns the heap's
+// start to 16 bytes. False when `sbrk` refuses, and when something else has moved the break since
+// the heap last grew: the heap is one run of memory ending at the break.
+private grow_board_heap(more: usize) -> bool
+    val now = usize(c_sbrk(0))
+    if now == NO_BREAK then return false
+    if board_heap.top != 0 && board_heap.top != now then return false
+    val from = if board_heap.top == 0 then round_to(now, HEAP_ALIGN) else now
+    if more > usize::Max - from - BOARD_GROW_STEP then return false
+    for step in [BOARD_GROW_STEP, HEAP_ALIGN]
+        val to = round_to(from + more, step)
+        if usize(c_sbrk(isize(to - now))) == now
+            board_heap.grow(from, to)
+            return true
+    false
+
+@export("malloc", weak)
+board_malloc(n: usize) -> *u8
+    loop
+        val p = board_heap.alloc(n)
+        if p != null then return p
+        val more = board_heap.shortfall(n)
+        if more == 0 || !grow_board_heap(more)
+            errno = ENOMEM
+            return null
+
+@export("free", weak)
+board_free(p: *u8) = board_heap.release(p)
+
+@export("calloc", weak)
+board_calloc(count: usize, size: usize) -> *u8
+    if size != 0 && count > usize::Max / size
+        errno = ENOMEM
+        return null
+    val n = count * size
+    val p = board_malloc(n)
+    if p != null then memset(p, 0, n)
+    p
+
+// In place when the block can be cut or can take its free neighbour, or is the last before the
+// break and the break can move; otherwise a new block, the bytes copied, the old one freed.
+@export("realloc", weak)
+board_realloc(p: *u8, n: usize) -> *u8
+    if p == null then return board_malloc(n)
+    if board_heap.resize(p, n) then return p
+    val more = board_heap.resize_shortfall(p, n)
+    if more != 0 && grow_board_heap(more) && board_heap.resize(p, n) then return p
+    val q = board_malloc(n)
+    if q == null then return null
+    val keep = board_heap.usable(p)
+    memcpy(q, p, if keep < n then keep else n)
+    board_heap.release(p)
+    q
+
+#endif

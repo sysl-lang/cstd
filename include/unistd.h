@@ -1,9 +1,9 @@
 /* <unistd.h> from sh.sysl.cstd: the POSIX calls cstd makes as Linux aarch64 system calls. cstd's
  * Linux half (linux/ in the repository), the runtime a C program for keel or a static Linux program
- * links, defines each as its system call. On any other bare-metal target each but `_exit` is a weak
- * default that sets errno to ENOSYS and answers -1 (`getcwd` null, `sbrk` (void *)-1), and a board
- * replaces any one with a definition of its own. Each answers -1 and sets errno where the kernel
- * refused. */
+ * links, defines each as its system call. On any other bare-metal target each is a weak default, and
+ * a board replaces any one with a definition of its own: `_exit` traps, and every other sets errno to
+ * ENOSYS and answers -1 (`getcwd` null, `sbrk` (void *)-1). Each answers -1 and sets errno where the
+ * kernel refused. */
 #ifndef CSTD_UNISTD_H
 #define CSTD_UNISTD_H
 

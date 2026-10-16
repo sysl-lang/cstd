@@ -18,7 +18,7 @@ private val defaulted: []string = ["read", "write", "close", "lseek", "open", "o
                                    "stat", "kill", "sigprocmask", "nanosleep", "clock_gettime", "brk", "sbrk"]
 
 // The global symbols `nm` lists for `project` built for `target`, each as "<kind> <name>" on a line.
-private global_symbols(project: string, target: string, name: string) -> string
+private[cstd] global_symbols(project: string, target: string, name: string) -> string
     val dir = f".sysl/stubs-tests/$name-$target"
     make_dir_all(dir).unwrap()
     val lib = f"$dir/lib$name.a"

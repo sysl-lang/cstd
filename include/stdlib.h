@@ -1,6 +1,8 @@
-/* <stdlib.h> from sh.sysl.cstd: the number conversions, abs and div, qsort and bsearch everywhere;
- * the allocator and the exits only in cstd's Linux half (linux/), the runtime a C program for keel
- * or a static Linux program links. */
+/* <stdlib.h> from sh.sysl.cstd: the number conversions, abs and div, qsort and bsearch everywhere.
+ * The allocator and the exits are cstd's Linux half's (linux/) where a C program for keel or a
+ * static Linux program links it; on any other bare-metal target they are weak defaults a board
+ * replaces: malloc and its family over sbrk (ENOMEM until the board defines sbrk), exit running the
+ * atexit handlers and then _Exit, and _Exit, _exit and abort trapping. */
 #ifndef CSTD_STDLIB_H
 #define CSTD_STDLIB_H
 

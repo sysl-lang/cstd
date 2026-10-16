@@ -1,0 +1,18 @@
+module sh.sysl.cstd_alloc_probe
+
+// The sum of 0 to `n - 1`, through a growable buffer, so the answer depends on the allocator.
+
+import sysl.buf.{Buf, buf}
+import sh.sysl.cstd_board_probe.probe_strlen
+
+@export("alloc_probe_sum")
+probe_sum(n: i32) -> i32
+    var items: Buf[i32] = buf()
+    for i in 0..<n do items.push(i)
+    var total = 0
+    for x in items do total += x
+    total
+
+// The board package is reached so the dependency is a used one.
+@export("alloc_probe_strlen")
+probe_len(s: *u8) -> usize = probe_strlen(s)

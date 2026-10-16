@@ -1,28 +1,17 @@
 module sh.sysl.cstd_linux
 
 // How a process ends: `exit` runs what `atexit` registered, last first, and then ends every thread
-// with `exit_group`; `_exit` and `_Exit` skip the handlers; `abort` sends the process SIGABRT.
+// with `exit_group`; `_exit` and `_Exit` skip the handlers; `abort` sends the process SIGABRT. The
+// handler table is the portable half's (`sh/sysl/cstd/exit.sysl`).
 
-// How many handlers `atexit` keeps. C requires room for at least 32.
-const ATEXIT_MAX: usize = 32
-
-private var handlers: [ATEXIT_MAX]*extern() -> unit
-private var registered: usize = 0
+import sh.sysl.cstd.{atexit_register, run_atexit_handlers}
 
 @export("atexit")
-atexit(f: *extern() -> unit) -> i32
-    if registered == ATEXIT_MAX then return -1
-    handlers[registered] = f
-    registered += 1
-    0
+atexit(f: *extern() -> unit) -> i32 = atexit_register(f)
 
-// Each handler runs once, even one that calls `exit` again: it is taken off the list before it is
-// called.
 @export("exit")
 exit(status: i32) -> never
-    while registered > 0
-        registered -= 1
-        handlers[registered]()
+    run_atexit_handlers()
     _exit(status)
 
 @export("_exit")
