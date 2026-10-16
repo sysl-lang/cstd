@@ -3,15 +3,15 @@ module sh.sysl.cstd
 // `<errno.h>`: `errno` and the codes.
 //
 // C reaches `errno` through `__errno_location`, the function glibc and musl answer it with, and the
-// header's `errno` is the macro `(*__errno_location())`. The storage is one copy per thread on a
-// hosted target, whose threads are the operating system's, and one object on a board, which has no
-// thread-local storage. The library's own code assigns the variable by name.
+// header's `errno` is the macro `(*__errno_location())`. The storage is one copy per thread wherever
+// the build has thread-local storage (a hosted target, and the Linux half, which names `tpidr_el0` as
+// its thread pointer), and one object on a board, which has none. The library's own code assigns the variable by name.
 //
 // The numbers are Linux's (`asm-generic/errno-base.h` and `asm-generic/errno.h`), because the system
 // calls cstd makes are Linux's and a call's negated answer is one of these. EINVAL and ERANGE, the
 // two the target-independent half sets, are the BSDs' numbers too, so a hosted test reads the same.
 
-#if hosted || aarch64
+#if thread_local
 @thread_local
 #endif
 var errno: i32 = 0
