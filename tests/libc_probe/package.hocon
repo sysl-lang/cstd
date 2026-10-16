@@ -1,0 +1,20 @@
+// A package that vendors C and takes cstd as its C library only where the machine has none. On a
+// board, `c/probe.c` is compiled against cstd's `include/` as its system headers and links cstd's
+// symbols; on the host the dependency is dropped and the real libc answers the same calls.
+// `libc_probe_tests.sysl` builds it both ways.
+
+package {
+  name    = "cstd_libc_probe"
+  version = "0.0.1"
+}
+
+dependencies {
+  cstd { path = "../..", if = "!libc" }
+}
+
+c {
+  probe {
+    root    = "c"
+    sources = ["probe.c"]
+  }
+}

@@ -1,0 +1,9 @@
+module sh.sysl.cstd_libc_probe
+
+// The vendored C's one function, reached from sysl so the library is a used one. It answers 0 when
+// every header's call came back right.
+
+extern "cstd_libc_probe" c_probe() -> i32
+
+@export("cstd_libc_probe_run")
+probe_run() -> i32 = c_probe()

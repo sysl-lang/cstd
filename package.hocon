@@ -8,15 +8,25 @@
 // This is the block a consumer writes to reach it:
 //
 //     dependencies {
-//       cstd { git = "github.com/sysl-lang/cstd", version = "<the first tag>" }
+//       cstd { git = "github.com/sysl-lang/cstd", version = "0.1.0", if = "!libc" }
 //     }
 //
-// The coordinate names the package, `cstd`; the module is `sh.sysl.cstd`. A C program compiles
-// against `include/` with `-nostdinc`, beside clang's own freestanding `stddef.h` and `stdint.h`.
+// `if = "!libc"` takes cstd only where the machine has no C library under the program: on a board
+// its headers become the C system headers of every package below, and its sysl satisfies the
+// symbols; on a hosted machine the entry is dropped and the real libc is the one compiled against
+// and linked. The coordinate names the package, `cstd`; the module is `sh.sysl.cstd`.
 
 package {
   name    = "cstd"
   version = "0.1.0"
+}
+
+// `include/` is the C standard library's headers. Where the target has no libc, every dependent's C
+// is compiled with the machine's own header search taken away and these in its place; clang's own
+// freestanding headers (`stddef.h`, `stdint.h`, `stdbool.h`, `limits.h`) stay. Where the target has
+// a libc they are not used at all.
+c {
+  libc { export = ["include"], libc = true }
 }
 
 // **There is deliberately no `requires` block.** Everything here is arithmetic over bytes a caller
