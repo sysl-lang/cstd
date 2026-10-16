@@ -1,0 +1,57 @@
+module sh.sysl.cstd
+
+@tests
+
+// The operating system's calls as weak ENOSYS defaults (`stubs.sysl`): weak on a board, replaced by
+// cstd's Linux half without a duplicate, replaced by a board's own strong definition at link time,
+// and answering -1 with errno ENOSYS where nothing replaces them.
+
+import sysl.buf.{Buf, buf}
+import sysl.fs.make_dir_all
+import sysl.process.capture
+import sysl.testing.compiler
+import sysl.text.{Search, split}
+
+// Every call `stubs.sysl` defaults.
+private val defaulted: []string = ["read", "write", "close", "lseek", "open", "openat", "getpid", "getppid",
+                                   "dup", "dup2", "pipe", "unlink", "rmdir", "mkdir", "chdir", "getcwd", "fstat",
+                                   "stat", "kill", "sigprocmask", "nanosleep", "clock_gettime", "brk", "sbrk"]
+
+// The global symbols `nm` lists for `project` built for `target`, each as "<kind> <name>" on a line.
+private global_symbols(project: string, target: string, name: string) -> string
+    val dir = f".sysl/stubs-tests/$name-$target"
+    make_dir_all(dir).unwrap()
+    val lib = f"$dir/lib$name.a"
+    val built = capture(compiler(), ["build-c", project, "--target", target, "-o", lib], stderr = true).unwrap()
+    if !built.status.ok() then panic(f"build-c of $project for $target failed:\n${built.err.unwrap_or("")}")
+    val listed = capture("nm", ["-g", lib]).unwrap()
+    assert(listed.status.ok())
+    var kinds = "\n"
+    for line in split(listed.text, "\n")
+        var parts: Buf[string] = buf()
+        for p in split(line, " ")
+            if p != "" then parts.push(p)
+        val n = parts.len()
+        if n >= 2 then kinds += f"${parts[n - 2]} ${parts[n - 1]}\n"
+    kinds
+
+@test("on thumbv7em every operating-system call cstd defaults is a weak definition")
+stubs_are_weak_on_a_board()
+    val kinds = global_symbols("tests/qemu/archive", "thumbv7em-freestanding", "cstd")
+    for n in defaulted
+        if !kinds.contains(f"\nW $n\n") then panic(f"$n is not a weak definition on thumbv7em:$kinds")
+
+@test("cstd's Linux half defines every defaulted call strongly, with no weak copy beside it")
+linux_half_replaces_every_stub()
+    val kinds = global_symbols("linux", "aarch64-freestanding", "cstd_linux")
+    for n in defaulted
+        if !kinds.contains(f"\nT $n\n") then panic(f"the Linux half does not define $n:$kinds")
+        if kinds.contains(f"\nW $n\n") then panic(f"the Linux half's archive still carries the default $n")
+
+// `tests/board_probe`'s C defines a strong `write` over semihosting; `tests/qemu/stubs.c` prints
+// through `write` and checks every other call answers its failure value with errno ENOSYS.
+@test("on QEMU's MPS2 AN386 a board's strong write replaces cstd's, and every other call answers ENOSYS")
+board_overrides_write()
+    qemu_run("tests/board_probe", "stubs", "board write\nstubs: ok\n", "thumbv7em-freestanding",
+             ["--target=thumbv7em-none-eabihf", "-mcpu=cortex-m4", "-mfpu=fpv4-sp-d16", "-mfloat-abi=hard"],
+             "start_thumb.s", "thumb.ld", "qemu-system-arm", ["-M", "mps2-an386"])

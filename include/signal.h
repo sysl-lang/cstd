@@ -1,5 +1,6 @@
 /* <signal.h> from sh.sysl.cstd: kill and the signal numbers, Linux's. Defined by cstd's Linux
- * half. There is no sigaction yet. */
+ * half; on any other bare-metal target `kill` is a weak default answering -1 with errno ENOSYS,
+ * which a board replaces with a definition of its own. There is no sigaction yet. */
 #ifndef CSTD_SIGNAL_H
 #define CSTD_SIGNAL_H
 

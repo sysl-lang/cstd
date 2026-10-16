@@ -1,5 +1,6 @@
 /* <time.h> from sh.sysl.cstd: the clocks and the sleep, as Linux's system calls. Defined by cstd's
- * Linux half. */
+ * Linux half; on any other bare-metal target each is a weak default answering -1 with errno ENOSYS,
+ * which a board replaces with a definition of its own. */
 #ifndef CSTD_TIME_H
 #define CSTD_TIME_H
 

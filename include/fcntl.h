@@ -1,5 +1,7 @@
 /* <fcntl.h> from sh.sysl.cstd: open and openat, with the flag values of Linux's arm64 ABI (which
- * differ from the generic ones for O_DIRECTORY and O_NOFOLLOW). Defined by cstd's Linux half. */
+ * differ from the generic ones for O_DIRECTORY and O_NOFOLLOW). Defined by cstd's Linux half; on any
+ * other bare-metal target each is a weak default answering -1 with errno ENOSYS, which a board
+ * replaces with a definition of its own. */
 #ifndef CSTD_FCNTL_H
 #define CSTD_FCNTL_H
 

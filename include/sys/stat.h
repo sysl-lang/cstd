@@ -1,5 +1,7 @@
 /* <sys/stat.h> from sh.sysl.cstd: Linux's asm-generic `struct stat`, the 128-byte one aarch64's
- * newfstatat and fstat fill. Defined by cstd's Linux half. */
+ * newfstatat and fstat fill. Defined by cstd's Linux half; on any
+ * other bare-metal target each call is a weak default answering -1 with errno ENOSYS, which a board
+ * replaces with a definition of its own. */
 #ifndef CSTD_SYS_STAT_H
 #define CSTD_SYS_STAT_H
 

@@ -1,0 +1,20 @@
+// A board's package: it takes cstd as its C library, as a board does, and its C supplies the one
+// operating-system call the board has, a strong `write` to the debug console. cstd's own `write` is
+// a weak ENOSYS default, so the link keeps this one; every other call stays cstd's default.
+// `sh/sysl/cstd/stubs_tests.sysl` builds it for a Cortex-M and runs it under QEMU.
+
+package {
+  name    = "cstd_board_probe"
+  version = "0.0.1"
+}
+
+dependencies {
+  cstd { path = "../..", if = "!libc" }
+}
+
+c {
+  board {
+    root    = "c"
+    sources = ["board.c"]
+  }
+}

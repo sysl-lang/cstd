@@ -197,6 +197,18 @@ clang --target=aarch64-linux-gnu -ffreestanding -nostdinc -isystem "$(clang -pri
 ld.lld -static -e _start -o prog prog.o libcstd.a
 ```
 
+### On a board
+
+On any other freestanding target the calls of the `unistd.h`, `fcntl.h`, `sys/stat.h`, `time.h` and
+`signal.h` rows above but `_exit`, and `sigprocmask`, which `sigsetjmp` reaches, are weak defaults in
+the core (`stubs.sysl`): each sets `errno` to `ENOSYS` and answers its failure value (-1, a null
+`getcwd`, `(void *)-1` from `sbrk`). A board overrides any one by defining it strongly, in its sysl
+(`@export("write")`) or its C (`ssize_t write(int, const void *, size_t)`), and the link keeps the
+board's with no duplicate-symbol error. A static linker does not pull an archive member in to replace
+a weak definition it already has, so a definition in a board's C is kept where something else in that
+file is linked too — its startup code, or a function the board calls. A hosted target has none of
+the defaults: its calls are the host libc's.
+
 ## Using it from C
 
 ```
@@ -305,6 +317,14 @@ must come back): `tests/qemu/setjmp.c` is linked against cstd built for the targ
 under ASan, whose flags would reach the bare-metal build. Under ASan a C caller of `longjmp` calls
 `__asan_handle_no_return` itself, because the prototype is `noreturn`, so the skipped frames'
 shadow is cleared without cstd doing anything.
+
+**The operating-system defaults** are checked by `stubs_tests.sysl`: built for
+`thumbv7em-freestanding`, cstd's archive lists every defaulted call as `W`; built for
+`aarch64-freestanding`, the Linux half's lists each as `T` with no `W` beside it; and on QEMU's
+`mps2-an386`, `tests/qemu/stubs.c` linked against `tests/board_probe` — a package whose C supplies a
+strong `write` over semihosting — prints through the board's `write` and sees every other call answer
+its failure value with `errno` ENOSYS. Making the default `write` strong turns that link into
+`duplicate symbol: write`.
 
 ## What is deliberately absent, and why
 

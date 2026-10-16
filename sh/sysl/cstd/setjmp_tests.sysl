@@ -369,29 +369,36 @@ setjmp_header_refuses()
 // semihosting. A machine with no QEMU, LLVM clang or ld.lld here skips; so does a sanitizer run,
 // since `SYSL_EXTRA_CFLAGS` would reach the bare-metal build too.
 
-private val llvm_clang: string = "/opt/homebrew/opt/llvm/bin/clang"
+private[cstd] val llvm_clang: string = "/opt/homebrew/opt/llvm/bin/clang"
 
-private absent(tool: string) -> bool = capture(tool, ["--version"]) match
+private[cstd] absent(tool: string) -> bool = capture(tool, ["--version"]) match
     Ok(out) -> !out.status.ok()
     Err(_) -> true
 
-private qemu_case(target: string, flags: []string, start: string, script: string, qemu: string, machine: []string)
+private qemu_case(target: string, flags: []string, start: string, script: string, qemu: string, machine: []string) =
+    qemu_run("tests/qemu/archive", "setjmp", "setjmp: ok\n", target, flags, start, script, qemu, machine)
+
+// Builds `project` for `target` with `sysl build-c`, compiles `tests/qemu/<name>.c` against cstd's
+// headers, links the two with the start file and linker script, runs the image under `qemu` and
+// checks it printed exactly `expect` and exited 0. The other cases built this way share it.
+private[cstd] qemu_run(project: string, name: string, expect: string, target: string, flags: []string,
+                       start: string, script: string, qemu: string, machine: []string)
     if get_or("SYSL_EXTRA_CFLAGS", "") != ""
         skip("SYSL_EXTRA_CFLAGS would reach the bare-metal build")
     for tool in [llvm_clang, "ld.lld", qemu]
         if absent(tool) then skip(f"$tool is not on this machine")
 
-    val dir = f".sysl/qemu-tests/$target"
+    val dir = f".sysl/qemu-tests/$name-$target"
     make_dir_all(dir).unwrap()
     val lib = f"$dir/libcstd.a"
-    val built = capture(compiler(), ["build-c", "tests/qemu/archive", "--target", target, "-o", lib], stderr = true).unwrap()
+    val built = capture(compiler(), ["build-c", project, "--target", target, "-o", lib], stderr = true).unwrap()
     assert(built.status.ok(), built.err.unwrap_or(""))
 
     val res = capture(llvm_clang, ["-print-resource-dir"]).unwrap().text.trim()
     var c_args: Buf[string] = buf()
     for f in flags do c_args.push(f)
     for a in ["-ffreestanding", "-nostdinc", "-isystem", f"$res/include", "-I", "include", "-O2",
-              "-ffunction-sections", "-c", "tests/qemu/setjmp.c", "-o", f"$dir/setjmp.o"]
+              "-ffunction-sections", "-c", f"tests/qemu/$name.c", "-o", f"$dir/$name.o"]
         c_args.push(a)
     val compiled = capture(llvm_clang, c_args.view(), stderr = true).unwrap()
     assert(compiled.status.ok(), compiled.err.unwrap_or(""))
@@ -403,18 +410,18 @@ private qemu_case(target: string, flags: []string, start: string, script: string
     assert(assembled.status.ok(), assembled.err.unwrap_or(""))
 
     val linked = capture("ld.lld", ["-T", f"tests/qemu/$script", "--gc-sections", f"$dir/start.o",
-                                    f"$dir/setjmp.o", lib, "-o", f"$dir/setjmp.elf"], stderr = true).unwrap()
+                                    f"$dir/$name.o", lib, "-o", f"$dir/$name.elf"], stderr = true).unwrap()
     assert(linked.status.ok(), linked.err.unwrap_or(""))
 
     var q_args: Buf[string] = buf()
     for m in machine do q_args.push(m)
-    for a in ["-nographic", "-semihosting-config", "enable=on,target=native", "-kernel", f"$dir/setjmp.elf"]
+    for a in ["-nographic", "-semihosting-config", "enable=on,target=native", "-kernel", f"$dir/$name.elf"]
         q_args.push(a)
     val ran = capture(qemu, q_args.view(), timeout = 15000, stderr = true).unwrap()
     val said = f"${ran.text}${ran.err.unwrap_or("")}"
-    assert_eq(said, "setjmp: ok\n")
+    assert_eq(said, expect)
     assert(ran.status.ok())
-end qemu_case
+end qemu_run
 
 @test("setjmp on QEMU's micro:bit, a Cortex-M0: the thumb arm in Armv6-M's instructions holds")
 qemu_cortex_m0()

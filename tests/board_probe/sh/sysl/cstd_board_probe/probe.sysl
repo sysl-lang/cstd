@@ -1,0 +1,9 @@
+module sh.sysl.cstd_board_probe
+
+// Nothing of its own: the package exists for its C. One name from cstd is reached so the dependency
+// is a used one.
+
+import sh.sysl.cstd.strlen
+
+@export("cstd_board_probe_strlen")
+probe_strlen(s: *u8) -> usize = strlen(s)

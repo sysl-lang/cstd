@@ -1,0 +1,98 @@
+module sh.sysl.cstd
+
+// The operating system's calls, as the defaults a machine with none links: each sets `errno` to
+// ENOSYS and answers the call's failure value. They are weak exports, so a strong definition of the
+// same symbol anywhere in the link replaces one with no duplicate-symbol error — cstd's Linux half
+// gives every one a real system call, and a board supplies the few it has, `write` to a UART say,
+// in its sysl or its C.
+//
+// Only a freestanding target has them. A hosted program's calls are its libc's, and a default in
+// the program's own image would answer them in that libc's place.
+//
+// The signatures are the headers' (`<unistd.h>`, `<fcntl.h>`, `<sys/stat.h>`, `<signal.h>`,
+// `<time.h>`): `off_t` and `ssize_t` are `long`, so `isize`.
+
+#if freestanding
+
+private nosys() -> i32
+    errno = ENOSYS
+    -1
+
+@export("read", weak)
+nosys_read(fd: i32, buf: *u8, n: usize) -> isize = isize(nosys())
+
+@export("write", weak)
+nosys_write(fd: i32, buf: *u8, n: usize) -> isize = isize(nosys())
+
+@export("close", weak)
+nosys_close(fd: i32) -> i32 = nosys()
+
+@export("lseek", weak)
+nosys_lseek(fd: i32, offset: isize, whence: i32) -> isize = isize(nosys())
+
+@export("open", weak)
+nosys_open(path: *u8, flags: i32, ...) -> i32 = nosys()
+
+@export("openat", weak)
+nosys_openat(dirfd: i32, path: *u8, flags: i32, ...) -> i32 = nosys()
+
+@export("getpid", weak)
+nosys_getpid() -> i32 = nosys()
+
+@export("getppid", weak)
+nosys_getppid() -> i32 = nosys()
+
+@export("dup", weak)
+nosys_dup(fd: i32) -> i32 = nosys()
+
+@export("dup2", weak)
+nosys_dup2(fd: i32, to: i32) -> i32 = nosys()
+
+@export("pipe", weak)
+nosys_pipe(fds: *i32) -> i32 = nosys()
+
+@export("unlink", weak)
+nosys_unlink(path: *u8) -> i32 = nosys()
+
+@export("rmdir", weak)
+nosys_rmdir(path: *u8) -> i32 = nosys()
+
+@export("mkdir", weak)
+nosys_mkdir(path: *u8, mode: u32) -> i32 = nosys()
+
+@export("chdir", weak)
+nosys_chdir(path: *u8) -> i32 = nosys()
+
+@export("getcwd", weak)
+nosys_getcwd(buf: *u8, size: usize) -> *u8
+    nosys()
+    null
+
+@export("fstat", weak)
+nosys_fstat(fd: i32, st: *u8) -> i32 = nosys()
+
+@export("stat", weak)
+nosys_stat(path: *u8, st: *u8) -> i32 = nosys()
+
+@export("kill", weak)
+nosys_kill(pid: i32, sig: i32) -> i32 = nosys()
+
+@export("sigprocmask", weak)
+nosys_sigprocmask(how: i32, set: *u8, old: *u8) -> i32 = nosys()
+
+@export("nanosleep", weak)
+nosys_nanosleep(req: *u8, rem: *u8) -> i32 = nosys()
+
+@export("clock_gettime", weak)
+nosys_clock_gettime(clock: i32, ts: *u8) -> i32 = nosys()
+
+@export("brk", weak)
+nosys_brk(to: *u8) -> i32 = nosys()
+
+// `(void *)-1`, the address no break can be.
+@export("sbrk", weak)
+nosys_sbrk(by: isize) -> *u8
+    nosys()
+    ptr_cast(usize::Max)
+
+#endif
