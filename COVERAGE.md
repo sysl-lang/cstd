@@ -18,8 +18,8 @@ its archive defines each symbol strongly.
 | header | exported | tested | untested |
 |---|---:|---:|---:|
 | `assert.h` | 1 | 1 | 0 |
-| `signal.h` | 2 | 1 | 1 |
-| no header | 4 | 2 | 2 |
+| no header | 2 | 1 | 1 |
+| `signal.h` | 9 | 7 | 2 |
 | `fcntl.h` | 4 | 2 | 2 |
 | `inttypes.h` | 6 | 6 | 0 |
 | `sys/stat.h` | 6 | 3 | 3 |
@@ -34,7 +34,7 @@ its archive defines each symbol strongly.
 | `stdlib.h` | 42 | 34 | 8 |
 | `stdbit.h` | 70 | 70 | 0 |
 | `math.h` | 171 | 171 | 0 |
-| **all** | **473** | **430** | **43** |
+| **all** | **478** | **435** | **43** |
 
 Still untested:
 
@@ -49,8 +49,6 @@ Still untested:
 
 Other findings:
 
-- `sigprocmask` is exported (a weak default and the Linux half) but no header declares it, nor
-  `sigset_t`; POSIX puts both in `<signal.h>`. `tests/qemu/stubs.c` declares it by hand.
 - `cstd_start` is the Linux half's entry, reached from `_start`; `cstd_sigsetjmp_tail` and
   `__cstd_assert_fail` are internal names the `sigsetjmp` and `assert` macros reach, so no header
   declares them for a caller.
@@ -67,6 +65,13 @@ Other findings:
 |---|---|---|
 | `kill` | freestanding | stubs.c |
 | `kill` | linux | **untested** |
+| `sigprocmask` | freestanding | stubs.c |
+| `sigprocmask` | linux | **untested** |
+| `sigemptyset` | portable | sigset_tests.sysl |
+| `sigfillset` | portable | sigset_tests.sysl |
+| `sigaddset` | portable | sigset_tests.sysl |
+| `sigdelset` | portable | sigset_tests.sysl |
+| `sigismember` | portable | sigset_tests.sysl |
 
 ## No header
 
@@ -74,8 +79,6 @@ Other findings:
 |---|---|---|
 | `cstd_sigsetjmp_tail` | portable | setjmp_tests.sysl (through `sigsetjmp`) |
 | `cstd_start` | linux | **untested** |
-| `sigprocmask` | freestanding | stubs.c |
-| `sigprocmask` | linux | **untested** |
 
 ## `fcntl.h`
 

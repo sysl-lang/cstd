@@ -1,0 +1,48 @@
+module sh.sysl.cstd
+
+// `<signal.h>`'s signal sets: `sigemptyset`, `sigfillset`, `sigaddset`, `sigdelset` and `sigismember`.
+//
+// A `sigset_t` is one 64-bit word, the size Linux's `rt_sigprocmask` takes, with signal `n` held in bit
+// `n - 1`. Signals 1 to 64 are valid; 0, a negative number and anything above 64 make the three that
+// take a signal answer -1 with `errno` EINVAL and leave the set alone. `sigemptyset` and
+// `sigfillset` answer 0 and set every bit to 0 and to 1.
+
+struct SigSet
+    bits: u64
+
+// The bit for `sig`, or 0 where `sig` is not a signal number.
+private bit(sig: i32) -> u64 = if sig >= 1 && sig <= 64 then u64(1) << u64(sig - 1) else 0
+
+private invalid() -> i32
+    errno = EINVAL
+    -1
+
+@export("sigemptyset")
+sigemptyset(set: *SigSet) -> i32
+    set.bits = 0
+    0
+
+@export("sigfillset")
+sigfillset(set: *SigSet) -> i32
+    set.bits = ~u64(0)
+    0
+
+@export("sigaddset")
+sigaddset(set: *SigSet, sig: i32) -> i32
+    val b = bit(sig)
+    if b == 0 then return invalid()
+    set.bits = set.bits | b
+    0
+
+@export("sigdelset")
+sigdelset(set: *SigSet, sig: i32) -> i32
+    val b = bit(sig)
+    if b == 0 then return invalid()
+    set.bits = set.bits & ~b
+    0
+
+@export("sigismember")
+sigismember(set: *SigSet, sig: i32) -> i32
+    val b = bit(sig)
+    if b == 0 then return invalid()
+    if set.bits & b != 0 then 1 else 0

@@ -1,0 +1,138 @@
+module sh.sysl.cstd
+
+@tests
+
+// `<signal.h>`'s signal sets (`sigset.sysl`), called from C. The set is one 64-bit word, so the
+// cases read it back through its `__bits[0]` as well as through `sigismember`.
+
+private val header: string = "#include <signal.h>\n#include <errno.h>\n"
+
+@test("sigset_t is 64 bits and the SIG_ constants are Linux's")
+sigset_type_and_constants()
+    c_case(raw"""
+        say_uint(sizeof(sigset_t));
+        say_int(SIG_BLOCK);
+        say_int(SIG_UNBLOCK);
+        say_int(SIG_SETMASK);
+        """, raw"""
+        8
+        0
+        1
+        2
+        """, header)
+
+@test("sigemptyset clears every bit and sigfillset sets every one")
+sigset_empty_and_fill()
+    c_case(raw"""
+        sigset_t s;
+        s.__bits[0] = 0x1234;
+        say_int(sigemptyset(&s));
+        say_uint(s.__bits[0]);
+        say_int(sigfillset(&s));
+        say_uint(s.__bits[0] == ~0ull);
+        for (int n = 1; n <= 64; n++) if (sigismember(&s, n) != 1) say_int(-n);
+        sigemptyset(&s);
+        for (int n = 1; n <= 64; n++) if (sigismember(&s, n) != 0) say_int(-n);
+        """, raw"""
+        0
+        0
+        0
+        1
+        """, header)
+
+@test("sigaddset sets signal n in bit n - 1, for every signal from 1 to 64")
+sigset_add_every_signal()
+    c_case(raw"""
+        for (int n = 1; n <= 64; n++) {
+            sigset_t s;
+            sigemptyset(&s);
+            if (sigaddset(&s, n) != 0) say_int(-n);
+            if (s.__bits[0] != 1ull << (n - 1)) say_int(-n);
+            if (sigismember(&s, n) != 1) say_int(-n);
+            if (n < 64 && sigismember(&s, n + 1) != 0) say_int(-n);
+            if (n > 1 && sigismember(&s, n - 1) != 0) say_int(-n);
+        }
+        say_str("done");
+        """, raw"""
+        done
+        """, header)
+
+@test("sigaddset keeps what is already in the set and adding twice changes nothing")
+sigset_add_keeps_members()
+    c_case(raw"""
+        sigset_t s;
+        sigemptyset(&s);
+        sigaddset(&s, SIGINT);
+        sigaddset(&s, SIGTERM);
+        sigaddset(&s, SIGINT);
+        say_uint(s.__bits[0]);
+        say_int(sigismember(&s, SIGINT));
+        say_int(sigismember(&s, SIGTERM));
+        say_int(sigismember(&s, SIGHUP));
+        """, raw"""
+        16386
+        1
+        1
+        0
+        """, header)
+
+@test("sigdelset clears one bit, in the full set and in the empty one")
+sigset_delete()
+    c_case(raw"""
+        sigset_t s;
+        sigfillset(&s);
+        say_int(sigdelset(&s, 1));
+        say_int(sigdelset(&s, 64));
+        say_int(sigdelset(&s, 10));
+        say_uint(s.__bits[0] == (~0ull & ~1ull & ~(1ull << 63) & ~(1ull << 9)));
+        say_int(sigismember(&s, 10));
+        say_int(sigismember(&s, 11));
+        sigemptyset(&s);
+        say_int(sigdelset(&s, 5));
+        say_uint(s.__bits[0]);
+        """, raw"""
+        0
+        0
+        0
+        1
+        0
+        1
+        0
+        0
+        """, header)
+
+@test("signal 0, negative signals and signals above 64 are EINVAL and leave the set alone")
+sigset_invalid_signals()
+    c_case(raw"""
+        int bad[] = {0, -1, 65, 66, 1000, -2147483647 - 1, 2147483647};
+        for (unsigned i = 0; i < sizeof bad / sizeof bad[0]; i++) {
+            sigset_t s;
+            sigset_t full;
+            sigfillset(&full);
+            sigemptyset(&s);
+            errno = 0;
+            if (sigaddset(&s, bad[i]) != -1 || errno != EINVAL || s.__bits[0] != 0) say_int(bad[i]);
+            errno = 0;
+            if (sigdelset(&full, bad[i]) != -1 || errno != EINVAL || full.__bits[0] != ~0ull) say_int(bad[i]);
+            errno = 0;
+            if (sigismember(&full, bad[i]) != -1 || errno != EINVAL) say_int(bad[i]);
+        }
+        say_str("done");
+        """, raw"""
+        done
+        """, header)
+
+@test("a successful call leaves errno alone")
+sigset_success_keeps_errno()
+    c_case(raw"""
+        sigset_t s;
+        errno = 99;
+        sigemptyset(&s);
+        sigfillset(&s);
+        sigaddset(&s, 3);
+        sigdelset(&s, 3);
+        sigismember(&s, 3);
+        say_int(errno);
+        """, raw"""
+        99
+        """, header)

@@ -20,8 +20,7 @@ counts and totals cover in-scope functions only.
 **Status** is one of `done (core)` or `done (linux)` (the half that exports it: `sh/sysl/cstd` or
 `linux/sh/sysl/cstd_linux`), `missing`, `declared only` (the header declares it, nothing exports it), or
 `exported, not declared`, with a qualifier in brackets where one applies. No function is currently in
-either of the last two states except `sigprocmask`, which is done and exported but not declared (an open
-item).
+either of the last two states.
 
 **Needs** says what a missing function requires:
 
@@ -413,14 +412,14 @@ them, so there is no out-of-scope table.
 | raise | | missing | os | linux |
 | sig2str | CX | missing | pure | core |
 | sigaction | CX | missing | os | linux |
-| sigaddset | CX | missing | pure | core |
-| sigdelset | CX | missing | pure | core |
-| sigemptyset | CX | missing | pure | core |
-| sigfillset | CX | missing | pure | core |
-| sigismember | CX | missing | pure | core |
+| sigaddset | CX | done (core) | | core |
+| sigdelset | CX | done (core) | | core |
+| sigemptyset | CX | done (core) | | core |
+| sigfillset | CX | done (core) | | core |
+| sigismember | CX | done (core) | | core |
 | signal | | missing | os | linux |
 | sigpending | CX | missing | os | linux |
-| sigprocmask | CX | done (linux; exported, but `<signal.h>` declares neither it nor `sigset_t`: open) | | linux |
+| sigprocmask | CX | done (linux) | | linux |
 | sigqueue | CX | missing | os | linux |
 | sigsuspend | CX | missing | os | linux |
 | sigtimedwait | CX | missing | os | linux |
@@ -428,8 +427,9 @@ them, so there is no out-of-scope table.
 | sigwaitinfo | CX | missing | os | linux |
 | str2sig | CX | missing | pure | core |
 
-`psignal` and `psiginfo` write to standard error, hence `os`. The set operations are pure only once
-`sigset_t` is defined; `signal.h` defines no types today.
+`psignal` and `psiginfo` write to standard error, hence `os`. `sigset_t` is one 64-bit word (Linux's
+`rt_sigprocmask` mask), so the set operations are pure; the other types of the page (`siginfo_t`,
+`struct sigaction`, `union sigval`, `stack_t`) are not defined.
 
 Out of scope:
 
@@ -900,7 +900,7 @@ In-scope functions only.
 | `locale.h` | 7 | 7 | 0 | | | | | | |
 | `math.h` | 171 | 171 | 0 | | | | | | |
 | `setjmp.h` | 4 | 4 | 0 | | | | | | |
-| `signal.h` | 22 | 2 | 20 | 7 | | | 13 | | |
+| `signal.h` | 22 | 7 | 15 | 2 | | | 13 | | |
 | `stdio.h` | 67 | 10 | 57 | 3 | | 2 | 3 | | 49 |
 | `stdlib.h` | 49 | 33 | 16 | 3 | | 2 | 11 | | |
 | `string.h` | 36 | 36 | 0 | | | | | | |
@@ -909,7 +909,7 @@ In-scope functions only.
 | `sys/types.h` | 0 | 0 | 0 | | | | | | |
 | `time.h` | 22 | 22 | 0 | | | | | | |
 | `unistd.h` | 75 | 14 | 61 | 2 | | | 58 | 1 | |
-| **total** | **521** | **354** | **167** | **15** | **0** | **4** | **98** | **1** | **49** |
+| **total** | **521** | **359** | **162** | **10** | **0** | **4** | **98** | **1** | **49** |
 
 Out of scope and missing: 57 functions (`fcntl.h` 2, `math.h` 6, `signal.h` 2, `stdio.h` 1,
 `stdlib.h` 23, `string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15). Out of scope but done: 3
@@ -925,8 +925,8 @@ cstd's. `<sys/types.h>` is included by `time.h`, `fcntl.h`, `signal.h`, `unistd.
 **Headers the standard's pages make the offered ones depend on.** `ctype.h`, `string.h`, `strings.h` and
 `time.h` must define `locale_t` "as described in `<locale.h>`"; all five define it, each under the guard
 `__CSTD_LOCALE_T`. `time.h` declares `struct sigevent` as defined in `<signal.h>` (cstd's declares it
-incomplete), whose types (`sigset_t`, `siginfo_t`, `struct sigaction`,
-`union sigval`, `stack_t`, `pthread_t`) cstd's `signal.h` does not define.
+incomplete), whose types (`siginfo_t`, `struct sigaction`,
+`union sigval`, `stack_t`, `pthread_t`) cstd's `signal.h` does not define; it does define `sigset_t`.
 
 **Functions present under headers cstd does not offer.** None from POSIX. Three exported and declared
 names are not POSIX functions at all: `brk` and `sbrk` (declared in `unistd.h`, exported by the Linux
