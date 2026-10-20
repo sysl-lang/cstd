@@ -1,0 +1,158 @@
+module sh.sysl.cstd
+
+@tests
+
+// cstd's Linux half (`linux/`) run on Linux: each C program under `tests/linux/` is linked against
+// the half's archive into a static aarch64 ELF and run in a colima VM, an aarch64 Linux on this
+// machine's hypervisor that mounts the home directory at the same path. A program states its
+// expectations from POSIX's text or Linux's documentation (`tests/linux/check.h`) and prints
+// `<name>: ok`; the test compares the whole standard output, standard error and the exit status.
+//
+// The VM is started once, by hand, and these tests only use it:
+//
+//     colima start --profile cstd-test --arch aarch64 --vm-type vz --cpu 2 --memory 2 --disk 10
+//
+// Where the profile is not running, or colima is not installed, every test here skips.
+
+import sysl.buf.{Buf, buf}
+import sysl.env.get_or
+import sysl.fs.{current_dir, make_dir_all}
+import sysl.process.{capture, pid}
+import sysl.testing.{compiler, skip}
+import sysl.time.now
+
+private val colima: string = "/opt/homebrew/bin/colima"
+private val vm_profile: string = "cstd-test"
+
+// Skips unless the VM is up and the tools that build for it are here. Starting the VM takes far
+// longer than the suite allows a test, so a stopped one is a skip, never a start.
+private linux_ready()
+    if get_or("SYSL_EXTRA_CFLAGS", "") != ""
+        skip("SYSL_EXTRA_CFLAGS would reach the freestanding build")
+    if absent(colima) then skip(f"colima is not installed ($colima)")
+    for tool in ["clang", "ld.lld"]
+        if absent(tool) then skip(f"$tool is not on this machine")
+    val running = capture(colima, ["status", "--profile", vm_profile], stderr = true) match
+        Ok(out) -> out.status.ok()
+        Err(_) -> false
+    if !running
+        skip(f"colima profile $vm_profile is not running (colima start --profile $vm_profile --arch aarch64 --vm-type vz --cpu 2 --memory 2 --disk 10)")
+
+// The linker's account of the thread-local template, which `sysl.threads` reads to lay the first
+// thread's block (`crt0.sysl`); a link with no `.tdata` or `.tbss` gets zeros. `sysl build`'s own
+// image link passes the same four.
+private val tls_symbols: []string = [
+    "--defsym=__sysl_tls_data=SIZEOF(.tdata) ? ADDR(.tdata) : (SIZEOF(.tbss) ? ADDR(.tbss) : 0)",
+    "--defsym=__sysl_tls_data_end=SIZEOF(.tdata) ? ADDR(.tdata) + SIZEOF(.tdata) : __sysl_tls_data",
+    "--defsym=__sysl_tls_end=SIZEOF(.tbss) ? ADDR(.tbss) + SIZEOF(.tbss) : __sysl_tls_data_end",
+    "--defsym=__sysl_tls_align=(SIZEOF(.tdata) ? ALIGNOF(.tdata) : 1) > (SIZEOF(.tbss) ? ALIGNOF(.tbss) : 1) ? (SIZEOF(.tdata) ? ALIGNOF(.tdata) : 1) : (SIZEOF(.tbss) ? ALIGNOF(.tbss) : 1)",
+]
+
+// `tests/linux/<name>.c` compiled and linked statically against the Linux half, as a program for
+// Linux is; answers the ELF's absolute path, which the VM sees at the same place. Each build has a
+// directory no other test and no earlier run has used: the VM's view of the shared directory can
+// keep a replaced file's old entry, so an ELF is never written where one has been before.
+private linux_program(name: string) -> string
+    linux_ready()
+    val lib = built_archive("linux", "aarch64-freestanding", "cstd_linux")
+    val dir = f"${current_dir().unwrap()}/.sysl/linux-tests/$name-${pid()}-${now().us}"
+    make_dir_all(dir).unwrap()
+
+    val res = capture("clang", ["-print-resource-dir"]).unwrap().text.trim()
+    val compiled = capture("clang", ["--target=aarch64-linux-gnu", "-ffreestanding", "-nostdinc", "-isystem",
+                                     f"$res/include", "-I", "include", "-static", "-fno-pic", "-O2", "-Wall",
+                                     "-Werror", "-Wno-unused-function", "-c", f"tests/linux/$name.c", "-o",
+                                     f"$dir/$name.o"], stderr = true).unwrap()
+    assert(compiled.status.ok(), compiled.err.unwrap_or(""))
+
+    var l_args: Buf[string] = buf()
+    for a in ["-static", "-e", "_start"] do l_args.push(a)
+    for s in tls_symbols do l_args.push(s)
+    for a in ["-o", f"$dir/$name", f"$dir/$name.o", lib] do l_args.push(a)
+    val linked = capture("ld.lld", l_args.view(), stderr = true).unwrap()
+    assert(linked.status.ok(), linked.err.unwrap_or(""))
+    f"$dir/$name"
+
+// Runs `program` in the VM with exactly the environment `env` (`NAME=value` each), the arguments
+// `args`, umask 022 and no core files, after the shell commands `setup`; checks its standard output
+// followed by `[status N]` — the status as the shell reports it, 128 plus the signal for a process a
+// signal ended — and its standard error, where the shell names that signal. Any number of these run
+// at once against the one VM, each in its own ssh session.
+private linux_run(program: string, args: []string, expect: string, expect_err: string = "",
+                  env: []string = [], setup: string = "")
+    var c_args: Buf[string] = buf()
+    val script = f"ulimit -c 0; umask 022; $setup env -i \"$$@\"; echo \"[status $$?]\""
+    for a in ["ssh", "--profile", vm_profile, "--", "sh", "-c", script, "sh"] do c_args.push(a)
+    for e in env do c_args.push(e)
+    c_args.push(program)
+    for a in args do c_args.push(a)
+    val ran = capture(colima, c_args.view(), timeout = 60000, stderr = true).unwrap()
+    assert_eq(ran.text, expect)
+    assert_eq(ran.err.unwrap_or(""), expect_err)
+
+// A directory or file name in the VM's own /tmp that no other run uses.
+private vm_scratch(name: string) -> string = f"/tmp/cstd-$name-${pid()}-${now().us}"
+
+@test("on Linux main gets argc, argv and envp from the initial stack, environ is envp, and main's answer is the exit status")
+linux_start_and_environment()
+    linux_run(linux_program("args"), ["one", "two words", ""], "args: ok\n[status 42]\n",
+              env = ["A=1", "B=two words"])
+
+@test("on Linux exit, and a return from main, run the atexit handlers last first and end with the status's low eight bits")
+linux_exit_runs_handlers()
+    val program = linux_program("exit")
+    val handlers = "handler third\nhandler second\nhandler first\n"
+    linux_run(program, ["exit"], f"exit: ok\n${handlers}[status 3]\n")
+    linux_run(program, ["return"], f"return: ok\n${handlers}[status 5]\n")
+    linux_run(program, ["wide"], f"wide: ok\n${handlers}[status 9]\n")
+
+@test("on Linux _exit and _Exit end the process with the status and run no atexit handler")
+linux_underscore_exits()
+    val program = linux_program("exit")
+    linux_run(program, ["_exit"], "_exit: ok\n[status 4]\n")
+    linux_run(program, ["_Exit"], "_Exit: ok\n[status 6]\n")
+
+@test("on Linux atexit takes 32 handlers and refuses a 33rd, and exit runs all 32")
+linux_atexit_table()
+    linux_run(linux_program("exit"), ["table"], "table: ok\nhandlers run before this one: 31\n[status 0]\n")
+
+@test("on Linux abort ends the process by SIGABRT with no handler run, even with SIGABRT blocked or ignored")
+linux_abort()
+    val program = linux_program("exit")
+    linux_run(program, ["abort"], "abort: ok\n[status 134]\n", expect_err = "Aborted\n")
+    linux_run(program, ["abort-blocked"], "abort-blocked: ok\n[status 134]\n", expect_err = "Aborted\n")
+    linux_run(program, ["abort-ignored"], "abort-ignored: ok\n[status 134]\n", expect_err = "Aborted\n",
+              setup = "trap '' ABRT;")
+
+@test("on Linux malloc, calloc, realloc and free keep every block's bytes, align to 16 and refuse with ENOMEM")
+linux_heap()
+    linux_run(linux_program("heap"), [], "heap: ok\n[status 0]\n")
+
+@test("on Linux sbrk and brk move the break and refuse a break the kernel will not grant with ENOMEM")
+linux_break()
+    linux_run(linux_program("break"), [], "break: ok\n[status 0]\n")
+
+@test("on Linux the file calls work on a real file system and answer each POSIX errno")
+linux_files()
+    linux_run(linux_program("files"), [vm_scratch("files")], "files: ok\n[status 0]\n")
+
+@test("on Linux dup, dup2 and pipe share descriptions, take the lowest descriptor and answer EBADF")
+linux_descriptors()
+    linux_run(linux_program("fds"), [vm_scratch("fds")], "fds: ok\n[status 0]\n")
+
+@test("on Linux getpid and getppid agree with /proc, and kill checks, refuses and signals")
+linux_ids_and_kill()
+    val program = linux_program("signals")
+    linux_run(program, ["ids"], "ids: ok\n[status 0]\n")
+    linux_run(program, ["kill"], "kill: ok\n[status 0]\n")
+    linux_run(program, ["die"], "die: ok\n[status 143]\n", expect_err = "Terminated\n")
+
+@test("on Linux sigprocmask blocks, holds a sent signal pending, and delivers it once unblocked")
+linux_sigprocmask()
+    val program = linux_program("signals")
+    linux_run(program, ["mask"], "survived a blocked SIGUSR1\nmask: ok\n[status 0]\n")
+    linux_run(program, ["unblock"], "unblock: ok\n[status 138]\n", expect_err = "User defined signal 1\n")
+
+@test("on Linux the clocks read, the sleeps sleep and the timers arm, expire and refuse as POSIX says")
+linux_clocks_sleeps_timers()
+    linux_run(linux_program("time"), [f"${now().us / 1000000}"], "time: ok\n[status 0]\n")

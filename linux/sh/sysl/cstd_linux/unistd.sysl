@@ -4,7 +4,7 @@ module sh.sysl.cstd_linux
 // system call with C's convention over it (`checked`): an error sets `errno` and answers -1. The
 // path calls are the `*at` forms against the working directory, aarch64 having no others.
 
-import sh.sysl.cstd.Timespec
+import sh.sysl.cstd.{EINVAL, Timespec}
 
 @export("read")
 read(fd: i32, buf: *u8, n: usize) -> isize = isize(checked(call(SYS_READ, u64(fd), addr(buf), u64(n))))
@@ -20,8 +20,10 @@ lseek(fd: i32, offset: i64, whence: i32) -> i64 = checked(call(SYS_LSEEK, u64(fd
 
 // The flags that create a file, and so the only ones under which `open` reads a mode: a caller
 // creating nothing passes no third argument, and C does not let `open` read one it was not given.
+// arm64's `O_TMPFILE` is `__O_TMPFILE` (020000000) with arm64's own `O_DIRECTORY` (040000), not the
+// asm-generic one.
 const O_CREAT: i32 = 0x40
-const O_TMPFILE: i32 = 0x410000
+const O_TMPFILE: i32 = 0x404000
 
 private open_mode(flags: i32, ap: *va_list) -> u64
     if (flags & O_CREAT) == 0 && (flags & O_TMPFILE) != O_TMPFILE then return 0
@@ -116,9 +118,13 @@ clock_getres(clock: i32, res: *u8) -> i32 = i32(checked(call(SYS_CLOCK_GETRES, u
 clock_settime(clock: i32, ts: *u8) -> i32 = i32(checked(call(SYS_CLOCK_SETTIME, u64(clock), addr(ts))))
 
 // The one call of these that answers its error number itself, as the kernel's negated answer, and
-// leaves `errno` alone.
+// leaves `errno` alone. POSIX makes the calling thread's own CPU-time clock EINVAL, where Linux
+// answers EOPNOTSUPP.
+const CLOCK_THREAD_CPUTIME_ID: i32 = 3
+
 @export("clock_nanosleep")
-clock_nanosleep(clock: i32, flags: i32, req: *u8, rem: *u8) -> i32 =
+clock_nanosleep(clock: i32, flags: i32, req: *u8, rem: *u8) -> i32
+    if clock == CLOCK_THREAD_CPUTIME_ID then return EINVAL
     i32(-call(SYS_CLOCK_NANOSLEEP, u64(clock), u64(flags), addr(req), addr(rem)))
 
 // `timer_t` is the kernel's own timer id, an `int`, so the kernel writes it where the caller asked.

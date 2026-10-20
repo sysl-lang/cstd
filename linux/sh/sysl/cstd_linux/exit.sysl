@@ -22,11 +22,21 @@ _exit(status: i32) -> never
 @export("_Exit")
 c_Exit(status: i32) -> never = _exit(status)
 
-// SIGABRT ends the process unless it is caught or blocked; if it comes back, the process ends
-// anyway, with the status a shell reports for SIGABRT.
+// POSIX has `abort` override SIGABRT being blocked or ignored: it is unblocked and sent; if the
+// process comes back — it was ignored, or caught by a handler that returned — its action is put back
+// to the default and it is sent again. Should even that come back, the process ends with the status
+// a shell reports for SIGABRT.
 const SIGABRT: u64 = 6
+const SIG_UNBLOCK: u64 = 1
 
 @export("abort")
 abort() -> never
-    call(SYS_KILL, u64(call(SYS_GETPID)), SIGABRT)
+    var abrt: u64 = 1 << (SIGABRT - 1)
+    call(SYS_RT_SIGPROCMASK, SIG_UNBLOCK, u64(usize(&abrt)), 0, 8)
+    val me = u64(call(SYS_GETPID))
+    call(SYS_KILL, me, SIGABRT)
+    // The kernel's `struct sigaction` on arm64 — handler, flags, restorer, mask — all zero: SIG_DFL.
+    var default_action: [4]u64 = [0, 0, 0, 0]
+    call(SYS_RT_SIGACTION, SIGABRT, u64(usize(&default_action[0])), 0, 8)
+    call(SYS_KILL, me, SIGABRT)
     _exit(128 + 6)

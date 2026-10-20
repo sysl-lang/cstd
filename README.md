@@ -210,7 +210,7 @@ own `write` and `malloc`, which these would replace.
 | `fcntl.h` | `open` (variadic, the mode read only under `O_CREAT`/`O_TMPFILE`) `openat`, arm64's flag values |
 | `sys/stat.h` | `stat` `fstat` `mkdir`, the 128-byte asm-generic `struct stat` |
 | `time.h` / `signal.h` | `nanosleep` `clock_gettime` `clock_getres` `clock_settime` `clock_nanosleep` `timer_create` `timer_delete` `timer_getoverrun` `timer_gettime` `timer_settime` / `kill` |
-| `stdlib.h` | `malloc` `calloc` `realloc` `free` `exit` `_Exit` `atexit` (32 handlers, last first) `abort` (SIGABRT) |
+| `stdlib.h` | `malloc` `calloc` `realloc` `free` `exit` `_Exit` `atexit` (32 handlers, last first) `abort` (SIGABRT, blocked or ignored as it may be) |
 
 Each call is one `svc #0` (x8 the number, x0–x5 the arguments); an answer from -4095 to -1 sets
 `errno` and answers -1. `errno`'s numbers are Linux's.
@@ -228,8 +228,18 @@ a `malloc` that needs to grow.
 sysl build-c linux --target aarch64-freestanding -o libcstd.a
 clang --target=aarch64-linux-gnu -ffreestanding -nostdinc -isystem "$(clang -print-resource-dir)/include" \
       -I <cstd>/include -static -fno-pic -O2 -c prog.c
-ld.lld -static -e _start -o prog prog.o libcstd.a
+ld.lld -static -e _start \
+  '--defsym=__sysl_tls_data=SIZEOF(.tdata) ? ADDR(.tdata) : (SIZEOF(.tbss) ? ADDR(.tbss) : 0)' \
+  '--defsym=__sysl_tls_data_end=SIZEOF(.tdata) ? ADDR(.tdata) + SIZEOF(.tdata) : __sysl_tls_data' \
+  '--defsym=__sysl_tls_end=SIZEOF(.tbss) ? ADDR(.tbss) + SIZEOF(.tbss) : __sysl_tls_data_end' \
+  '--defsym=__sysl_tls_align=(SIZEOF(.tdata) ? ALIGNOF(.tdata) : 1) > (SIZEOF(.tbss) ? ALIGNOF(.tbss) : 1) ? (SIZEOF(.tdata) ? ALIGNOF(.tdata) : 1) : (SIZEOF(.tbss) ? ALIGNOF(.tbss) : 1)' \
+  -o prog prog.o libcstd.a
 ```
+
+The four `--defsym`s tell `_start` where the linker put the thread-local template (`.tdata` and
+`.tbss`, where `errno` lives), which it copies into the first thread's block; `sysl build`'s own
+image link passes the same four, and without them the link fails on `__sysl_tls_data` and its
+siblings.
 
 ### On a board
 
@@ -369,6 +379,54 @@ must come back): `tests/qemu/setjmp.c` is linked against cstd built for the targ
 under ASan, whose flags would reach the bare-metal build. Under ASan a C caller of `longjmp` calls
 `__asan_handle_no_return` itself, because the prototype is `noreturn`, so the skipped frames'
 shadow is cleared without cstd doing anything.
+
+**The Linux half runs on Linux** in a colima VM — an aarch64 Linux on the Mac's hypervisor, which
+mounts the home directory at the same path — started once, by hand, before the suite:
+
+```
+colima start --profile cstd-test --arch aarch64 --vm-type vz --cpu 2 --memory 2 --disk 10
+```
+
+`linux_tests.sysl` links each C program of `tests/linux/` against `sysl build-c linux` into a static
+aarch64 ELF (with the `--defsym`s above), in a directory of its own per test process and run, and
+runs it with `colima ssh --profile cstd-test`, under `env -i`, umask 022, from `sh`. It compares
+standard output with the exit status appended as `[status N]`, and standard error, where the shell
+names a signal that ended the process. The suite never starts the VM: where the profile is not
+running, or colima is not installed, each of these tests skips with "colima profile cstd-test is not
+running". Each program checks its calls against POSIX's text, or Linux's own documentation where it
+names a different errno, through `tests/linux/check.h`, and covers:
+
+- `_start`: argc, argv (an empty argument, one with a space), envp and `environ` as exec laid them out,
+  and main's return becoming the status through `exit`
+- `exit` from a nested call and a return from main running the `atexit` handlers last first, the
+  status's low eight bits, `_exit` and `_Exit` running none, 32 handlers taken and a 33rd refused
+- `abort` ending the process by SIGABRT, and still doing so with SIGABRT blocked, or ignored from
+  before exec
+- `malloc(0)`, 16-byte alignment, 400 live blocks freed alternately and refilled, a 64 MiB block,
+  `ENOMEM` for `SIZE_MAX` and 2^46, `calloc` zeroing a dirty reused block and refusing an overflowing
+  product, `realloc` from null, growing across a move, shrinking, and a refused `realloc` leaving the
+  block intact, `free(NULL)`
+- `sbrk(0)`, growth, a negative increment and `brk` back, and `ENOMEM` with the break unmoved for a
+  break below the program, past memory, `INTPTR_MAX` and one below zero
+- `mkdir`, `chdir`, `getcwd` (ERANGE one byte short), `open` and `openat` (the lowest descriptor, the
+  mode under the umask, `O_EXCL`, `O_APPEND`, `O_TRUNC`, `O_DIRECTORY`, `O_TMPFILE`'s mode, a
+  directory descriptor, `AT_FDCWD`, an absolute path), `read`, `write` and `lseek` from each origin
+  and past the end, `fstat` and `stat`, `unlink` and `rmdir`, with ENOENT, EEXIST, ENOTDIR, EISDIR,
+  ENOTEMPTY, EINVAL, EFAULT and EBADF where each applies, and EBADF from every call on a closed
+  descriptor and on -1
+- `dup` and `dup2` sharing the offset, `dup2` onto an open descriptor and onto itself, EBADF for a
+  closed source or a target out of range; `pipe` in order, ESPIPE, one direction per end, end of file
+  once the last writer closes
+- `getpid` and `getppid` against `/proc/self/stat`; `kill` with signal 0, EINVAL, ESRCH, EPERM against
+  init, and SIGTERM to itself; `sigprocmask` answering the old mask, leaving SIGKILL out, EINVAL,
+  EFAULT, a blocked signal held pending, EPIPE where a blocked SIGPIPE would have killed, and delivery
+  once unblocked
+- every clock read, CLOCK_REALTIME within a minute of the host's, resolutions, a null `res`,
+  `clock_settime`'s EINVAL and EPERM; `nanosleep` and `clock_nanosleep` (relative, absolute, a past
+  deadline) sleeping at least as long as asked, EINVAL for a bad time and an unknown clock and, for
+  `clock_nanosleep`, the calling thread's CPU clock, answered rather than put in `errno`; a timer
+  created, disarmed, armed, read, re-armed answering its old setting, expired, fired at once by a past
+  absolute time, refusing a bad time, deleted, and EINVAL from every call after
 
 **The operating-system defaults** are checked by `stubs_tests.sysl`: built for
 `thumbv7em-freestanding`, cstd's archive lists every defaulted call as `W`; built for

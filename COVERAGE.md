@@ -9,45 +9,38 @@ under QEMU from `tests/qemu/`.
 An export is one of three kinds. **portable** is built for every target and called from the host
 cases. **freestanding** is a weak default built only where the target has no libc, so only a QEMU
 image reaches it, and only one that does not link a board definition replacing it. **linux** is the
-Linux half (`linux/`), built for `aarch64-freestanding`: it speaks the Linux system-call ABI, which
-nothing on this machine runs, so `stubs_tests.sysl` and `board_defaults_tests.sysl` check only that
-its archive defines each symbol strongly.
+Linux half (`linux/`), built for `aarch64-freestanding`: `linux_tests.sysl` links the C programs of
+`tests/linux/` against it into static ELFs and runs them on Linux, in the `cstd-test` colima VM, and
+`stubs_tests.sysl` and `board_defaults_tests.sysl` check that its archive defines each symbol
+strongly.
 
 ## Summary
 
 | header | exported | tested | untested |
 |---|---:|---:|---:|
 | `assert.h` | 1 | 1 | 0 |
-| `signal.h` | 2 | 1 | 1 |
-| no header | 4 | 2 | 2 |
-| `fcntl.h` | 4 | 2 | 2 |
+| `signal.h` | 2 | 2 | 0 |
+| no header | 4 | 4 | 0 |
+| `fcntl.h` | 4 | 4 | 0 |
 | `inttypes.h` | 6 | 6 | 0 |
-| `sys/stat.h` | 6 | 3 | 3 |
+| `sys/stat.h` | 6 | 6 | 0 |
 | `locale.h` | 7 | 7 | 0 |
 | `strings.h` | 7 | 7 | 0 |
 | `stdio.h` | 10 | 10 | 0 |
 | `endian.h` | 12 | 12 | 0 |
 | `ctype.h` | 28 | 28 | 0 |
-| `unistd.h` | 33 | 16 | 17 |
-| `time.h` | 34 | 24 | 10 |
+| `unistd.h` | 33 | 33 | 0 |
+| `time.h` | 34 | 34 | 0 |
 | `string.h` | 36 | 36 | 0 |
-| `stdlib.h` | 42 | 34 | 8 |
+| `stdlib.h` | 42 | 42 | 0 |
 | `stdbit.h` | 70 | 70 | 0 |
 | `math.h` | 171 | 171 | 0 |
-| **all** | **473** | **430** | **43** |
+| **all** | **473** | **473** | **0** |
 
-Still untested:
+The Linux half's 43 are tested only where the `cstd-test` colima profile is running (README §
+Testing); elsewhere `linux_tests.sysl` skips.
 
-- the Linux half, all 43 of its exports: `environ`, `cstd_start`, `atexit`, `exit`, `_exit`, `_Exit`,
-  `abort`, `brk`, `sbrk`, `malloc`, `free`, `calloc`, `realloc`, `read`, `write`, `close`, `lseek`,
-  `openat`, `open`, `getpid`, `getppid`, `dup`, `dup2`, `pipe`, `unlink`, `rmdir`, `mkdir`, `chdir`,
-  `getcwd`, `fstat`, `stat`, `kill`, `sigprocmask`, `nanosleep`, `clock_gettime`, `clock_getres`,
-  `clock_settime`, `clock_nanosleep`, `timer_create`, `timer_delete`, `timer_getoverrun`,
-  `timer_gettime`, `timer_settime`. Running them needs an aarch64 Linux that runs a static program
-  linked against the archive, and nothing on this machine does: QEMU here is system emulation only,
-  with no Linux kernel image.
-
-Other findings:
+Findings:
 
 - `sigprocmask` is exported (a weak default and the Linux half) but no header declares it, nor
   `sigset_t`; POSIX puts both in `<signal.h>`. `tests/qemu/stubs.c` declares it by hand.
@@ -66,25 +59,25 @@ Other findings:
 | function | kind | tests |
 |---|---|---|
 | `kill` | freestanding | stubs.c |
-| `kill` | linux | **untested** |
+| `kill` | linux | linux_tests.sysl |
 
 ## No header
 
 | function | kind | tests |
 |---|---|---|
 | `cstd_sigsetjmp_tail` | portable | setjmp_tests.sysl (through `sigsetjmp`) |
-| `cstd_start` | linux | **untested** |
+| `cstd_start` | linux | linux_tests.sysl |
 | `sigprocmask` | freestanding | stubs.c |
-| `sigprocmask` | linux | **untested** |
+| `sigprocmask` | linux | linux_tests.sysl |
 
 ## `fcntl.h`
 
 | function | kind | tests |
 |---|---|---|
 | `open` | freestanding | stubs.c |
-| `open` | linux | **untested** |
+| `open` | linux | linux_tests.sysl |
 | `openat` | freestanding | stubs.c |
-| `openat` | linux | **untested** |
+| `openat` | linux | linux_tests.sysl |
 
 ## `inttypes.h`
 
@@ -102,11 +95,11 @@ Other findings:
 | function | kind | tests |
 |---|---|---|
 | `fstat` | freestanding | stubs.c |
-| `fstat` | linux | **untested** |
+| `fstat` | linux | linux_tests.sysl |
 | `mkdir` | freestanding | stubs.c |
-| `mkdir` | linux | **untested** |
+| `mkdir` | linux | linux_tests.sysl |
 | `stat` | freestanding | stubs.c |
-| `stat` | linux | **untested** |
+| `stat` | linux | linux_tests.sysl |
 
 ## `locale.h`
 
@@ -202,37 +195,37 @@ Other findings:
 | function | kind | tests |
 |---|---|---|
 | `_Exit` | freestanding | defaults.c |
-| `_Exit` | linux | **untested** |
+| `_Exit` | linux | linux_tests.sysl |
 | `abort` | freestanding | defaults.c |
-| `abort` | linux | **untested** |
+| `abort` | linux | linux_tests.sysl |
 | `abs` | portable | stdlib_tests.sysl |
 | `atexit` | freestanding | heap.c |
-| `atexit` | linux | **untested** |
+| `atexit` | linux | linux_tests.sysl |
 | `atof` | portable | strtod_tests.sysl |
 | `atoi` | portable | stdlib_tests.sysl |
 | `atol` | portable | stdlib_tests.sysl |
 | `atoll` | portable | stdlib_tests.sysl |
 | `bsearch` | portable | stdlib_tests.sysl |
 | `calloc` | freestanding | heap.c, nosbrk.c |
-| `calloc` | linux | **untested** |
+| `calloc` | linux | linux_tests.sysl |
 | `div` | portable | stdlib_tests.sysl |
 | `exit` | freestanding | heap.c, sysl_alloc.c |
-| `exit` | linux | **untested** |
+| `exit` | linux | linux_tests.sysl |
 | `free` | freestanding | heap.c |
-| `free` | linux | **untested** |
+| `free` | linux | linux_tests.sysl |
 | `labs` | portable | stdlib_tests.sysl |
 | `ldiv` | portable | stdlib_tests.sysl |
 | `llabs` | portable | stdlib_tests.sysl |
 | `lldiv` | portable | stdlib_tests.sysl |
 | `malloc` | freestanding | heap.c, nosbrk.c |
-| `malloc` | linux | **untested** |
+| `malloc` | linux | linux_tests.sysl |
 | `mblen` | portable | multibyte_tests.sysl |
 | `mbstowcs` | portable | multibyte_tests.sysl |
 | `mbtowc` | portable | multibyte_tests.sysl |
 | `qsort` | portable | stdlib_tests.sysl |
 | `rand` | portable | stdlib_tests.sysl |
 | `realloc` | freestanding | heap.c, nosbrk.c |
-| `realloc` | linux | **untested** |
+| `realloc` | linux | linux_tests.sysl |
 | `srand` | portable | stdlib_tests.sysl |
 | `strtod` | portable | printf_float_tests.sysl, strtod_tests.sysl |
 | `strtof` | portable | strtod_tests.sysl |
@@ -249,38 +242,38 @@ Other findings:
 | function | kind | tests |
 |---|---|---|
 | `_exit` | freestanding | defaults.c |
-| `_exit` | linux | **untested** |
+| `_exit` | linux | linux_tests.sysl |
 | `brk` | freestanding | stubs.c |
-| `brk` | linux | **untested** |
+| `brk` | linux | linux_tests.sysl |
 | `chdir` | freestanding | stubs.c |
-| `chdir` | linux | **untested** |
+| `chdir` | linux | linux_tests.sysl |
 | `close` | freestanding | stubs.c |
-| `close` | linux | **untested** |
+| `close` | linux | linux_tests.sysl |
 | `dup` | freestanding | stubs.c |
-| `dup` | linux | **untested** |
+| `dup` | linux | linux_tests.sysl |
 | `dup2` | freestanding | stubs.c |
-| `dup2` | linux | **untested** |
-| `environ` | linux | **untested** |
+| `dup2` | linux | linux_tests.sysl |
+| `environ` | linux | linux_tests.sysl |
 | `getcwd` | freestanding | stubs.c |
-| `getcwd` | linux | **untested** |
+| `getcwd` | linux | linux_tests.sysl |
 | `getpid` | freestanding | stubs.c |
-| `getpid` | linux | **untested** |
+| `getpid` | linux | linux_tests.sysl |
 | `getppid` | freestanding | stubs.c |
-| `getppid` | linux | **untested** |
+| `getppid` | linux | linux_tests.sysl |
 | `lseek` | freestanding | stubs.c |
-| `lseek` | linux | **untested** |
+| `lseek` | linux | linux_tests.sysl |
 | `pipe` | freestanding | stubs.c |
-| `pipe` | linux | **untested** |
+| `pipe` | linux | linux_tests.sysl |
 | `read` | freestanding | stubs.c |
-| `read` | linux | **untested** |
+| `read` | linux | linux_tests.sysl |
 | `rmdir` | freestanding | stubs.c |
-| `rmdir` | linux | **untested** |
+| `rmdir` | linux | linux_tests.sysl |
 | `sbrk` | freestanding | stubs.c |
-| `sbrk` | linux | **untested** |
+| `sbrk` | linux | linux_tests.sysl |
 | `unlink` | freestanding | stubs.c |
-| `unlink` | linux | **untested** |
+| `unlink` | linux | linux_tests.sysl |
 | `write` | freestanding | defaults.c |
-| `write` | linux | **untested** |
+| `write` | linux | linux_tests.sysl |
 
 ## `time.h`
 
@@ -288,13 +281,13 @@ Other findings:
 |---|---|---|
 | `clock` | freestanding | clock.c, stubs.c |
 | `clock_getres` | freestanding | stubs.c |
-| `clock_getres` | linux | **untested** |
+| `clock_getres` | linux | linux_tests.sysl |
 | `clock_gettime` | freestanding | stubs.c |
-| `clock_gettime` | linux | **untested** |
+| `clock_gettime` | linux | linux_tests.sysl |
 | `clock_nanosleep` | freestanding | stubs.c |
-| `clock_nanosleep` | linux | **untested** |
+| `clock_nanosleep` | linux | linux_tests.sysl |
 | `clock_settime` | freestanding | stubs.c |
-| `clock_settime` | linux | **untested** |
+| `clock_settime` | linux | linux_tests.sysl |
 | `difftime` | portable | clock.c, time_tests.sysl |
 | `gmtime` | portable | clock.c, time_tests.sysl |
 | `gmtime_r` | portable | clock.c, time_tests.sysl |
@@ -302,21 +295,21 @@ Other findings:
 | `localtime_r` | portable | time_tests.sysl |
 | `mktime` | portable | time_tests.sysl |
 | `nanosleep` | freestanding | stubs.c |
-| `nanosleep` | linux | **untested** |
+| `nanosleep` | linux | linux_tests.sysl |
 | `strftime` | portable | clock.c, time_tests.sysl |
 | `strftime_l` | portable | time_tests.sysl |
 | `time` | freestanding | clock.c, stubs.c |
 | `timegm` | portable | clock.c, time_tests.sysl |
 | `timer_create` | freestanding | stubs.c |
-| `timer_create` | linux | **untested** |
+| `timer_create` | linux | linux_tests.sysl |
 | `timer_delete` | freestanding | stubs.c |
-| `timer_delete` | linux | **untested** |
+| `timer_delete` | linux | linux_tests.sysl |
 | `timer_getoverrun` | freestanding | stubs.c |
-| `timer_getoverrun` | linux | **untested** |
+| `timer_getoverrun` | linux | linux_tests.sysl |
 | `timer_gettime` | freestanding | stubs.c |
-| `timer_gettime` | linux | **untested** |
+| `timer_gettime` | linux | linux_tests.sysl |
 | `timer_settime` | freestanding | stubs.c |
-| `timer_settime` | linux | **untested** |
+| `timer_settime` | linux | linux_tests.sysl |
 | `timespec_get` | freestanding | clock.c, stubs.c |
 | `tzname` | portable | time_tests.sysl |
 | `tzset` | portable | time_tests.sysl |
