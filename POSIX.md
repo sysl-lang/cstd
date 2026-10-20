@@ -592,7 +592,7 @@ cstd has: one byte per character from 0x00 to 0x7F, `MB_CUR_MAX` 1, and `EILSEQ`
 | wctomb | | done (core) | | core |
 
 `getenv` and the other environment functions read `environ`, which the Linux half's `crt0` sets, hence
-`os` and the Linux half (`getenv` is there, in `env.sysl`; a board has no environment and so no `getenv`); `setenv` also needs `heap`. `realpath` also allocates when handed a null buffer.
+`os` and the Linux half (`getenv` is there, in `env.sysl`; a board has no environment, so the portable half's weak `getenv` answers null for every name); `setenv` also needs `heap`. `realpath` also allocates when handed a null buffer.
 
 Out of scope:
 

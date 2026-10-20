@@ -207,7 +207,7 @@ own `write` and `malloc`, which these would replace.
 |---|---|
 | (crt0) | `_start`: reads Linux's initial stack, sets `environ`, calls `sysl_init_modules` and `main(argc, argv, envp)`, then `exit` |
 | `unistd.h` | `read` `write` `close` `lseek` `_exit` `getpid` `getppid` `brk` `sbrk` `dup` `dup2` `pipe` `unlink` `rmdir` `chdir` `getcwd`, `environ` |
-| `stdlib.h` | `getenv`, over `environ` (a board has no environment and so no `getenv`) |
+| `stdlib.h` | `getenv`, over `environ` (a board has no environment: the portable half's weak `getenv` answers null for every name, and the Linux half's definition replaces it) |
 | `fcntl.h` | `creat` `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GETFD`, `F_SETFD`, `F_GETFL`, `F_SETFL`, `F_GETLK`, `F_SETLK`, `F_SETLKW`, `struct flock`), `open` (variadic, the mode read only under `O_CREAT`/`O_TMPFILE`) `openat`, arm64's flag values |
 | `sys/stat.h` | `stat` `fstat` `mkdir`, the 128-byte asm-generic `struct stat` |
 | `time.h` / `signal.h` | `nanosleep` `clock_gettime` `clock_getres` `clock_settime` `clock_nanosleep` `timer_create` `timer_delete` `timer_getoverrun` `timer_gettime` `timer_settime` / `kill` |

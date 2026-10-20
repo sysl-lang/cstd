@@ -220,6 +220,7 @@ Findings:
 | `exit` | linux | linux_tests.sysl |
 | `free` | freestanding | heap.c |
 | `free` | linux | linux_tests.sysl |
+| `getenv` | freestanding | defaults.c |
 | `getenv` | linux | linux_tests.sysl |
 | `labs` | portable | stdlib_tests.sysl |
 | `ldiv` | portable | stdlib_tests.sysl |

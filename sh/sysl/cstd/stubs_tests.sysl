@@ -17,7 +17,8 @@ private val defaulted: []string = ["read", "write", "close", "lseek", "open", "o
                                    "dup", "dup2", "pipe", "unlink", "rmdir", "mkdir", "chdir", "getcwd", "fstat",
                                    "stat", "kill", "sigprocmask", "nanosleep", "clock_gettime", "clock_getres",
                                    "clock_settime", "clock_nanosleep", "timer_create", "timer_delete",
-                                   "timer_getoverrun", "timer_gettime", "timer_settime", "brk", "sbrk"]
+                                   "timer_getoverrun", "timer_gettime", "timer_settime", "brk", "sbrk",
+                                   "getenv"]
 
 // `project` built for `target` into an archive this test process alone writes, so tests running at
 // once never rebuild an archive another is reading. Answers the archive's path.

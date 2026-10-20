@@ -112,6 +112,10 @@ int main(void) {
     check("putchar answers EOF", putchar('x') == EOF);
     check("putchar sets errno to ENOSYS", errno == ENOSYS);
 
+    errno = 0;
+    check("getenv answers null on a board", getenv("PATH") == NULL);
+    check("getenv leaves errno alone", errno == 0);
+
     next();
     return 0;
 }
