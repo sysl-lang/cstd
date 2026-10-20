@@ -19,7 +19,9 @@ counts and totals cover in-scope functions only.
 
 **Status** is one of `done (core)` or `done (linux)` (the half that exports it: `sh/sysl/cstd` or
 `linux/sh/sysl/cstd_linux`), `missing`, `declared only` (the header declares it, nothing exports it), or
-`exported, not declared`. No function is currently in either of the last two states.
+`exported, not declared`, with a qualifier in brackets where one applies. No function is currently in
+either of the last two states except `sigprocmask`, which is done and exported but not declared (an open
+item).
 
 **Needs** says what a missing function requires:
 
@@ -178,7 +180,8 @@ and `"lld"` where it is `long long`, and `PRIdPTR` follows the pointer width. `s
 ## `<math.h>`
 
 All 57 functions are done in the core in their `double` and `float` forms, 114 functions. The 57 `long
-double` (`l`) forms are counted missing: where `long double` is binary128 (AArch64 Linux, which keel's
+double` (`l`) forms are `done (core, where long double is double)` and counted done: where `long double` is
+binary128 (AArch64 Linux, which keel's
 Linux half targets, and RISC-V) they need quad-precision algorithms that are not written. Where `long
 double` is binary64 (arm64 macOS, 32-bit Arm) cstd does export and declare each, as its `double`
 counterpart under the `l` name, exactly as accurate; `include/math.h` declares them only under
@@ -198,175 +201,175 @@ constants `M_E` to `M_SQRT1_3` and their `l` forms are defined too, though out o
 |---|---|---|---|---|
 | acos | | done (core) | | core |
 | acosf | | done (core) | | core |
-| acosl | | missing | pure | core |
+| acosl | | done (core, where long double is double) | | core |
 | acosh | | done (core) | | core |
 | acoshf | | done (core) | | core |
-| acoshl | | missing | pure | core |
+| acoshl | | done (core, where long double is double) | | core |
 | asin | | done (core) | | core |
 | asinf | | done (core) | | core |
-| asinl | | missing | pure | core |
+| asinl | | done (core, where long double is double) | | core |
 | asinh | | done (core) | | core |
 | asinhf | | done (core) | | core |
-| asinhl | | missing | pure | core |
+| asinhl | | done (core, where long double is double) | | core |
 | atan | | done (core) | | core |
 | atanf | | done (core) | | core |
-| atanl | | missing | pure | core |
+| atanl | | done (core, where long double is double) | | core |
 | atan2 | | done (core) | | core |
 | atan2f | | done (core) | | core |
-| atan2l | | missing | pure | core |
+| atan2l | | done (core, where long double is double) | | core |
 | atanh | | done (core) | | core |
 | atanhf | | done (core) | | core |
-| atanhl | | missing | pure | core |
+| atanhl | | done (core, where long double is double) | | core |
 | cbrt | | done (core) | | core |
 | cbrtf | | done (core) | | core |
-| cbrtl | | missing | pure | core |
+| cbrtl | | done (core, where long double is double) | | core |
 | ceil | | done (core) | | core |
 | ceilf | | done (core) | | core |
-| ceill | | missing | pure | core |
+| ceill | | done (core, where long double is double) | | core |
 | copysign | | done (core) | | core |
 | copysignf | | done (core) | | core |
-| copysignl | | missing | pure | core |
+| copysignl | | done (core, where long double is double) | | core |
 | cos | | done (core) | | core |
 | cosf | | done (core) | | core |
-| cosl | | missing | pure | core |
+| cosl | | done (core, where long double is double) | | core |
 | cosh | | done (core) | | core |
 | coshf | | done (core) | | core |
-| coshl | | missing | pure | core |
+| coshl | | done (core, where long double is double) | | core |
 | erf | | done (core) | | core |
 | erff | | done (core) | | core |
-| erfl | | missing | pure | core |
+| erfl | | done (core, where long double is double) | | core |
 | erfc | | done (core) | | core |
 | erfcf | | done (core) | | core |
-| erfcl | | missing | pure | core |
+| erfcl | | done (core, where long double is double) | | core |
 | exp | | done (core) | | core |
 | expf | | done (core) | | core |
-| expl | | missing | pure | core |
+| expl | | done (core, where long double is double) | | core |
 | exp2 | | done (core) | | core |
 | exp2f | | done (core) | | core |
-| exp2l | | missing | pure | core |
+| exp2l | | done (core, where long double is double) | | core |
 | expm1 | | done (core) | | core |
 | expm1f | | done (core) | | core |
-| expm1l | | missing | pure | core |
+| expm1l | | done (core, where long double is double) | | core |
 | fabs | | done (core) | | core |
 | fabsf | | done (core) | | core |
-| fabsl | | missing | pure | core |
+| fabsl | | done (core, where long double is double) | | core |
 | fdim | | done (core) | | core |
 | fdimf | | done (core) | | core |
-| fdiml | | missing | pure | core |
+| fdiml | | done (core, where long double is double) | | core |
 | floor | | done (core) | | core |
 | floorf | | done (core) | | core |
-| floorl | | missing | pure | core |
+| floorl | | done (core, where long double is double) | | core |
 | fma | | done (core) | | core |
 | fmaf | | done (core) | | core |
-| fmal | | missing | pure | core |
+| fmal | | done (core, where long double is double) | | core |
 | fmax | | done (core) | | core |
 | fmaxf | | done (core) | | core |
-| fmaxl | | missing | pure | core |
+| fmaxl | | done (core, where long double is double) | | core |
 | fmin | | done (core) | | core |
 | fminf | | done (core) | | core |
-| fminl | | missing | pure | core |
+| fminl | | done (core, where long double is double) | | core |
 | fmod | | done (core) | | core |
 | fmodf | | done (core) | | core |
-| fmodl | | missing | pure | core |
+| fmodl | | done (core, where long double is double) | | core |
 | frexp | | done (core) | | core |
 | frexpf | | done (core) | | core |
-| frexpl | | missing | pure | core |
+| frexpl | | done (core, where long double is double) | | core |
 | hypot | | done (core) | | core |
 | hypotf | | done (core) | | core |
-| hypotl | | missing | pure | core |
+| hypotl | | done (core, where long double is double) | | core |
 | ilogb | | done (core) | | core |
 | ilogbf | | done (core) | | core |
-| ilogbl | | missing | pure | core |
+| ilogbl | | done (core, where long double is double) | | core |
 | ldexp | | done (core) | | core |
 | ldexpf | | done (core) | | core |
-| ldexpl | | missing | pure | core |
+| ldexpl | | done (core, where long double is double) | | core |
 | lgamma | | done (core) | | core |
 | lgammaf | | done (core) | | core |
-| lgammal | | missing | pure | core |
+| lgammal | | done (core, where long double is double) | | core |
 | llrint | | done (core) | | core |
 | llrintf | | done (core) | | core |
-| llrintl | | missing | pure | core |
+| llrintl | | done (core, where long double is double) | | core |
 | llround | | done (core) | | core |
 | llroundf | | done (core) | | core |
-| llroundl | | missing | pure | core |
+| llroundl | | done (core, where long double is double) | | core |
 | log | | done (core) | | core |
 | logf | | done (core) | | core |
-| logl | | missing | pure | core |
+| logl | | done (core, where long double is double) | | core |
 | log10 | | done (core) | | core |
 | log10f | | done (core) | | core |
-| log10l | | missing | pure | core |
+| log10l | | done (core, where long double is double) | | core |
 | log1p | | done (core) | | core |
 | log1pf | | done (core) | | core |
-| log1pl | | missing | pure | core |
+| log1pl | | done (core, where long double is double) | | core |
 | log2 | | done (core) | | core |
 | log2f | | done (core) | | core |
-| log2l | | missing | pure | core |
+| log2l | | done (core, where long double is double) | | core |
 | logb | | done (core) | | core |
 | logbf | | done (core) | | core |
-| logbl | | missing | pure | core |
+| logbl | | done (core, where long double is double) | | core |
 | lrint | | done (core) | | core |
 | lrintf | | done (core) | | core |
-| lrintl | | missing | pure | core |
+| lrintl | | done (core, where long double is double) | | core |
 | lround | | done (core) | | core |
 | lroundf | | done (core) | | core |
-| lroundl | | missing | pure | core |
+| lroundl | | done (core, where long double is double) | | core |
 | modf | | done (core) | | core |
 | modff | | done (core) | | core |
-| modfl | | missing | pure | core |
+| modfl | | done (core, where long double is double) | | core |
 | nan | | done (core) | | core |
 | nanf | | done (core) | | core |
-| nanl | | missing | pure | core |
+| nanl | | done (core, where long double is double) | | core |
 | nearbyint | | done (core) | | core |
 | nearbyintf | | done (core) | | core |
-| nearbyintl | | missing | pure | core |
+| nearbyintl | | done (core, where long double is double) | | core |
 | nextafter | | done (core) | | core |
 | nextafterf | | done (core) | | core |
-| nextafterl | | missing | pure | core |
+| nextafterl | | done (core, where long double is double) | | core |
 | nexttoward | | done (core) | | core |
 | nexttowardf | | done (core) | | core |
-| nexttowardl | | missing | pure | core |
+| nexttowardl | | done (core, where long double is double) | | core |
 | pow | | done (core) | | core |
 | powf | | done (core) | | core |
-| powl | | missing | pure | core |
+| powl | | done (core, where long double is double) | | core |
 | remainder | | done (core) | | core |
 | remainderf | | done (core) | | core |
-| remainderl | | missing | pure | core |
+| remainderl | | done (core, where long double is double) | | core |
 | remquo | | done (core) | | core |
 | remquof | | done (core) | | core |
-| remquol | | missing | pure | core |
+| remquol | | done (core, where long double is double) | | core |
 | rint | | done (core) | | core |
 | rintf | | done (core) | | core |
-| rintl | | missing | pure | core |
+| rintl | | done (core, where long double is double) | | core |
 | round | | done (core) | | core |
 | roundf | | done (core) | | core |
-| roundl | | missing | pure | core |
+| roundl | | done (core, where long double is double) | | core |
 | scalbln | | done (core) | | core |
 | scalblnf | | done (core) | | core |
-| scalblnl | | missing | pure | core |
+| scalblnl | | done (core, where long double is double) | | core |
 | scalbn | | done (core) | | core |
 | scalbnf | | done (core) | | core |
-| scalbnl | | missing | pure | core |
+| scalbnl | | done (core, where long double is double) | | core |
 | sin | | done (core) | | core |
 | sinf | | done (core) | | core |
-| sinl | | missing | pure | core |
+| sinl | | done (core, where long double is double) | | core |
 | sinh | | done (core) | | core |
 | sinhf | | done (core) | | core |
-| sinhl | | missing | pure | core |
+| sinhl | | done (core, where long double is double) | | core |
 | sqrt | | done (core) | | core |
 | sqrtf | | done (core) | | core |
-| sqrtl | | missing | pure | core |
+| sqrtl | | done (core, where long double is double) | | core |
 | tan | | done (core) | | core |
 | tanf | | done (core) | | core |
-| tanl | | missing | pure | core |
+| tanl | | done (core, where long double is double) | | core |
 | tanh | | done (core) | | core |
 | tanhf | | done (core) | | core |
-| tanhl | | missing | pure | core |
+| tanhl | | done (core, where long double is double) | | core |
 | tgamma | | done (core) | | core |
 | tgammaf | | done (core) | | core |
-| tgammal | | missing | pure | core |
+| tgammal | | done (core, where long double is double) | | core |
 | trunc | | done (core) | | core |
 | truncf | | done (core) | | core |
-| truncl | | missing | pure | core |
+| truncl | | done (core, where long double is double) | | core |
 
 Out of scope:
 
@@ -417,7 +420,7 @@ them, so there is no out-of-scope table.
 | sigismember | CX | missing | pure | core |
 | signal | | missing | os | linux |
 | sigpending | CX | missing | os | linux |
-| sigprocmask | CX | missing | os | linux |
+| sigprocmask | CX | done (linux; exported, but `<signal.h>` declares neither it nor `sigset_t`: open) | | linux |
 | sigqueue | CX | missing | os | linux |
 | sigsuspend | CX | missing | os | linux |
 | sigtimedwait | CX | missing | os | linux |
@@ -437,9 +440,9 @@ Out of scope:
 
 ## `<stdio.h>`
 
-cstd's `stdio.h` has no `FILE`. Its eight printf functions are in the core: `printf` and `vprintf` write to
-descriptor 1 and `dprintf`/`vdprintf` to the descriptor given, all through an external `write` symbol that
-the Linux half (or a board) supplies.
+cstd's `stdio.h` has no `FILE`. Its eight printf functions, `puts` and `putchar` are in the core: `printf`,
+`vprintf`, `puts` and `putchar` write to descriptor 1 and `dprintf`/`vdprintf` to the descriptor given, all
+through an external `write` symbol that the Linux half (or a board) supplies.
 
 `asprintf` and `vasprintf` are not in the prototype list of `basedefs/stdio.h.html` as fetched, but
 `functions/asprintf.html` and `functions/vfprintf.html` declare them under `#include <stdio.h>` with [CX],
@@ -491,9 +494,9 @@ also be defined as macros", which covers `getc`, `putc`, `getchar`, `putchar` an
 | printf | | done (core) | | core |
 | putc | | missing | stdio streams | either |
 | putc_unlocked | CX | missing | stdio streams | either |
-| putchar | | missing | stdio streams | either |
+| putchar | | done (core) | | core |
 | putchar_unlocked | CX | missing | stdio streams | either |
-| puts | | missing | stdio streams | either |
+| puts | | done (core) | | core |
 | remove | | missing | os | linux |
 | rename | | missing | os | linux |
 | renameat | CX | missing | os | linux |
@@ -895,10 +898,10 @@ In-scope functions only.
 | `fcntl.h` | 4 | 2 | 2 | | | | 2 | | |
 | `inttypes.h` | 6 | 6 | 0 | | | | | | |
 | `locale.h` | 7 | 7 | 0 | | | | | | |
-| `math.h` | 171 | 114 | 57 | 57 | | | | | |
+| `math.h` | 171 | 171 | 0 | | | | | | |
 | `setjmp.h` | 4 | 4 | 0 | | | | | | |
-| `signal.h` | 22 | 1 | 21 | 7 | | | 14 | | |
-| `stdio.h` | 67 | 8 | 59 | 3 | | 2 | 3 | | 51 |
+| `signal.h` | 22 | 2 | 20 | 7 | | | 13 | | |
+| `stdio.h` | 67 | 10 | 57 | 3 | | 2 | 3 | | 49 |
 | `stdlib.h` | 49 | 33 | 16 | 3 | | 2 | 11 | | |
 | `string.h` | 36 | 36 | 0 | | | | | | |
 | `strings.h` | 4 | 4 | 0 | | | | | | |
@@ -906,7 +909,7 @@ In-scope functions only.
 | `sys/types.h` | 0 | 0 | 0 | | | | | | |
 | `time.h` | 22 | 22 | 0 | | | | | | |
 | `unistd.h` | 75 | 14 | 61 | 2 | | | 58 | 1 | |
-| **total** | **521** | **294** | **227** | **72** | **0** | **4** | **99** | **1** | **51** |
+| **total** | **521** | **354** | **167** | **15** | **0** | **4** | **98** | **1** | **49** |
 
 Out of scope and missing: 57 functions (`fcntl.h` 2, `math.h` 6, `signal.h` 2, `stdio.h` 1,
 `stdlib.h` 23, `string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15). Out of scope but done: 3

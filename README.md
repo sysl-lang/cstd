@@ -27,7 +27,7 @@ require, exported under its C name with `@export`.
 | `endian.h` | POSIX.1-2024's `BYTE_ORDER` `LITTLE_ENDIAN` `BIG_ENDIAN` and `be16toh` `be32toh` `be64toh` `htobe16` `htobe32` `htobe64` `htole16` `htole32` `htole64` `le16toh` `le32toh` `le64toh` |
 | `stdbit.h` | ISO C23's 14 families (`stdc_leading_zeros` `stdc_leading_ones` `stdc_trailing_zeros` `stdc_trailing_ones` `stdc_first_leading_zero` `stdc_first_leading_one` `stdc_first_trailing_zero` `stdc_first_trailing_one` `stdc_count_zeros` `stdc_count_ones` `stdc_has_single_bit` `stdc_bit_width` `stdc_bit_floor` `stdc_bit_ceil`), each as `_uc` `_us` `_ui` `_ul` `_ull` functions and as a type-generic macro, with `__STDC_ENDIAN_*__` and `__STDC_VERSION_STDBIT_H__` |
 | `errno.h` | `errno` as POSIX's macro over `__errno_location()`: one per thread where the build has thread-local storage (a hosted target, the Linux half), one object on a board; Linux's codes from `EPERM` to `ETIMEDOUT` |
-| `stdio.h` | `printf` `dprintf` `sprintf` `snprintf` `vprintf` `vdprintf` `vsprintf` `vsnprintf` |
+| `stdio.h` | `puts` `putchar` `printf` `dprintf` `sprintf` `snprintf` `vprintf` `vdprintf` `vsprintf` `vsnprintf` |
 | `setjmp.h` | `setjmp` `longjmp` `sigsetjmp` `siglongjmp` |
 | `time.h` | `gmtime` `gmtime_r` `localtime` `localtime_r` `mktime` `timegm` `difftime` `strftime` `strftime_l` `tzset`, and on a freestanding target `time` `clock` `timespec_get` over `clock_gettime`; `struct tm` (with `tm_gmtoff`, `tm_zone`), `struct itimerspec`, `clock_t`, `timer_t`, `CLOCKS_PER_SEC`, `TIME_UTC`, `TIMER_ABSTIME` |
 | `math.h` | all 57 functions of POSIX.1-2024 in `double` and `float`, and in `long double` where it is a `double`; the classification and comparison macros, `HUGE_VAL`, `INFINITY`, `NAN`, the `FP_` and `MATH_` constants and `M_PI` and friends |
@@ -67,8 +67,8 @@ require, exported under its C name with `@export`.
   the flags `- + space # 0`, a width and a precision as a number or `*`, and the lengths
   `hh h l ll j z t`. There is no `long double`, so `L` is not taken and `%Lf` is copied out as
   written. There is no `FILE`:
-  `printf` writes to descriptor 1 and `dprintf` to the one it is given, both through `write`, which
-  the platform supplies. Output gathers in a 256-byte buffer on the stack and nothing allocates.
+  `printf`, `puts` and `putchar` write to descriptor 1 and `dprintf` to the one it is given, all
+  through `write`, which the platform supplies; `puts` and `putchar` answer `EOF` when it fails. Output gathers in a 256-byte buffer on the stack and nothing allocates.
 - Where C leaves a choice, musl's answer is taken, since keel targets musl compatibility: `%p` is
   `%#zx`, so a null pointer prints `0` (glibc prints `(nil)`); `%s` of a null pointer prints
   `(null)`; a conversion C does not define is copied out as written.

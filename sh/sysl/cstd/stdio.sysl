@@ -1,0 +1,32 @@
+module sh.sysl.cstd
+
+// `puts` and `putchar` of `<stdio.h>`. There is no `FILE`, so both write to descriptor 1 through
+// `write`, as `printf` does. A short write is continued from where it stopped; a write that fails
+// or makes no progress leaves `errno` as `write` set it and the function answers `EOF`.
+
+@needs(os)
+private extern "write" stdout_write(fd: i32, bytes: *u8, n: usize) -> isize
+
+private const EOF: i32 = -1
+
+// Hands all `n` bytes to descriptor 1, or stops at the first write that fails.
+private write_all(bytes: *u8, n: usize) -> bool
+    var done: usize = 0
+    while done < n
+        val wrote = stdout_write(1, &bytes[done], n - done)
+        if wrote <= 0 then return false
+        done += usize(wrote)
+    true
+
+@export("puts")
+puts(s: *u8) -> i32
+    if !write_all(s, strlen(s)) then return EOF
+    var nl: u8 = 10
+    if !write_all(&nl, 1) then return EOF
+    1
+
+@export("putchar")
+putchar(c: i32) -> i32
+    var b = u8(c & 255)
+    if !write_all(&b, 1) then return EOF
+    i32(b)

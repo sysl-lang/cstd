@@ -1,0 +1,159 @@
+module sh.sysl.cstd
+
+@tests
+
+// `puts` and `putchar` (`stdio.sysl`). The oracle is C17 7.21.7.9-10: `puts` writes the string and
+// a newline and answers a non-negative value, or EOF on a write error; `putchar` writes the
+// argument converted to `unsigned char` and answers it, or EOF. Descriptor 1 is pointed at a pipe
+// while each case runs, so the bytes are read back whole.
+
+private val capture_prelude: string = raw"""
+    int pipe(int fds[2]);
+    int close(int fd);
+    int dup(int fd);
+    int dup2(int from, int to);
+    long read(int fd, void *buf, unsigned long n);
+
+    static int saved = -1, rd = -1;
+    static void redirect(void) {
+        int fds[2];
+        pipe(fds);
+        saved = dup(1);
+        dup2(fds[1], 1);
+        close(fds[1]);
+        rd = fds[0];
+    }
+    static void restore(void) {
+        dup2(saved, 1);
+        close(saved);
+    }
+    static void show(void) {
+        char got[8192];
+        long n = read(rd, got, sizeof got);
+        close(rd);
+        say_int(n);
+        say_bytes(got, (size_t)n);
+    }
+    """
+
+@test("puts writes the string and a newline and answers a non-negative value")
+puts_writes_the_line()
+    c_case(raw"""
+        redirect();
+        int r = puts("hello");
+        restore();
+        say_int(r >= 0);
+        show();
+        """, raw"""
+        1
+        6
+        hello[0a]
+        """, prelude = capture_prelude)
+
+@test("puts of the empty string writes just a newline")
+puts_empty_string()
+    c_case(raw"""
+        redirect();
+        int r = puts("");
+        restore();
+        say_int(r >= 0);
+        show();
+        """, raw"""
+        1
+        1
+        [0a]
+        """, prelude = capture_prelude)
+
+@test("puts stops at the NUL, writes bytes of 0x80 and above unchanged, and does not append a second newline")
+puts_stops_at_nul()
+    c_case(raw"""
+        redirect();
+        puts("ab\0cd");
+        puts("\xc3\xa9\xff");
+        puts("x\n");
+        restore();
+        show();
+        """, raw"""
+        10
+        ab[0a][c3][a9][ff][0a]x[0a][0a]
+        """, prelude = capture_prelude)
+
+@test("puts of a string longer than the printf stage reaches the descriptor whole")
+puts_long_string()
+    c_case(raw"""
+        static char big[3001];
+        for (int i = 0; i < 3000; i++) big[i] = (char)('a' + i % 26);
+        redirect();
+        int r = puts(big);
+        restore();
+        char got[4096];
+        long n = read(rd, got, sizeof got);
+        close(rd);
+        int ok = r >= 0 && n == 3001 && got[3000] == '\n';
+        for (int i = 0; i < 3000; i++) if (got[i] != big[i]) ok = 0;
+        say_int(ok);
+        """, "1\n", prelude = capture_prelude)
+
+@test("putchar writes the byte and answers it as an unsigned char")
+putchar_writes_the_byte()
+    c_case(raw"""
+        redirect();
+        int a = putchar('A');
+        int b = putchar('\n');
+        int c = putchar(0xff);
+        int d = putchar(0);
+        restore();
+        say_int(a);
+        say_int(b);
+        say_int(c);
+        say_int(d);
+        show();
+        """, raw"""
+        65
+        10
+        255
+        0
+        4
+        A[0a][ff][00]
+        """, prelude = capture_prelude)
+
+@test("putchar converts its int argument to unsigned char: 0x1ff writes 0xff and -1 writes 0xff")
+putchar_converts_to_unsigned_char()
+    c_case(raw"""
+        redirect();
+        int a = putchar(0x1ff);
+        int b = putchar(-1);
+        int c = putchar(0x141);
+        restore();
+        say_int(a);
+        say_int(b);
+        say_int(c);
+        show();
+        """, raw"""
+        255
+        255
+        65
+        3
+        [ff][ff]A
+        """, prelude = capture_prelude)
+
+@test("puts and putchar answer EOF when descriptor 1 cannot be written (errno is checked on QEMU, where cstd's write sets it)")
+puts_and_putchar_fail()
+    c_case(raw"""
+        int saved = dup(1);
+        close(1);
+        int a = puts("x");
+        int b = putchar('y');
+        dup2(saved, 1);
+        say_int(a == EOF);
+        say_int(b == EOF);
+        say_int(EOF);
+        """, raw"""
+        1
+        1
+        -1
+        """, prelude = raw"""
+        int close(int fd);
+        int dup(int fd);
+        int dup2(int from, int to);
+        """)

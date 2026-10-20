@@ -5,6 +5,7 @@
  * through Arm semihosting's SYS_WRITE0; the program ends with SYS_EXIT_EXTENDED, its code the
  * number of failed checks, and the last line is "defaults: ok" only when every one held. */
 #include <errno.h>
+#include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
 
@@ -102,6 +103,13 @@ int main(void) {
     check("write sets errno to ENOSYS", errno == ENOSYS);
     errno = 0;
     check("write of no bytes answers -1 with ENOSYS too", write(2, "", 0) == -1 && errno == ENOSYS);
+
+    errno = 0;
+    check("puts answers EOF", puts("x") == EOF);
+    check("puts sets errno to ENOSYS", errno == ENOSYS);
+    errno = 0;
+    check("putchar answers EOF", putchar('x') == EOF);
+    check("putchar sets errno to ENOSYS", errno == ENOSYS);
 
     next();
     return 0;

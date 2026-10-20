@@ -25,7 +25,7 @@ its archive defines each symbol strongly.
 | `sys/stat.h` | 6 | 3 | 3 |
 | `locale.h` | 7 | 7 | 0 |
 | `strings.h` | 7 | 7 | 0 |
-| `stdio.h` | 8 | 8 | 0 |
+| `stdio.h` | 10 | 10 | 0 |
 | `endian.h` | 12 | 12 | 0 |
 | `ctype.h` | 28 | 28 | 0 |
 | `unistd.h` | 33 | 16 | 17 |
@@ -34,7 +34,7 @@ its archive defines each symbol strongly.
 | `stdlib.h` | 42 | 34 | 8 |
 | `stdbit.h` | 70 | 70 | 0 |
 | `math.h` | 171 | 171 | 0 |
-| **all** | **471** | **428** | **43** |
+| **all** | **473** | **430** | **43** |
 
 Still untested:
 
@@ -138,6 +138,8 @@ Other findings:
 |---|---|---|
 | `dprintf` | portable | printf_tests.sysl |
 | `printf` | portable | printf_tests.sysl |
+| `putchar` | portable | stdio_tests.sysl, defaults.c |
+| `puts` | portable | stdio_tests.sysl, defaults.c |
 | `snprintf` | portable | printf_float_tests.sysl, printf_tests.sysl |
 | `sprintf` | portable | printf_float_tests.sysl, printf_tests.sysl |
 | `vdprintf` | portable | printf_tests.sysl |
