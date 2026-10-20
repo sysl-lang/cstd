@@ -34,8 +34,7 @@ private val llvm_objdump: string = "/opt/homebrew/opt/llvm/bin/llvm-objdump"
 // The disassembly of `abort` in cstd's archive for `target`.
 private abort_disassembly(target: string) -> string
     if absent(llvm_objdump) then skip(f"$llvm_objdump is not on this machine")
-    val _ = global_symbols("tests/qemu/archive", target, "cstd")
-    val lib = f".sysl/stubs-tests/cstd-$target/libcstd.a"
+    val lib = built_archive("tests/qemu/archive", target, "cstd")
     val listed = capture(llvm_objdump, ["-d", "--disassemble-symbols=abort", lib], stderr = true).unwrap()
     assert(listed.status.ok(), listed.err.unwrap_or(""))
     listed.text

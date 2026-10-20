@@ -10,7 +10,7 @@ module sh.sysl.cstd
 
 import sysl.buf.{Buf, buf}
 import sysl.fs.make_dir_all
-import sysl.process.capture
+import sysl.process.{capture, pid}
 import sysl.testing.compiler
 import sysl.text.{Search, split}
 
@@ -19,7 +19,7 @@ private val called: []string = ["strlen", "toupper", "strtoimax", "sqrt"]
 
 // The global symbols the archive `build-c` writes for `tests/libc_probe` defines, one name per line.
 private probe_defines(target: string) -> string
-    val dir = f".sysl/libc-probe-tests/$target"
+    val dir = f".sysl/libc-probe-tests/$target-${pid()}"
     make_dir_all(dir).unwrap()
     val lib = f"$dir/libprobe.a"
     var args: Buf[string] = buf()

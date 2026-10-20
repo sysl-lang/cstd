@@ -51,10 +51,10 @@ private val objdump: string = "/opt/homebrew/opt/llvm/bin/llvm-objdump"
 
 private dump(project: string, target: string, name: string, flags: []string) -> string
     if absent(objdump) then skip(f"$objdump is not on this machine")
-    val _ = global_symbols(project, target, name)
+    val lib = built_archive(project, target, name)
     var args: Buf[string] = buf()
     for f in flags do args.push(f)
-    args.push(f".sysl/stubs-tests/$name-$target/lib$name.a")
+    args.push(lib)
     val listed = capture(objdump, args.view(), stderr = true).unwrap()
     assert(listed.status.ok(), listed.err.unwrap_or(""))
     listed.text

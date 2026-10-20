@@ -7,7 +7,7 @@ module sh.sysl.cstd
 import sysl.buf.{Buf, buf}
 import sysl.env.get_or
 import sysl.fs.{make_dir_all, write_text}
-import sysl.process.capture
+import sysl.process.{capture, pid}
 import sysl.testing.{compiler, skip}
 import sysl.text.Search
 
@@ -388,7 +388,7 @@ private[cstd] qemu_run(project: string, name: string, expect: string, target: st
     for tool in [llvm_clang, "ld.lld", qemu]
         if absent(tool) then skip(f"$tool is not on this machine")
 
-    val dir = f".sysl/qemu-tests/$name-$target"
+    val dir = f".sysl/qemu-tests/$name-$target-${pid()}"
     make_dir_all(dir).unwrap()
     val lib = f"$dir/libcstd.a"
     val built = capture(compiler(), ["build-c", project, "--target", target, "-o", lib], stderr = true).unwrap()

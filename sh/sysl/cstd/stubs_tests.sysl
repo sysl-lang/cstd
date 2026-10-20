@@ -8,7 +8,7 @@ module sh.sysl.cstd
 
 import sysl.buf.{Buf, buf}
 import sysl.fs.make_dir_all
-import sysl.process.capture
+import sysl.process.{capture, pid}
 import sysl.testing.compiler
 import sysl.text.{Search, split}
 
@@ -19,14 +19,19 @@ private val defaulted: []string = ["read", "write", "close", "lseek", "open", "o
                                    "clock_settime", "clock_nanosleep", "timer_create", "timer_delete",
                                    "timer_getoverrun", "timer_gettime", "timer_settime", "brk", "sbrk"]
 
-// The global symbols `nm` lists for `project` built for `target`, each as "<kind> <name>" on a line.
-private[cstd] global_symbols(project: string, target: string, name: string) -> string
-    val dir = f".sysl/stubs-tests/$name-$target"
+// `project` built for `target` into an archive this test process alone writes, so tests running at
+// once never rebuild an archive another is reading. Answers the archive's path.
+private[cstd] built_archive(project: string, target: string, name: string) -> string
+    val dir = f".sysl/stubs-tests/$name-$target-${pid()}"
     make_dir_all(dir).unwrap()
     val lib = f"$dir/lib$name.a"
     val built = capture(compiler(), ["build-c", project, "--target", target, "-o", lib], stderr = true).unwrap()
     if !built.status.ok() then panic(f"build-c of $project for $target failed:\n${built.err.unwrap_or("")}")
-    val listed = capture("nm", ["-g", lib]).unwrap()
+    lib
+
+// The global symbols `nm` lists for `project` built for `target`, each as "<kind> <name>" on a line.
+private[cstd] global_symbols(project: string, target: string, name: string) -> string
+    val listed = capture("nm", ["-g", built_archive(project, target, name)]).unwrap()
     assert(listed.status.ok())
     var kinds = "\n"
     for line in split(listed.text, "\n")
