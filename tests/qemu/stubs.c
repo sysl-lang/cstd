@@ -13,9 +13,6 @@
 
 void board_init(void);
 
-/* `<signal.h>` does not declare it yet; `sigsetjmp` reaches it, and cstd defaults it. */
-int sigprocmask(int how, const void *set, void *old);
-#define SIG_SETMASK 2
 
 static void say(const char *s) {
     size_t n = 0;
@@ -54,6 +51,8 @@ int main(void) {
     char buf[8];
     struct stat st;
     struct timespec ts = {0, 0};
+    sigset_t sigs;
+    sigemptyset(&sigs);
     int fds[2];
 
     errno = 0;
@@ -76,6 +75,7 @@ int main(void) {
     check("stat", stat("f", &st), -1);
     check("kill", kill(1, SIGTERM), -1);
     check("sigprocmask", sigprocmask(SIG_SETMASK, 0, 0), -1);
+    check("sigprocmask(set, old)", sigprocmask(SIG_BLOCK, &sigs, &sigs), -1);
     check("nanosleep", nanosleep(&ts, 0), -1);
     check("clock_gettime", clock_gettime(CLOCK_REALTIME, &ts), -1);
     check("clock_getres", clock_getres(CLOCK_REALTIME, &ts), -1);

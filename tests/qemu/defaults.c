@@ -5,6 +5,7 @@
  * through Arm semihosting's SYS_WRITE0; the program ends with SYS_EXIT_EXTENDED, its code the
  * number of failed checks, and the last line is "defaults: ok" only when every one held. */
 #include <errno.h>
+#include <stdint.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <unistd.h>
@@ -55,7 +56,7 @@ __attribute__((used)) void fault_seen(unsigned *frame) {
     fault_cfsr = CFSR;
     CFSR = fault_cfsr;
     HFSR = HFSR;
-    frame[6] = (unsigned)next & ~1u;
+    frame[6] = (unsigned)(uintptr_t)next & ~1u;
 }
 
 __attribute__((naked)) static void fault(void) {
@@ -64,7 +65,7 @@ __attribute__((naked)) static void fault(void) {
 
 /* Whether `pc` is inside the first few instructions of `f`. */
 static int inside(void *f, unsigned pc) {
-    unsigned at = (unsigned)f & ~1u;
+    unsigned at = (unsigned)(uintptr_t)f & ~1u;
     return pc >= at && pc < at + 16;
 }
 
@@ -95,7 +96,7 @@ int main(void) {
     __asm__ volatile("dsb\n isb" ::: "memory");
 #endif
     for (int i = 0; i < 16; i++) vectors[i] = fault;
-    VTOR = (unsigned)vectors;
+    VTOR = (unsigned)(uintptr_t)vectors;
     __asm__ volatile("dsb\n isb" ::: "memory");
 
     errno = 0;
