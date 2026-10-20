@@ -1,0 +1,253 @@
+module sh.sysl.cstd
+
+@tests
+
+// `<stdlib.h>`'s multibyte functions in the C locale, called from C.
+//
+// The oracle is C17 7.22.7 and 7.22.8 with the C locale's encoding: one byte per character, 0x00 to
+// 0x7F, no shift state, so `MB_CUR_MAX` is 1 and a null `s` answers 0 ("not state-dependent"). A
+// byte from 0x80 up is no character in this C locale, so reading it is the "invalid multibyte
+// character" case, -1 and `EILSEQ` (84), as glibc's C locale answers. Each `say_r` line is a return
+// value and `errno`, which is cleared before the call: `1 0`. A wide buffer is printed as its
+// elements in decimal, a byte buffer in `say_bytes`'s form with a guard each side.
+
+private val mb_prelude: string = raw"""
+    static void say_r(long long r) { put_i(r); say_ch(' '); say_int(errno); }
+
+    static void say_wide(const wchar_t *w, int n) {
+        for (int i = 0; i < n; i++) { if (i) say_ch(' '); put_i(w[i]); }
+        say_end();
+    }
+    """
+
+@test("MB_CUR_MAX is a size_t 1")
+mb_cur_max()
+    c_case(raw"""
+        say_int(MB_CUR_MAX);
+        say_int(sizeof(MB_CUR_MAX) == sizeof(size_t));
+        say_int((MB_CUR_MAX - 2) > 0);
+        """, raw"""
+        1
+        1
+        1
+        """, mb_prelude)
+
+@test("mblen: 1 for an ASCII byte, 0 for the NUL and a null s, -1 with EILSEQ for 0x80 up and n = 0")
+mblen_cases()
+    c_case(raw"""
+        errno = 0; say_r(mblen(NULL, 0));
+        errno = 0; say_r(mblen(NULL, 5));
+        errno = 0; say_r(mblen("a", 1));
+        errno = 0; say_r(mblen("abc", 3));
+        errno = 0; say_r(mblen("\x7f", 1));
+        errno = 0; say_r(mblen("", 1));
+        errno = 0; say_r(mblen("a", 0));
+        errno = 0; say_r(mblen("\x80", 1));
+        errno = 0; say_r(mblen("\xff", 4));
+        errno = 5; say_r(mblen("z", 1));
+        int ones = 0, zeros = 0, bad = 0;
+        for (int c = 0; c < 256; c++) {
+            char s[2] = {(char)c, 0};
+            int r = mblen(s, 1);
+            if (r == 1) ones++; else if (r == 0) zeros++; else if (r == -1) bad++;
+        }
+        say_int(ones); say_int(zeros); say_int(bad);
+        """, raw"""
+        0 0
+        0 0
+        1 0
+        1 0
+        1 0
+        0 0
+        -1 84
+        -1 84
+        -1 84
+        1 5
+        127
+        1
+        128
+        """, mb_prelude)
+
+@test("mbtowc stores the byte's own value, writes nothing on an invalid byte, and accepts a null pwc")
+mbtowc_cases()
+    c_case(raw"""
+        wchar_t wc = 99;
+        errno = 0; say_r(mbtowc(&wc, "A", 1)); say_int(wc);
+        wc = 99; errno = 0; say_r(mbtowc(&wc, "", 1)); say_int(wc);
+        wc = 99; errno = 0; say_r(mbtowc(&wc, "\x80", 1)); say_int(wc);
+        wc = 99; errno = 0; say_r(mbtowc(&wc, "A", 0)); say_int(wc);
+        wc = 99; errno = 0; say_r(mbtowc(&wc, NULL, 1)); say_int(wc);
+        errno = 0; say_r(mbtowc(NULL, "A", 1));
+        errno = 0; say_r(mbtowc(NULL, "\xc3\xa9", 2));
+        errno = 0; say_r(mbtowc(NULL, NULL, 0));
+        int agree = 1;
+        for (int c = 1; c < 128; c++) {
+            char s[1] = {(char)c};
+            wc = -1;
+            agree &= mbtowc(&wc, s, 1) == 1 && wc == c;
+        }
+        for (int c = 128; c < 256; c++) {
+            char s[1] = {(char)c};
+            wc = 7;
+            agree &= mbtowc(&wc, s, 1) == -1 && wc == 7;
+        }
+        say_int(agree);
+        """, raw"""
+        1 0
+        65
+        0 0
+        0
+        -1 84
+        99
+        -1 84
+        99
+        0 0
+        99
+        1 0
+        -1 84
+        0 0
+        1
+        """, mb_prelude)
+
+@test("wctomb writes one byte for 0 to 0x7F, the NUL included, and refuses anything past it with EILSEQ")
+wctomb_cases()
+    c_case(raw"""
+        char b[4] = {'#', '#', '#', '#'};
+        errno = 0; say_r(wctomb(NULL, L'a'));
+        errno = 0; say_r(wctomb(NULL, 0x20ac));
+        errno = 0; say_r(wctomb(b + 1, L'a')); say_bytes(b, 4);
+        errno = 0; say_r(wctomb(b + 1, 0)); say_bytes(b, 4);
+        errno = 0; say_r(wctomb(b + 1, 0x7f)); say_bytes(b, 4);
+        b[1] = '#';
+        errno = 0; say_r(wctomb(b + 1, 0x80)); say_bytes(b, 4);
+        errno = 0; say_r(wctomb(b + 1, 0xff)); say_bytes(b, 4);
+        errno = 0; say_r(wctomb(b + 1, 0x20ac)); say_bytes(b, 4);
+        errno = 0; say_r(wctomb(b + 1, (wchar_t)-1)); say_bytes(b, 4);
+        errno = 0; say_r(wctomb(b + 1, (wchar_t)0x7fffffff)); say_bytes(b, 4);
+        int round = 1;
+        for (int c = 0; c < 128; c++) {
+            char s[1];
+            wchar_t back = -1;
+            round &= wctomb(s, c) == 1 && (unsigned char)s[0] == c && mbtowc(&back, s, 1) == (c != 0) && back == c;
+        }
+        say_int(round);
+        """, raw"""
+        0 0
+        0 0
+        1 0
+        #a##
+        1 0
+        #[00]##
+        1 0
+        #[7f]##
+        -1 84
+        ####
+        -1 84
+        ####
+        -1 84
+        ####
+        -1 84
+        ####
+        -1 84
+        ####
+        1
+        """, mb_prelude)
+
+@test("mbstowcs stores at most n wide characters, the NUL only when it fits, and counts with a null pwcs")
+mbstowcs_cases()
+    c_case(raw"""
+        wchar_t w[6];
+        for (int i = 0; i < 6; i++) w[i] = 85;
+        errno = 0; say_r(mbstowcs(w, "abc", 6)); say_wide(w, 6);
+        for (int i = 0; i < 6; i++) w[i] = 85;
+        errno = 0; say_r(mbstowcs(w, "abc", 4)); say_wide(w, 6);
+        for (int i = 0; i < 6; i++) w[i] = 85;
+        errno = 0; say_r(mbstowcs(w, "abc", 3)); say_wide(w, 6);
+        for (int i = 0; i < 6; i++) w[i] = 85;
+        errno = 0; say_r(mbstowcs(w, "abc", 2)); say_wide(w, 6);
+        for (int i = 0; i < 6; i++) w[i] = 85;
+        errno = 0; say_r(mbstowcs(w, "abc", 0)); say_wide(w, 6);
+        for (int i = 0; i < 6; i++) w[i] = 85;
+        errno = 0; say_r(mbstowcs(w, "", 6)); say_wide(w, 6);
+        errno = 0; say_r(mbstowcs(NULL, "abcde", 0));
+        errno = 0; say_r(mbstowcs(NULL, "abcde", 2));
+        errno = 0; say_r(mbstowcs(NULL, "", 0));
+        for (int i = 0; i < 6; i++) w[i] = 85;
+        errno = 0; say_r(mbstowcs(w, "ab\x80" "c", 6)); say_wide(w, 6);
+        errno = 0; say_r(mbstowcs(NULL, "ab\xff", 0));
+        for (int i = 0; i < 6; i++) w[i] = 85;
+        errno = 0; say_r(mbstowcs(w, "ab\x80", 2)); say_wide(w, 6);
+        errno = 9; say_r(mbstowcs(w, "\x7f", 6)); say_wide(w, 2);
+        """, raw"""
+        3 0
+        97 98 99 0 85 85
+        3 0
+        97 98 99 0 85 85
+        3 0
+        97 98 99 85 85 85
+        2 0
+        97 98 85 85 85 85
+        0 0
+        85 85 85 85 85 85
+        0 0
+        0 85 85 85 85 85
+        5 0
+        5 0
+        0 0
+        -1 84
+        97 98 85 85 85 85
+        -1 84
+        2 0
+        97 98 85 85 85 85
+        1 9
+        127 0
+        """, mb_prelude)
+
+@test("wcstombs stores at most n bytes, the NUL only when it fits, and counts with a null s")
+wcstombs_cases()
+    c_case(raw"""
+        char b[6];
+        const wchar_t abc[] = {L'a', L'b', L'c', 0};
+        const wchar_t empty[] = {0};
+        const wchar_t high[] = {L'a', L'b', 0x80, L'c', 0};
+        const wchar_t negative[] = {L'a', (wchar_t)-1, 0};
+        const wchar_t del[] = {0x7f, 0};
+        memset(b, '#', 6); errno = 0; say_r(wcstombs(b, abc, 6)); say_bytes(b, 6);
+        memset(b, '#', 6); errno = 0; say_r(wcstombs(b, abc, 4)); say_bytes(b, 6);
+        memset(b, '#', 6); errno = 0; say_r(wcstombs(b, abc, 3)); say_bytes(b, 6);
+        memset(b, '#', 6); errno = 0; say_r(wcstombs(b, abc, 1)); say_bytes(b, 6);
+        memset(b, '#', 6); errno = 0; say_r(wcstombs(b, abc, 0)); say_bytes(b, 6);
+        memset(b, '#', 6); errno = 0; say_r(wcstombs(b, empty, 6)); say_bytes(b, 6);
+        errno = 0; say_r(wcstombs(NULL, abc, 0));
+        errno = 0; say_r(wcstombs(NULL, abc, 1));
+        errno = 0; say_r(wcstombs(NULL, empty, 0));
+        memset(b, '#', 6); errno = 0; say_r(wcstombs(b, high, 6)); say_bytes(b, 6);
+        errno = 0; say_r(wcstombs(NULL, high, 0));
+        errno = 0; say_r(wcstombs(NULL, negative, 0));
+        memset(b, '#', 6); errno = 0; say_r(wcstombs(b, high, 2)); say_bytes(b, 6);
+        memset(b, '#', 6); errno = 9; say_r(wcstombs(b, del, 6)); say_bytes(b, 3);
+        """, raw"""
+        3 0
+        abc[00]##
+        3 0
+        abc[00]##
+        3 0
+        abc###
+        1 0
+        a#####
+        0 0
+        ######
+        0 0
+        [00]#####
+        3 0
+        3 0
+        0 0
+        -1 84
+        ab####
+        -1 84
+        -1 84
+        2 0
+        ab####
+        1 9
+        [7f][00]#
+        """, mb_prelude)

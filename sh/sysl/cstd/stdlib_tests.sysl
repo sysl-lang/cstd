@@ -749,3 +749,123 @@ llabs_wraps()
         9223372036854775807
         -9223372036854775808
         """)
+
+@test("atoll reads base 10 into a long long after white space, and answers 0 for no number")
+atoll_reads()
+    c_case(raw"""
+        long long v = atoll("  -9223372036854775808");
+        say_int(v);
+        say_int(atoll("9223372036854775807"));
+        say_int(atoll("\t+77xyz"));
+        say_int(atoll("4294967296"));
+        say_int(atoll("-0"));
+        say_int(atoll("0x10"));
+        say_int(atoll("012"));
+        say_int(atoll(""));
+        say_int(atoll("x"));
+        say_int(atoll("- 1"));
+        say_int(atoll("99999999999999999999"));
+        say_int(atoll("-99999999999999999999"));
+        """, raw"""
+        -9223372036854775808
+        9223372036854775807
+        77
+        4294967296
+        0
+        0
+        12
+        0
+        0
+        0
+        9223372036854775807
+        -9223372036854775808
+        """)
+
+// The rand sequences are those of the generator `include/stdlib.h` names, musl's: the state starts
+// at 0, `srand(s)` sets it to the unsigned `s - 1` widened to 64 bits, and each call steps it to
+// `6364136223846793005 * state + 1 mod 2^64` and answers its top 31 bits. The numbers were worked
+// from that recurrence outside cstd.
+
+@test("rand starts as srand(1) leaves it, and RAND_MAX is 2^31 - 1")
+rand_starts_at_srand_one()
+    c_case(raw"""
+        say_int(RAND_MAX);
+        say_int(RAND_MAX >= 32767);
+        int first[5];
+        for (int i = 0; i < 5; i++) first[i] = rand();
+        for (int i = 0; i < 5; i++) say_int(first[i]);
+        srand(1);
+        int same = 1;
+        for (int i = 0; i < 5; i++) same &= rand() == first[i];
+        say_int(same);
+        """, raw"""
+        2147483647
+        1
+        0
+        740882966
+        1616430695
+        1708849955
+        1669437588
+        1
+        """)
+
+@test("srand with one seed repeats one sequence, and different seeds give different ones")
+srand_repeats()
+    c_case(raw"""
+        srand(42);
+        for (int i = 0; i < 5; i++) say_int(rand());
+        srand(0);
+        for (int i = 0; i < 5; i++) say_int(rand());
+        srand(4294967295u);
+        for (int i = 0; i < 5; i++) say_int(rand());
+        int a[100];
+        srand(12345);
+        for (int i = 0; i < 100; i++) a[i] = rand();
+        srand(7);
+        rand();
+        srand(12345);
+        int same = 1;
+        for (int i = 0; i < 100; i++) same &= rand() == a[i];
+        say_int(same);
+        """, raw"""
+        311430560
+        131117839
+        1110653038
+        92942940
+        1421832848
+        2049033599
+        2025915578
+        1407788582
+        829275321
+        1509453734
+        1308150633
+        1150367849
+        1315369323
+        868687688
+        625072825
+        1
+        """)
+
+@test("rand answers every value in [0, RAND_MAX], and every one of its 31 bits both set and clear")
+rand_range()
+    c_case(raw"""
+        int in_range = 1;
+        unsigned set = 0, clear = 0;
+        int below = 0, above = 0;
+        for (int i = 0; i < 100000; i++) {
+            int r = rand();
+            in_range &= r >= 0 && r <= RAND_MAX;
+            set |= (unsigned)r;
+            clear |= ~(unsigned)r;
+            if (r < RAND_MAX / 2) below++; else above++;
+        }
+        say_int(in_range);
+        say_uint(set);
+        say_uint(clear & 0x7fffffffu);
+        say_int(below > 49000 && above > 49000);
+        """, raw"""
+        1
+        2147483647
+        2147483647
+        1
+        """)

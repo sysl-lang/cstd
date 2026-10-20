@@ -1,0 +1,75 @@
+module sh.sysl.cstd
+
+// `<stdlib.h>`'s multibyte functions for the C locale, the only locale cstd has: `mblen`, `mbtowc`,
+// `wctomb`, `mbstowcs` and `wcstombs`. `MB_CUR_MAX` is 1.
+//
+// **In the C locale a character is one byte from 0x00 to 0x7F, and its wide character is the same
+// number.** A byte from 0x80 up is no character, so reading one answers -1 (or `(size_t)-1` for the
+// string forms) with `errno` set to `EILSEQ`, and so does writing a wide character past 0x7F. That
+// is glibc's C locale (ASCII). musl's differs here: it maps each byte from 0x80 up to a wide
+// character in U+DF80..U+DFFF so that any byte string survives a round trip; cstd's C locale has no
+// characters above 0x7F, as `<ctype.h>` already says. Every other return value is musl's: the
+// encoding has no shift state, so a null `s` answers 0, and `n == 0` is no complete character, -1
+// with `EILSEQ`. A successful call leaves `errno` alone.
+//
+// A `wchar_t` is 32 bits on every target cstd builds for and is read as `u32`, so a negative one
+// where `wchar_t` is signed is past 0x7F.
+
+private const ascii_end: u32 = 0x80
+
+// The number of bytes in the character at `s`: 0 for the NUL, 1 for any other ASCII byte.
+@export("mblen")
+mblen(s: *u8, n: usize) -> i32 = mbtowc(null, s, n)
+
+// Reads the character at `s` into `*pwc`, unless `pwc` is null, and answers its length as `mblen`
+// does. On an invalid byte `*pwc` is left alone.
+@export("mbtowc")
+mbtowc(pwc: *u32, s: *u8, n: usize) -> i32
+    if s == null then return 0
+    if n == 0 || s[0] >= ascii_end
+        errno = EILSEQ
+        return -1
+    if pwc != null then *pwc = s[0]
+    if s[0] == 0 then 0 else 1
+
+// Writes the character `wc` at `s` and answers 1, the NUL included; 0 for a null `s`.
+@export("wctomb")
+wctomb(s: *u8, wc: u32) -> i32
+    if s == null then return 0
+    if wc >= ascii_end
+        errno = EILSEQ
+        return -1
+    s[0] = u8(wc)
+    1
+
+// Converts the characters of `s` into at most `n` wide characters at `pwcs`, with the terminating
+// NUL when it fits, and answers how many it stored before the NUL. A null `pwcs` stores nothing and
+// counts the whole string, whatever `n` is. An invalid byte answers `(size_t)-1`.
+@export("mbstowcs")
+mbstowcs(pwcs: *u32, s: *u8, n: usize) -> usize
+    var i: usize = 0
+    while pwcs == null || i < n
+        val b = s[i]
+        if b >= ascii_end
+            errno = EILSEQ
+            return usize::Max
+        if pwcs != null then pwcs[i] = b
+        if b == 0 then return i
+        i += 1
+    n
+
+// Converts the wide characters of `pwcs` into at most `n` bytes at `s`, with the terminating NUL
+// when it fits, and answers how many bytes it stored before the NUL. A null `s` stores nothing and
+// counts the whole string, whatever `n` is. A wide character past 0x7F answers `(size_t)-1`.
+@export("wcstombs")
+wcstombs(s: *u8, pwcs: *u32, n: usize) -> usize
+    var i: usize = 0
+    while s == null || i < n
+        val wc = pwcs[i]
+        if wc >= ascii_end
+            errno = EILSEQ
+            return usize::Max
+        if s != null then s[i] = u8(wc)
+        if wc == 0 then return i
+        i += 1
+    n

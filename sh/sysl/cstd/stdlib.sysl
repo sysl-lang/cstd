@@ -122,6 +122,31 @@ atoi(text: *u8) -> i32 = i32(strtol(text, null, 10))
 @export("atol")
 atol(text: *u8) -> Long = strtol(text, null, 10)
 
+// `atoll` is `strtoll` in base 10. C leaves a number past `long long` undefined and promises nothing
+// of `errno`; here it is `strtoll`'s clamp, with its `ERANGE`.
+@export("atoll")
+atoll(text: *u8) -> LongLong = strtoll(text, null, 10)
+
+// `rand` and `srand`: musl's generator, a 64-bit linear congruential one with Knuth's MMIX
+// multiplier, answering the top 31 bits of the state, so `RAND_MAX` is 2^31 - 1. The C standard's
+// example generator answers only 15 bits, and the low bits of any power-of-two LCG have short
+// periods (bit k repeats every 2^(k+1) steps); taking the top bits of a 64-bit state gives every
+// answer bit a period of at least 2^33, at the cost of one 64-bit multiply.
+//
+// `srand(s)` makes the state `s - 1`, subtracted as an `unsigned` as musl does, so the zero the
+// state starts at is `srand(1)`'s, as C requires. The state is one per program: C does not ask
+// `rand` to be safe across threads.
+private var rand_state: u64 = 0
+
+@export("srand")
+srand(seed: u32)
+    rand_state = seed - 1
+
+@export("rand")
+rand() -> i32
+    rand_state = 6364136223846793005 * rand_state + 1
+    i32(rand_state >> 33)
+
 // `abs(INT_MIN)` is undefined in C; here it is `INT_MIN`, the two's-complement wrap.
 @export("abs")
 abs(n: i32) -> i32 = if n < 0 then -n else n

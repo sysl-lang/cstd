@@ -28,13 +28,13 @@ its archive defines each symbol strongly.
 | `stdio.h` | 8 | 8 | 0 |
 | `endian.h` | 12 | 12 | 0 |
 | `ctype.h` | 28 | 28 | 0 |
-| `stdlib.h` | 33 | 25 | 8 |
 | `unistd.h` | 33 | 16 | 17 |
 | `time.h` | 34 | 24 | 10 |
 | `string.h` | 36 | 36 | 0 |
+| `stdlib.h` | 42 | 34 | 8 |
 | `stdbit.h` | 70 | 70 | 0 |
 | `math.h` | 171 | 171 | 0 |
-| **all** | **462** | **419** | **43** |
+| **all** | **471** | **428** | **43** |
 
 Still untested:
 
@@ -209,6 +209,7 @@ Other findings:
 | `atof` | portable | strtod_tests.sysl |
 | `atoi` | portable | stdlib_tests.sysl |
 | `atol` | portable | stdlib_tests.sysl |
+| `atoll` | portable | stdlib_tests.sysl |
 | `bsearch` | portable | stdlib_tests.sysl |
 | `calloc` | freestanding | heap.c, nosbrk.c |
 | `calloc` | linux | **untested** |
@@ -223,15 +224,23 @@ Other findings:
 | `lldiv` | portable | stdlib_tests.sysl |
 | `malloc` | freestanding | heap.c, nosbrk.c |
 | `malloc` | linux | **untested** |
+| `mblen` | portable | multibyte_tests.sysl |
+| `mbstowcs` | portable | multibyte_tests.sysl |
+| `mbtowc` | portable | multibyte_tests.sysl |
 | `qsort` | portable | stdlib_tests.sysl |
+| `rand` | portable | stdlib_tests.sysl |
 | `realloc` | freestanding | heap.c, nosbrk.c |
 | `realloc` | linux | **untested** |
+| `srand` | portable | stdlib_tests.sysl |
 | `strtod` | portable | printf_float_tests.sysl, strtod_tests.sysl |
 | `strtof` | portable | strtod_tests.sysl |
 | `strtol` | portable | stdlib_tests.sysl, string_tests.sysl |
+| `strtold` | portable (where `long double` is binary64) | strtod_tests.sysl |
 | `strtoll` | portable | stdlib_tests.sysl |
 | `strtoul` | portable | stdlib_tests.sysl |
 | `strtoull` | portable | stdlib_tests.sysl |
+| `wcstombs` | portable | multibyte_tests.sysl |
+| `wctomb` | portable | multibyte_tests.sysl |
 
 ## `unistd.h`
 

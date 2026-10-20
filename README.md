@@ -20,7 +20,7 @@ require, exported under its C name with `@export`.
 | `string.h` | `strlen` `strnlen` `strcmp` `strncmp` `strcpy` `strncpy` `strcat` `strncat` `strchr` `strrchr` `strstr` `strspn` `strcspn` `strpbrk` `strtok` `strtok_r` `strerror` `strerror_r` `strerror_l` `strsignal` `stpcpy` `stpncpy` `strlcpy` `strlcat` `strdup` `strndup` `strcoll` `strcoll_l` `strxfrm` `strxfrm_l` `memcpy` `memmove` `memset` `memcmp` `memchr` `memmem` — all of POSIX.1-2024's base `<string.h>` |
 | `ctype.h` | `isalnum` `isalpha` `isblank` `iscntrl` `isdigit` `isgraph` `islower` `isprint` `ispunct` `isspace` `isupper` `isxdigit` `tolower` `toupper`, and the `_l` variant of each, for the C locale |
 | `locale.h` | `setlocale` `localeconv` `newlocale` `duplocale` `freelocale` `uselocale` `getlocalename_l`, for the C locale |
-| `stdlib.h` | `atoi` `atol` `atof` `strtol` `strtoul` `strtoll` `strtoull` `strtod` `strtof` `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch` |
+| `stdlib.h` | `atoi` `atol` `atoll` `atof` `strtol` `strtoul` `strtoll` `strtoull` `strtod` `strtof`, `strtold` where `long double` is a `double`, `abs` `labs` `llabs` `div` `ldiv` `lldiv` `qsort` `bsearch`, `rand` `srand` (`RAND_MAX` 2³¹ − 1), and the C locale's `mblen` `mbtowc` `wctomb` `mbstowcs` `wcstombs` (`MB_CUR_MAX` 1) |
 | `inttypes.h` | every `PRI*`/`SCN*` macro for the target's `<stdint.h>` types, `imaxdiv_t`, `imaxabs` `imaxdiv` `strtoimax` `strtoumax` `wcstoimax` `wcstoumax` |
 | `strings.h` | `strcasecmp` `strncasecmp` `strcasecmp_l` `strncasecmp_l` (ASCII folding, C locale), `ffs` `ffsl` `ffsll` |
 | `assert.h` | `assert` (honours `NDEBUG` at each inclusion; failure writes `Assertion failed: expr (file: func: line)` to descriptor 2, then `abort`), `static_assert` |
@@ -32,6 +32,15 @@ require, exported under its C name with `@export`.
 | `time.h` | `gmtime` `gmtime_r` `localtime` `localtime_r` `mktime` `timegm` `difftime` `strftime` `strftime_l` `tzset`, and on a freestanding target `time` `clock` `timespec_get` over `clock_gettime`; `struct tm` (with `tm_gmtoff`, `tm_zone`), `struct itimerspec`, `clock_t`, `timer_t`, `CLOCKS_PER_SEC`, `TIME_UTC`, `TIMER_ABSTIME` |
 | `math.h` | all 57 functions of POSIX.1-2024 in `double` and `float`, and in `long double` where it is a `double`; the classification and comparison macros, `HUGE_VAL`, `INFINITY`, `NAN`, the `FP_` and `MATH_` constants and `M_PI` and friends |
 
+- **`rand` is musl's generator**: a 64-bit linear congruential state stepped by Knuth's MMIX
+  multiplier (`6364136223846793005 * s + 1`), answering its top 31 bits. The C standard's example
+  answers 15 bits of a 32-bit state, and the low bits of a power-of-two LCG repeat quickly (bit k
+  every 2^(k+1) steps); the top bits of a 64-bit state have periods of at least 2^33, for one 64-bit
+  multiply. `srand(s)` sets the state to `s - 1`, so the start is `srand(1)`'s.
+- **The multibyte functions are the C locale's**: a character is one byte from 0x00 to 0x7F and its
+  wide character is the same number; a byte from 0x80 up, or a wide character past 0x7F, is `EILSEQ`,
+  as glibc's C locale has it (musl instead maps such bytes to U+DF80–U+DFFF). The encoding has no
+  shift state, so a null `s` answers 0.
 - **`setjmp` is assembly per processor** (`sh/sysl/cstd/setjmp.sysl`): aarch64 (x19–x30, sp,
   d8–d15; x18 left alone), thumb in Armv6-M's instructions so every Cortex-M runs it (r4–r11, sp,
   lr, and s16–s31 where the target has floating-point registers, `#if fpu`), and riscv32 (ra, sp,
@@ -298,6 +307,10 @@ guard byte on each side, NULs included. The cases cover:
 - `EINVAL` for a bad base or no digits
 - overflow in each `strto*` with `ERANGE`
 - `endptr` positions
+- `rand`'s sequences after the start and after `srand` of 0, 1, 42 and `UINT_MAX`, worked from the
+  generator's recurrence, and its range over 100000 calls
+- the multibyte functions over all 256 bytes and the wide characters either side of 0x80, null
+  arguments, `n = 0`, a destination too short for the NUL, and `EILSEQ`
 
 Under AddressSanitizer:
 
@@ -382,7 +395,7 @@ whole image with no `malloc`, `free` or `abort` of its own and gets the right su
 - **`FILE` and the rest of stdio.** Buffered streams are not written yet.
 - **`long double` beyond binary64: `strtold`, `%Lf`, and the `l` functions of `<math.h>` where
   `long double` is binary128.** cstd's floats are `double` and `float`; where `long double` is a
-  `double` the `<math.h>` `l` functions are offered as their `double` counterparts, and where it is
+  `double` `strtold` and the `<math.h>` `l` functions are offered as their `double` counterparts, and where it is
   binary128 a quad-precision argument reduction, polynomials and tables are still to be written.
   A `double` answer widened would be wrong in its last 60 bits, so nothing is offered there.
 - **Locales other than C.** Only the C locale exists: every byte from 0x80 up is in no class,

@@ -77,3 +77,12 @@ strtof(text: *u8, endptr: **u8) -> f32
 // `atof` is `strtod` with nowhere to say where it stopped, as C defines it.
 @export("atof")
 atof(text: *u8) -> real = strtod(text, null)
+
+// `strtold` where long double is a double -- arm64 macOS and 32-bit Arm, as for `<math.h>`'s `l`
+// functions (`math_long.sysl`) -- is `strtod` under its own name. Where long double is binary128 it
+// is not offered and `include/stdlib.h` does not declare it: a double's answer would be wrong in the
+// last 60 bits of a quad.
+#if (aarch64 && macos) || thumb
+@export("strtold")
+strtold(text: *u8, endptr: **u8) -> real = strtod(text, endptr)
+#endif

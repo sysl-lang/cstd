@@ -531,6 +531,11 @@ any other bare-metal target the core gives each a weak default a board replaces 
 `exit.sysl`): the allocator over `sbrk` (`BreakHeap`, the same code the Linux half exports strongly over its own `sbrk`), `exit` running the `atexit` table (one table, the core's, for
 both halves) and then `_Exit`, and `_Exit` and `abort` trapping.
 
+`strtold` is counted missing for the reason `<math.h>`'s `l` forms are: where `long double` is
+binary64 (arm64 macOS, 32-bit Arm) cstd exports and declares it as `strtod` under its own name, and
+where it is binary128 it is not offered. The multibyte functions are the C locale's, the only one
+cstd has: one byte per character from 0x00 to 0x7F, `MB_CUR_MAX` 1, and `EILSEQ` from 0x80 up.
+
 | function | codes | status | needs | half |
 |---|---|---|---|---|
 | _Exit | | done (linux) | | linux |
@@ -542,7 +547,7 @@ both halves) and then `_Exit`, and `_Exit` and `abort` trapping.
 | atof | | done (core) | | core |
 | atoi | | done (core) | | core |
 | atol | | done (core) | | core |
-| atoll | | missing | pure | core |
+| atoll | | done (core) | | core |
 | bsearch | | done (core) | | core |
 | calloc | | done (linux) | | linux |
 | div | | done (core) | | core |
@@ -555,22 +560,22 @@ both halves) and then `_Exit`, and `_Exit` and `abort` trapping.
 | llabs | | done (core) | | core |
 | lldiv | | done (core) | | core |
 | malloc | | done (linux) | | linux |
-| mblen | | missing | locale | core |
-| mbstowcs | | missing | locale | core |
-| mbtowc | | missing | locale | core |
+| mblen | | done (core) | | core |
+| mbstowcs | | done (core) | | core |
+| mbtowc | | done (core) | | core |
 | mkdtemp | CX | missing | os | linux |
 | mkostemp | CX | missing | os | linux |
 | mkstemp | CX | missing | os | linux |
 | qsort | | done (core) | | core |
 | qsort_r | CX | missing | pure | core |
 | quick_exit | | missing | os | linux |
-| rand | | missing | pure | core |
+| rand | | done (core) | | core |
 | realloc | | done (linux) | | linux |
 | reallocarray | CX | missing | heap | either |
 | realpath | | missing | os | linux |
 | secure_getenv | CX | missing | os | linux |
 | setenv | CX | missing | os | linux |
-| srand | | missing | pure | core |
+| srand | | done (core) | | core |
 | strtod | | done (core) | | core |
 | strtof | | done (core) | | core |
 | strtol | | done (core) | | core |
@@ -580,8 +585,8 @@ both halves) and then `_Exit`, and `_Exit` and `abort` trapping.
 | strtoull | | done (core) | | core |
 | system | | missing | os | linux |
 | unsetenv | CX | missing | os | linux |
-| wcstombs | | missing | locale | core |
-| wctomb | | missing | locale | core |
+| wcstombs | | done (core) | | core |
+| wctomb | | done (core) | | core |
 
 `getenv` and the other environment functions read `environ`, which the Linux half's `crt0` sets, hence
 `os`; `setenv` also needs `heap`. `realpath` also allocates when handed a null buffer.
@@ -894,14 +899,14 @@ In-scope functions only.
 | `setjmp.h` | 4 | 4 | 0 | | | | | | |
 | `signal.h` | 22 | 1 | 21 | 7 | | | 14 | | |
 | `stdio.h` | 67 | 8 | 59 | 3 | | 2 | 3 | | 51 |
-| `stdlib.h` | 49 | 25 | 24 | 6 | 5 | 2 | 11 | | |
+| `stdlib.h` | 49 | 33 | 16 | 3 | | 2 | 11 | | |
 | `string.h` | 36 | 36 | 0 | | | | | | |
 | `strings.h` | 4 | 4 | 0 | | | | | | |
 | `sys/stat.h` | 14 | 3 | 11 | | | | 11 | | |
 | `sys/types.h` | 0 | 0 | 0 | | | | | | |
 | `time.h` | 22 | 22 | 0 | | | | | | |
 | `unistd.h` | 75 | 14 | 61 | 2 | | | 58 | 1 | |
-| **total** | **521** | **286** | **235** | **75** | **5** | **4** | **99** | **1** | **51** |
+| **total** | **521** | **294** | **227** | **72** | **0** | **4** | **99** | **1** | **51** |
 
 Out of scope and missing: 57 functions (`fcntl.h` 2, `math.h` 6, `signal.h` 2, `stdio.h` 1,
 `stdlib.h` 23, `string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15). Out of scope but done: 3

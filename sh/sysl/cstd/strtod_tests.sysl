@@ -271,3 +271,47 @@ atof_reads_a_double()
         4004000000000000
         fff0000000000000
         """)
+
+private val strtold_prelude: string = raw"""
+    static void say_strtold(const char *s) {
+        char *end = (char *)"unset";
+        errno = 0;
+        long double v = strtold(s, &end);
+        unsigned long long bits;
+        memcpy(&bits, &v, sizeof bits);
+        put_hex(bits, 16); say_ch(' '); put_i(end - s); say_ch(' '); say_int(errno);
+    }
+    """
+
+@test("where long double is a double, strtold reads, rounds, and sets endptr and errno as strtod does")
+strtold_is_strtod()
+    c_case(raw"""
+        say_int(sizeof(long double));
+        say_strtold("0.1");
+        say_strtold("  -2.5e+3xyz");
+        say_strtold("1e400");
+        say_strtold("-1e400");
+        say_strtold("4.9406564584124654e-324");
+        say_strtold("1e-400");
+        say_strtold("INFINITY");
+        say_strtold("nan");
+        say_strtold("0x1.8p1");
+        say_strtold("");
+        say_strtold("x");
+        long double v = strtold("7.25", NULL);
+        say_int(v == 7.25L);
+        """, raw"""
+        8
+        3fb999999999999a 3 0
+        c0a3880000000000 9 0
+        7ff0000000000000 5 34
+        fff0000000000000 6 34
+        0000000000000001 23 34
+        0000000000000000 6 34
+        7ff0000000000000 8 0
+        7ff8000000000000 3 0
+        4008000000000000 7 0
+        0000000000000000 0 22
+        0000000000000000 0 22
+        1
+        """, strtold_prelude)
