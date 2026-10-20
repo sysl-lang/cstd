@@ -61,6 +61,9 @@ int main(void) {
     check("lseek", lseek(3, 0, SEEK_SET), -1);
     check("open", open("f", O_RDONLY), -1);
     check("openat", openat(AT_FDCWD, "f", O_RDONLY), -1);
+    check("creat", creat("f", 0644), -1);
+    check("fcntl", fcntl(0, F_GETFD), -1);
+    check("fcntl(F_DUPFD)", fcntl(0, F_DUPFD, 3), -1);
     check("getpid", getpid(), -1);
     check("getppid", getppid(), -1);
     check("dup", dup(0), -1);

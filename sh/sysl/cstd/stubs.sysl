@@ -36,6 +36,12 @@ nosys_open(path: *u8, flags: i32, ...) -> i32 = nosys()
 @export("openat", weak)
 nosys_openat(dirfd: i32, path: *u8, flags: i32, ...) -> i32 = nosys()
 
+@export("creat", weak)
+nosys_creat(path: *u8, mode: u32) -> i32 = nosys()
+
+@export("fcntl", weak)
+nosys_fcntl(fd: i32, cmd: i32, ...) -> i32 = nosys()
+
 @export("getpid", weak)
 nosys_getpid() -> i32 = nosys()
 

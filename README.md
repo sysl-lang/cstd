@@ -207,7 +207,8 @@ own `write` and `malloc`, which these would replace.
 |---|---|
 | (crt0) | `_start`: reads Linux's initial stack, sets `environ`, calls `sysl_init_modules` and `main(argc, argv, envp)`, then `exit` |
 | `unistd.h` | `read` `write` `close` `lseek` `_exit` `getpid` `getppid` `brk` `sbrk` `dup` `dup2` `pipe` `unlink` `rmdir` `chdir` `getcwd`, `environ` |
-| `fcntl.h` | `open` (variadic, the mode read only under `O_CREAT`/`O_TMPFILE`) `openat`, arm64's flag values |
+| `stdlib.h` | `getenv`, over `environ` (a board has no environment and so no `getenv`) |
+| `fcntl.h` | `creat` `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GETFD`, `F_SETFD`, `F_GETFL`, `F_SETFL`, `F_GETLK`, `F_SETLK`, `F_SETLKW`, `struct flock`), `open` (variadic, the mode read only under `O_CREAT`/`O_TMPFILE`) `openat`, arm64's flag values |
 | `sys/stat.h` | `stat` `fstat` `mkdir`, the 128-byte asm-generic `struct stat` |
 | `time.h` / `signal.h` | `nanosleep` `clock_gettime` `clock_getres` `clock_settime` `clock_nanosleep` `timer_create` `timer_delete` `timer_getoverrun` `timer_gettime` `timer_settime` / `kill` |
 | `stdlib.h` | `malloc` `calloc` `realloc` `free` `exit` `_Exit` `atexit` (32 handlers, last first) `abort` (SIGABRT, blocked or ignored as it may be) |
@@ -414,6 +415,12 @@ names a different errno, through `tests/linux/check.h`, and covers:
   and past the end, `fstat` and `stat`, `unlink` and `rmdir`, with ENOENT, EEXIST, ENOTDIR, EISDIR,
   ENOTEMPTY, EINVAL, EFAULT and EBADF where each applies, and EBADF from every call on a closed
   descriptor and on -1
+- `getenv`: a present name, an absent one, an empty value, a name that is a prefix of another or has
+  one as its prefix, names holding `=` or empty, the value pointing into `environ`'s own storage, and an
+  empty environment
+- `creat` truncating, the mode under the umask, write-only access and ENOENT; `fcntl` duplicating
+  (`F_DUPFD` at or above its argument, `F_DUPFD_CLOEXEC`), `FD_CLOEXEC` and the status flags read back,
+  a shared description, record locks, EBADF and EINVAL
 - `dup` and `dup2` sharing the offset, `dup2` onto an open descriptor and onto itself, EBADF for a
   closed source or a target out of range; `pipe` in order, ESPIPE, one direction per end, end of file
   once the last writer closes

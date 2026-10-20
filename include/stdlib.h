@@ -14,6 +14,7 @@ extern "C" {
 #endif
 
 int atoi(const char *s);
+char *getenv(const char *name);
 long atol(const char *s);
 long long atoll(const char *s);
 double atof(const char *s);

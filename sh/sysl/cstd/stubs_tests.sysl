@@ -13,7 +13,7 @@ import sysl.testing.compiler
 import sysl.text.{Search, split}
 
 // Every call `stubs.sysl` defaults.
-private val defaulted: []string = ["read", "write", "close", "lseek", "open", "openat", "getpid", "getppid",
+private val defaulted: []string = ["read", "write", "close", "lseek", "open", "openat", "creat", "fcntl", "getpid", "getppid",
                                    "dup", "dup2", "pipe", "unlink", "rmdir", "mkdir", "chdir", "getcwd", "fstat",
                                    "stat", "kill", "sigprocmask", "nanosleep", "clock_gettime", "clock_getres",
                                    "clock_settime", "clock_nanosleep", "timer_create", "timer_delete",

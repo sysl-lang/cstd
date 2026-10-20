@@ -21,7 +21,7 @@ strongly.
 | `assert.h` | 1 | 1 | 0 |
 | no header | 2 | 2 | 0 |
 | `signal.h` | 9 | 9 | 0 |
-| `fcntl.h` | 4 | 4 | 0 |
+| `fcntl.h` | 8 | 8 | 0 |
 | `inttypes.h` | 6 | 6 | 0 |
 | `sys/stat.h` | 6 | 6 | 0 |
 | `locale.h` | 7 | 7 | 0 |
@@ -32,12 +32,12 @@ strongly.
 | `unistd.h` | 33 | 33 | 0 |
 | `time.h` | 34 | 34 | 0 |
 | `string.h` | 36 | 36 | 0 |
-| `stdlib.h` | 42 | 42 | 0 |
+| `stdlib.h` | 43 | 43 | 0 |
 | `stdbit.h` | 70 | 70 | 0 |
 | `math.h` | 171 | 171 | 0 |
-| **all** | **478** | **478** | **0** |
+| **all** | **483** | **483** | **0** |
 
-The Linux half's 43 are tested only where the `cstd-test` colima profile is running (README §
+The Linux half's 46 are tested only where the `cstd-test` colima profile is running (README §
 Testing); elsewhere `linux_tests.sysl` skips.
 
 Findings:
@@ -77,6 +77,10 @@ Findings:
 
 | function | kind | tests |
 |---|---|---|
+| `creat` | freestanding | stubs.c |
+| `creat` | linux | linux_tests.sysl |
+| `fcntl` | freestanding | stubs.c |
+| `fcntl` | linux | linux_tests.sysl |
 | `open` | freestanding | stubs.c |
 | `open` | linux | linux_tests.sysl |
 | `openat` | freestanding | stubs.c |
@@ -216,6 +220,7 @@ Findings:
 | `exit` | linux | linux_tests.sysl |
 | `free` | freestanding | heap.c |
 | `free` | linux | linux_tests.sysl |
+| `getenv` | linux | linux_tests.sysl |
 | `labs` | portable | stdlib_tests.sysl |
 | `ldiv` | portable | stdlib_tests.sysl |
 | `llabs` | portable | stdlib_tests.sysl |

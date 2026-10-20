@@ -144,8 +144,8 @@ Declares no functions. See "Declarations that disagree" for `errno` itself.
 
 | function | codes | status | needs | half |
 |---|---|---|---|---|
-| creat | | missing | os | linux |
-| fcntl | | missing | os | linux |
+| creat | | done (linux) | | linux |
+| fcntl | | done (linux) | | linux |
 | open | | done (linux) | | linux |
 | openat | | done (linux) | | linux |
 
@@ -556,7 +556,7 @@ cstd has: one byte per character from 0x00 to 0x7F, `MB_CUR_MAX` 1, and `EILSEQ`
 | div | | done (core) | | core |
 | exit | | done (linux) | | linux |
 | free | | done (linux) | | linux |
-| getenv | | missing | os | linux |
+| getenv | | done (linux) | | linux |
 | getsubopt | CX | missing | pure | core |
 | labs | | done (core) | | core |
 | ldiv | | done (core) | | core |
@@ -592,7 +592,7 @@ cstd has: one byte per character from 0x00 to 0x7F, `MB_CUR_MAX` 1, and `EILSEQ`
 | wctomb | | done (core) | | core |
 
 `getenv` and the other environment functions read `environ`, which the Linux half's `crt0` sets, hence
-`os`; `setenv` also needs `heap`. `realpath` also allocates when handed a null buffer.
+`os` and the Linux half (`getenv` is there, in `env.sysl`; a board has no environment and so no `getenv`); `setenv` also needs `heap`. `realpath` also allocates when handed a null buffer.
 
 Out of scope:
 
@@ -895,21 +895,21 @@ In-scope functions only.
 | `ctype.h` | 28 | 28 | 0 | | | | | | |
 | `endian.h` | 12 | 12 | 0 | | | | | | |
 | `errno.h` | 0 | 0 | 0 | | | | | | |
-| `fcntl.h` | 4 | 2 | 2 | | | | 2 | | |
+| `fcntl.h` | 4 | 4 | 0 | | | | | | |
 | `inttypes.h` | 6 | 6 | 0 | | | | | | |
 | `locale.h` | 7 | 7 | 0 | | | | | | |
 | `math.h` | 171 | 171 | 0 | | | | | | |
 | `setjmp.h` | 4 | 4 | 0 | | | | | | |
 | `signal.h` | 22 | 7 | 15 | 2 | | | 13 | | |
 | `stdio.h` | 67 | 10 | 57 | 3 | | 2 | 3 | | 49 |
-| `stdlib.h` | 49 | 33 | 16 | 3 | | 2 | 11 | | |
+| `stdlib.h` | 49 | 34 | 15 | 3 | | 2 | 10 | | |
 | `string.h` | 36 | 36 | 0 | | | | | | |
 | `strings.h` | 4 | 4 | 0 | | | | | | |
 | `sys/stat.h` | 14 | 3 | 11 | | | | 11 | | |
 | `sys/types.h` | 0 | 0 | 0 | | | | | | |
 | `time.h` | 22 | 22 | 0 | | | | | | |
 | `unistd.h` | 75 | 14 | 61 | 2 | | | 58 | 1 | |
-| **total** | **521** | **359** | **162** | **10** | **0** | **4** | **98** | **1** | **49** |
+| **total** | **521** | **362** | **159** | **10** | **0** | **4** | **95** | **1** | **49** |
 
 Out of scope and missing: 57 functions (`fcntl.h` 2, `math.h` 6, `signal.h` 2, `stdio.h` 1,
 `stdlib.h` 23, `string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15). Out of scope but done: 3

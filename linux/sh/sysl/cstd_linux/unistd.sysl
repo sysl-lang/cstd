@@ -146,3 +146,25 @@ timer_gettime(timer: i32, value: *u8) -> i32 = i32(checked(call(SYS_TIMER_GETTIM
 @export("timer_settime")
 timer_settime(timer: i32, flags: i32, value: *u8, old: *u8) -> i32 =
     i32(checked(call(SYS_TIMER_SETTIME, u64(timer), u64(flags), addr(value), addr(old))))
+
+// `open(path, O_CREAT | O_WRONLY | O_TRUNC, mode)`.
+@export("creat")
+creat(path: *u8, mode: u32) -> i32 = i32(checked(call(SYS_OPENAT, u64(AT_FDCWD), addr(path), u64(0x241), u64(mode))))
+
+// The commands that take a third argument: `F_DUPFD`, `F_SETFD`, `F_SETFL` and `F_DUPFD_CLOEXEC` an
+// `int`, the lock commands a pointer to a `struct flock`. A caller of any other passes none, and C
+// does not let `fcntl` read one it was not given. An `int` is read as the 32 bits it is, so a
+// negative one reaches the kernel as the huge number it refuses.
+private fcntl_takes_int(cmd: i32) -> bool = cmd == 0 || cmd == 2 || cmd == 4 || cmd == 1030
+
+private fcntl_takes_pointer(cmd: i32) -> bool = cmd == 5 || cmd == 6 || cmd == 7
+
+@export("fcntl")
+fcntl(fd: i32, cmd: i32, ...) -> i32
+    var ap: va_list
+    va_start(ap)
+    var arg: u64 = 0
+    if fcntl_takes_int(cmd) then arg = u64(va_arg[u32](ap))
+    else if fcntl_takes_pointer(cmd) then arg = u64(va_arg[u64](ap))
+    va_end(ap)
+    i32(checked(call(SYS_FCNTL, u64(fd), u64(cmd), arg)))

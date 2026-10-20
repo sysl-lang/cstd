@@ -140,6 +140,17 @@ linux_files()
 linux_descriptors()
     linux_run(linux_program("fds"), [vm_scratch("fds")], "fds: ok\n[status 0]\n")
 
+@test("on Linux getenv finds an exact name, answers null for an absent, empty or '='-holding one, and an empty value is a string")
+linux_getenv()
+    val program = linux_program("env")
+    linux_run(program, [], "env: ok\n[status 0]\n",
+              env = ["HOME=/home/x", "HOMEX=/other", "EMPTY=", "LONGER_NAME=1", "A=1"])
+    linux_run(program, ["empty"], "env-empty: ok\n[status 0]\n")
+
+@test("on Linux creat truncates and applies the mode under umask 022, and fcntl duplicates, flags, locks and refuses with EBADF and EINVAL")
+linux_creat_and_fcntl()
+    linux_run(linux_program("fcntl"), [vm_scratch("fcntl")], "fcntl: ok\n[status 0]\n")
+
 @test("on Linux getpid and getppid agree with /proc, and kill checks, refuses and signals")
 linux_ids_and_kill()
     val program = linux_program("signals")
