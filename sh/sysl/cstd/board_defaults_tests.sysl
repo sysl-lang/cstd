@@ -31,21 +31,30 @@ board_defaults_are_weak()
 // Homebrew's LLVM, whose objdump knows RISC-V as well as Arm (Xcode's knows only Arm and x86).
 private val llvm_objdump: string = "/opt/homebrew/opt/llvm/bin/llvm-objdump"
 
-// The disassembly of `abort` in cstd's archive for `target`.
-private abort_disassembly(target: string) -> string
+// The disassembly of `symbol` in cstd's archive for `target`.
+private disassembly(target: string, symbol: string) -> string
     if absent(llvm_objdump) then skip(f"$llvm_objdump is not on this machine")
     val lib = built_archive("tests/qemu/archive", target, "cstd")
-    val listed = capture(llvm_objdump, ["-d", "--disassemble-symbols=abort", lib], stderr = true).unwrap()
+    val listed = capture(llvm_objdump, ["-d", f"--disassemble-symbols=$symbol", lib], stderr = true).unwrap()
     assert(listed.status.ok(), listed.err.unwrap_or(""))
+    assert(listed.text.contains(f"<$symbol>:"), listed.text)
     listed.text
 
-@test("on thumbv7em and riscv32 abort is the processor's trap instruction")
-abort_traps()
-    val thumb = abort_disassembly("thumbv7em-freestanding")
-    // 0xdefe is `udf #254`, which LLVM's objdump prints as `trap`.
-    assert(thumb.contains("defe"), thumb)
-    val riscv = abort_disassembly("riscv32-freestanding")
-    assert(riscv.contains("unimp"), riscv)
+@test("on thumbv7em and riscv32 abort, _Exit and _exit are the processor's trap instruction")
+exits_trap()
+    for symbol in ["abort", "_Exit", "_exit"]
+        val thumb = disassembly("thumbv7em-freestanding", symbol)
+        // 0xdefe is `udf #254`, which LLVM's objdump prints as `trap`.
+        assert(thumb.contains("defe"), thumb)
+        val riscv = disassembly("riscv32-freestanding", symbol)
+        assert(riscv.contains("unimp"), riscv)
+
+// `tests/qemu/defaults.c` links nothing but cstd: `write` is the ENOSYS default, and the fault
+// handler it installs sees each of `_Exit`, `_exit` and `abort` stop on an undefined instruction
+// inside its own body.
+@test("on QEMU's MPS2 AN386 with no board, write answers ENOSYS and _Exit, _exit and abort reach the fault handler")
+board_defaults_at_run_time()
+    m4f_run("tests/qemu/archive", "defaults", "defaults: ok\n")
 
 @test("cstd's Linux half defines the allocator and the exits strongly, with no weak copy beside them")
 linux_half_replaces_board_defaults()
