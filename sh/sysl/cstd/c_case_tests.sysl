@@ -84,7 +84,7 @@ end archive
  * freestanding headers, then `include/` — so a case cannot reach a host header by accident, and a
  * declaration cstd's headers get wrong is a compile error here.
  */
-private[cstd] c_run(snippet: string, prelude: string = "") -> Output
+private[cstd] c_run(snippet: string, prelude: string = "", asan: bool = false) -> Output
     val lib = archive()
     val res = read_text(f"$work/resource-dir").unwrap()
     cases += 1
@@ -97,6 +97,15 @@ private[cstd] c_run(snippet: string, prelude: string = "") -> Output
               "-I", "include", "-I", "tests", f"$name.c", lib, "-o", name]
         args.push(a)
     for flag in extra_cflags() do args.push(flag)
+    if asan then args.push("-fsanitize=address")
+#if macos
+    // macOS AddressSanitizer checks at startup that its `puts` interceptor is installed by looking
+    // `puts` up by name across the process, and aborts ("interceptors not installed") when the
+    // answer is not its own wrapper. A program linked with cstd exports cstd's `puts`, which that
+    // lookup finds first, so the case's program keeps it out of its export table; the program's own
+    // calls still reach cstd's `puts`.
+    args.push("-Wl,-unexported_symbol,_puts")
+#endif
 
     val compiled = capture("clang", args.view(), stderr = true).unwrap()
     if !compiled.status.ok() then fail_with(f"clang refused the case:\n$source", compiled.err.unwrap_or(""))
@@ -149,3 +158,24 @@ asan_reports_an_over_read()
     // The exported `strlen` and the module's own name are one address; the symbolizer may print
     // either.
     assert(report.contains(" in strlen") || report.contains(" in sh.sysl.cstd$strlen"))
+
+// Every ordinary run builds one case under AddressSanitizer too, so an export that stops an ASan
+// program from starting (cstd's `puts`, on macOS) is caught without the ASan suite. The archive need
+// not be instrumented for that: the runtime's startup checks are about what the program exports.
+// The line order says whose `puts` ran: cstd's writes at once, a libc's would sit in a stdio buffer
+// until exit, after the `write` of `say_int`.
+@test("a case linked under -fsanitize=address starts, and its puts is cstd's")
+asan_case_starts()
+    make_dir_all(work).unwrap()
+    val probe = f"$work/asan-probe-${c_pid()}"
+    write_text(f"$probe.c", "int main(void) { return 0; }\n").unwrap()
+    val tried = capture("clang", ["-fsanitize=address", f"$probe.c", "-o", probe], stderr = true).unwrap()
+    remove_file(f"$probe.c")
+    remove_file(probe)
+    if !tried.status.ok() then skip("clang has no AddressSanitizer runtime for this host")
+    val ran = c_run(raw"""
+        int r = puts("hello");
+        say_int(r >= 0);
+        """, asan = true)
+    if !ran.status.ok() then fail_with(f"the ASan case did not exit 0 (${ran.status})", ran.err.unwrap_or(""))
+    assert_eq(ran.text, "hello\n1\n")

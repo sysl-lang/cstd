@@ -335,6 +335,13 @@ this mode:
 - `nm -u` of the archive must show `__asan_report_load1` and `__asan_report_store1`.
 - `strlen` over a buffer with no NUL must be reported as a `stack-buffer-overflow` in `strlen`.
 
+**On macOS each case's program is linked with `-Wl,-unexported_symbol,_puts`.** macOS ASan checks at
+startup that its `puts` interceptor is installed by looking `puts` up by name across the process,
+and aborts ("interceptors not installed") when the answer is cstd's exported `puts`. Hiding it from
+the program's export table leaves the program's own calls on cstd's `puts`. One test in the ordinary
+suite builds a case under `-fsanitize=address` and runs it, so a break of this kind shows up without
+this mode.
+
 And one ordinary case earns its keep here: `strnlen` and `strndup` over an unterminated array within
 their `n` must not read past it, which only ASan can see.
 
