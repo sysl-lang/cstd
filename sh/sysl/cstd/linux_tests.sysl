@@ -38,6 +38,15 @@ private linux_ready()
     if !running
         skip(f"colima profile $vm_profile is not running (colima start --profile $vm_profile --arch aarch64 --vm-type vz --cpu 2 --memory 2 --disk 10)")
 
+    // The VM mounts the home directory only; a checkout elsewhere (the org census builds in the
+    // system temp directory) holds ELFs the VM cannot see, and every program would answer 127.
+    val here = current_dir().unwrap()
+    val visible = capture(colima, ["ssh", "--profile", vm_profile, "--", "test", "-d", here], stderr = true) match
+        Ok(out) -> out.status.ok()
+        Err(_) -> false
+    if !visible
+        skip(f"the VM cannot see $here (colima mounts the home directory only)")
+
 // The linker's account of the thread-local template, which `sysl.threads` reads to lay the first
 // thread's block (`crt0.sysl`); a link with no `.tdata` or `.tbss` gets zeros. `sysl build`'s own
 // image link passes the same four.
