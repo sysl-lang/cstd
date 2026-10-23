@@ -61,6 +61,14 @@ int wctomb(char *s, wchar_t wc);
 size_t mbstowcs(wchar_t *__restrict pwcs, const char *__restrict s, size_t n);
 size_t wcstombs(char *__restrict s, const wchar_t *__restrict pwcs, size_t n);
 
+/* Pseudo-terminals (XSI), over the platform's devpts: the Linux half's, or a weak ENOSYS default on
+ * a board. ptsname_r answers its error number (EBADF, ENOTTY, ERANGE) and leaves errno alone. */
+int posix_openpt(int flags);
+int grantpt(int fd);
+int unlockpt(int fd);
+char *ptsname(int fd);
+int ptsname_r(int fd, char *buf, size_t size);
+
 void *malloc(size_t n);
 void *calloc(size_t count, size_t size);
 void *realloc(void *p, size_t n);

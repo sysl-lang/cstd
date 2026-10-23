@@ -1,0 +1,87 @@
+module sh.sysl.cstd_linux
+
+// `<stdlib.h>`'s pseudo-terminal functions, over Linux's devpts: the master is a descriptor opened
+// from `/dev/ptmx`, and the slave it pairs with is `/dev/pts/N`, N being what the master's
+// `TIOCGPTN` answers. A slave starts locked (`TIOCSPTLCK` 1) and opening it before `unlockpt` is
+// `EIO`. `grantpt` has nothing to do: devpts creates every slave owned by the caller's user with the
+// mount's group and mode, so it only checks that its descriptor is a master.
+//
+// The errors are POSIX's. `grantpt` and `unlockpt` answer `EBADF` for a descriptor that is not open
+// and `EINVAL` for one that is not a master; `ptsname` and `ptsname_r` name the second case `ENOTTY`.
+// The kernel says `ENOTTY` for both, and `grantpt` and `unlockpt` turn it into `EINVAL`.
+
+import sh.sysl.cstd.{EINVAL, ENOTTY, ERANGE, errno}
+
+const SYS_IOCTL: u64 = 29
+
+// `_IOR('T', 0x30, unsigned int)` and `_IOW('T', 0x31, int)`, which asm-generic gives every
+// architecture.
+const TIOCGPTN: u64 = 0x80045430
+const TIOCSPTLCK: u64 = 0x40045431
+
+@export("posix_openpt")
+posix_openpt(flags: i32) -> i32 = i32(checked(call(SYS_OPENAT, u64(AT_FDCWD), addr(c"/dev/ptmx"), u64(flags))))
+
+// The slave's number, or the errno the kernel refused with.
+private pty_number(fd: i32, n: *u32) -> i32
+    val r = call(SYS_IOCTL, u64(fd), TIOCGPTN, u64(usize(n)))
+    if r < 0 && r > -4096 then return i32(-r)
+    0
+
+private invalid(e: i32) -> i32 = if e == ENOTTY then EINVAL else e
+
+@export("grantpt")
+grantpt(fd: i32) -> i32
+    var n: u32 = 0
+    val e = pty_number(fd, &n)
+    if e != 0
+        errno = invalid(e)
+        return -1
+    0
+
+@export("unlockpt")
+unlockpt(fd: i32) -> i32
+    var unlocked: i32 = 0
+    val r = call(SYS_IOCTL, u64(fd), TIOCSPTLCK, u64(usize(&unlocked)))
+    if r < 0 && r > -4096
+        errno = invalid(i32(-r))
+        return -1
+    0
+
+// `/dev/pts/` and the number's digits, written into `buf` when `size` holds them and the NUL.
+// Answers 0 or the error number, and leaves `errno` alone.
+@export("ptsname_r")
+ptsname_r(fd: i32, buf: *u8, size: usize) -> i32
+    if buf == null then return EINVAL
+    var n: u32 = 0
+    val e = pty_number(fd, &n)
+    if e != 0 then return e
+
+    var digits: [10]u8
+    var count = 0
+    var rest = n
+    loop
+        digits[count] = u8('0') + u8(rest % 10)
+        count += 1
+        rest /= 10
+        if rest == 0 then break
+
+    val prefix = c"/dev/pts/"
+    val total = 9 + count
+    if size < usize(total + 1) then return ERANGE
+    for i in 0..<9 do buf[i] = prefix[i]
+    for i in 0..<count do buf[9 + i] = digits[count - 1 - i]
+    buf[total] = 0
+    0
+
+private var ptsname_buf: [24]u8
+
+// The same name in storage of cstd's own, shared by every call, as POSIX has it. Null with `errno`
+// set where `ptsname_r` would have answered an error.
+@export("ptsname")
+ptsname(fd: i32) -> *u8
+    val e = ptsname_r(fd, &ptsname_buf[0], 24)
+    if e != 0
+        errno = e
+        return null
+    &ptsname_buf[0]

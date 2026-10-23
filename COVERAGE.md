@@ -32,12 +32,12 @@ strongly.
 | `unistd.h` | 33 | 33 | 0 |
 | `time.h` | 34 | 34 | 0 |
 | `string.h` | 36 | 36 | 0 |
-| `stdlib.h` | 43 | 43 | 0 |
+| `stdlib.h` | 48 | 48 | 0 |
 | `stdbit.h` | 70 | 70 | 0 |
 | `math.h` | 171 | 171 | 0 |
-| **all** | **483** | **483** | **0** |
+| **all** | **488** | **488** | **0** |
 
-The Linux half's 46 are tested only where the `cstd-test` colima profile is running (README §
+The Linux half's 51 are tested only where the `cstd-test` colima profile is running (README §
 Testing); elsewhere `linux_tests.sysl` skips.
 
 Findings:
@@ -222,6 +222,8 @@ Findings:
 | `free` | linux | linux_tests.sysl |
 | `getenv` | freestanding | defaults.c |
 | `getenv` | linux | linux_tests.sysl |
+| `grantpt` | freestanding | stubs.c, stubs_tests.sysl |
+| `grantpt` | linux | linux_tests.sysl |
 | `labs` | portable | stdlib_tests.sysl |
 | `ldiv` | portable | stdlib_tests.sysl |
 | `llabs` | portable | stdlib_tests.sysl |
@@ -231,6 +233,12 @@ Findings:
 | `mblen` | portable | multibyte_tests.sysl |
 | `mbstowcs` | portable | multibyte_tests.sysl |
 | `mbtowc` | portable | multibyte_tests.sysl |
+| `posix_openpt` | freestanding | stubs.c, stubs_tests.sysl |
+| `posix_openpt` | linux | linux_tests.sysl |
+| `ptsname` | freestanding | stubs.c, stubs_tests.sysl |
+| `ptsname` | linux | linux_tests.sysl |
+| `ptsname_r` | freestanding | stubs.c, stubs_tests.sysl |
+| `ptsname_r` | linux | linux_tests.sysl |
 | `qsort` | portable | stdlib_tests.sysl |
 | `rand` | portable | stdlib_tests.sysl |
 | `realloc` | freestanding | heap.c, nosbrk.c |
@@ -243,6 +251,8 @@ Findings:
 | `strtoll` | portable | stdlib_tests.sysl |
 | `strtoul` | portable | stdlib_tests.sysl |
 | `strtoull` | portable | stdlib_tests.sysl |
+| `unlockpt` | freestanding | stubs.c, stubs_tests.sysl |
+| `unlockpt` | linux | linux_tests.sysl |
 | `wcstombs` | portable | multibyte_tests.sysl |
 | `wctomb` | portable | multibyte_tests.sysl |
 

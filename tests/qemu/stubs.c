@@ -7,6 +7,7 @@
 #include <errno.h>
 #include <fcntl.h>
 #include <signal.h>
+#include <stdlib.h>
 #include <sys/stat.h>
 #include <time.h>
 #include <unistd.h>
@@ -101,6 +102,16 @@ int main(void) {
     if (clock_nanosleep(CLOCK_MONOTONIC, 0, &ts, 0) != ENOSYS || errno != 0) {
         failures++;
         say("FAIL clock_nanosleep\n");
+    }
+    check("posix_openpt", posix_openpt(O_RDWR | O_NOCTTY), -1);
+    check("grantpt", grantpt(0), -1);
+    check("unlockpt", unlockpt(0), -1);
+    check("ptsname", (long)ptsname(0), 0);
+    /* ptsname_r answers the error number and leaves errno alone. */
+    errno = 0;
+    if (ptsname_r(0, buf, sizeof buf) != ENOSYS || errno != 0) {
+        failures++;
+        say("FAIL ptsname_r\n");
     }
     check("brk", brk(buf), -1);
     check("sbrk", (long)sbrk(16), -1);

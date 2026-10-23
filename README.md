@@ -211,6 +211,7 @@ own `write` and `malloc`, which these would replace.
 | `fcntl.h` | `creat` `fcntl` (`F_DUPFD`, `F_DUPFD_CLOEXEC`, `F_GETFD`, `F_SETFD`, `F_GETFL`, `F_SETFL`, `F_GETLK`, `F_SETLK`, `F_SETLKW`, `struct flock`), `open` (variadic, the mode read only under `O_CREAT`/`O_TMPFILE`) `openat`, arm64's flag values |
 | `sys/stat.h` | `stat` `fstat` `mkdir`, the 128-byte asm-generic `struct stat` |
 | `time.h` / `signal.h` | `nanosleep` `clock_gettime` `clock_getres` `clock_settime` `clock_nanosleep` `timer_create` `timer_delete` `timer_getoverrun` `timer_gettime` `timer_settime` / `kill` |
+| `stdlib.h` | `posix_openpt` `grantpt` `unlockpt` `ptsname` `ptsname_r`, over devpts: a master from `/dev/ptmx`, the slave `/dev/pts/N` from `TIOCGPTN`. `ptsname_r` answers its error number and leaves `errno` alone; the other four set it. Each is a weak `ENOSYS` default on a board |
 | `stdlib.h` | `malloc` `calloc` `realloc` `free` `exit` `_Exit` `atexit` (32 handlers, last first) `abort` (SIGABRT, blocked or ignored as it may be) |
 
 Each call is one `svc #0` (x8 the number, x0–x5 the arguments); an answer from -4095 to -1 sets
@@ -435,6 +436,12 @@ names a different errno, through `tests/linux/check.h`, and covers:
   init, and SIGTERM to itself; `sigprocmask` answering the old mask, leaving SIGKILL out, EINVAL,
   EFAULT, a blocked signal held pending, EPIPE where a blocked SIGPIPE would have killed, and delivery
   once unblocked
+- a pty pair: a master that is a character device, a slave locked until `unlockpt` (EIO), cooked
+  bytes (canonical input held until the newline, echo, NL out as CR NL) and raw ones (unchanged, no
+  echo), the master's EIO once the slave closes and the slave opening again by name, `ptsname_r` at
+  an exact fit, one short, zero and with no buffer, two pairs with distinct names and separate
+  traffic, EBADF for an unopen descriptor and EINVAL/ENOTTY for a null device, a pipe and a slave,
+  and `O_NOCTTY` against a session leader's controlling terminal
 - every clock read, CLOCK_REALTIME within a minute of the host's, resolutions, a null `res`,
   `clock_settime`'s EINVAL and EPERM; `nanosleep` and `clock_nanosleep` (relative, absolute, a past
   deadline) sleeping at least as long as asked, EINVAL for a bad time and an unknown clock and, for

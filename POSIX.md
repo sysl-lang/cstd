@@ -601,7 +601,7 @@ Out of scope:
 | a64l | XSI | missing |
 | drand48 | XSI | missing |
 | erand48 | XSI | missing |
-| grantpt | XSI | missing |
+| grantpt | XSI | done (linux) |
 | initstate | XSI | missing |
 | jrand48 | XSI | missing |
 | l64a | XSI | missing |
@@ -610,9 +610,9 @@ Out of scope:
 | mrand48 | XSI | missing |
 | nrand48 | XSI | missing |
 | posix_memalign | ADV | missing |
-| posix_openpt | XSI | missing |
-| ptsname | XSI | missing |
-| ptsname_r | XSI | missing |
+| posix_openpt | XSI | done (linux) |
+| ptsname | XSI | done (linux) |
+| ptsname_r | XSI | done (linux) |
 | putenv | XSI | missing |
 | random | XSI | missing |
 | seed48 | XSI | missing |
@@ -620,7 +620,13 @@ Out of scope:
 | setstate | XSI | missing |
 | srand48 | XSI | missing |
 | srandom | XSI | missing |
-| unlockpt | XSI | missing |
+| unlockpt | XSI | done (linux) |
+
+The five pseudo-terminal functions are out of scope ([XSI]) and done: the Linux half opens `/dev/ptmx`
+and asks the master's `TIOCGPTN` for the slave's number (`pty.sysl`), and on any other bare-metal
+target each is a weak `ENOSYS` default. `ptsname_r` answers its error number (`EBADF`, `ENOTTY`,
+`ERANGE`) and leaves `errno` alone; `grantpt` and `unlockpt` turn the kernel's `ENOTTY` into `EINVAL`,
+as POSIX has it.
 
 ## `<string.h>`
 
@@ -911,9 +917,10 @@ In-scope functions only.
 | `unistd.h` | 75 | 14 | 61 | 2 | | | 58 | 1 | |
 | **total** | **521** | **362** | **159** | **10** | **0** | **4** | **95** | **1** | **49** |
 
-Out of scope and missing: 57 functions (`fcntl.h` 2, `math.h` 6, `signal.h` 2, `stdio.h` 1,
-`stdlib.h` 23, `string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15). Out of scope but done: 3
-(`strings.h` `ffs`, `ffsl`, `ffsll`).
+Out of scope and missing: 52 functions (`fcntl.h` 2, `math.h` 6, `signal.h` 2, `stdio.h` 1,
+`stdlib.h` 18, `string.h` 1, `sys/stat.h` 2, `time.h` 5, `unistd.h` 15). Out of scope but done: 8
+(`strings.h` `ffs`, `ffsl`, `ffsll`; `stdlib.h` `grantpt`, `posix_openpt`, `ptsname`, `ptsname_r`,
+`unlockpt`).
 
 ## Other headers and functions
 

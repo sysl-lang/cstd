@@ -140,6 +140,10 @@ linux_files()
 linux_descriptors()
     linux_run(linux_program("fds"), [vm_scratch("fds")], "fds: ok\n[status 0]\n")
 
+@test("on Linux posix_openpt, grantpt, unlockpt, ptsname and ptsname_r open a pty pair that carries bytes cooked and raw, report EIO once the slave closes, and answer each POSIX error")
+linux_pseudo_terminals()
+    linux_run(linux_program("pty"), [], "pty: ok\n[status 0]\n")
+
 @test("on Linux getenv finds an exact name, answers null for an absent, empty or '='-holding one, and an empty value is a string")
 linux_getenv()
     val program = linux_program("env")
