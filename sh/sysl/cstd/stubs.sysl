@@ -1,5 +1,7 @@
 module sh.sysl.cstd
 
+import sysl.raw.ptr_cast
+
 // The operating system's calls, as the defaults a machine with none links: each sets `errno` to
 // ENOSYS and answers the call's failure value. They are weak exports, so a strong definition of the
 // same symbol anywhere in the link replaces one with no duplicate-symbol error — cstd's Linux half

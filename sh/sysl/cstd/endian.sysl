@@ -1,6 +1,7 @@
 module sh.sysl.cstd
 
 import sysl.math.ByteOrder
+import sysl.raw.ptr_cast
 
 // `<endian.h>` of POSIX.1-2024: the twelve conversions between the host's byte order and the
 // big-endian and little-endian orders, for 16, 32 and 64 bits.

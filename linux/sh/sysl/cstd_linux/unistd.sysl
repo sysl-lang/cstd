@@ -5,6 +5,7 @@ module sh.sysl.cstd_linux
 // path calls are the `*at` forms against the working directory, aarch64 having no others.
 
 import sh.sysl.cstd.{EINVAL, Timespec}
+import sysl.c.{va_arg, va_end, va_start}
 
 @export("read")
 read(fd: i32, buf: *u8, n: usize) -> isize = isize(checked(call(SYS_READ, u64(fd), addr(buf), u64(n))))

@@ -1,5 +1,7 @@
 module sh.sysl.cstd
 
+import sysl.c.{va_arg, va_end, va_start}
+
 // The printf family of `<stdio.h>`: `snprintf`, `sprintf` and their `v`
 // twins format into memory; `dprintf`, `printf` and theirs format onto a file descriptor through
 // `write`. There is no `FILE` here, so `printf` is `dprintf` to descriptor 1.

@@ -5,6 +5,7 @@ module sh.sysl.cstd_linux
 // around it; `pthread` support has to add one.
 
 import sh.sysl.cstd.{BreakHeap, ENOMEM, Heap, errno}
+import sysl.raw.ptr_cast
 
 // The break as the kernel last answered it; 0 until the first `brk`/`sbrk`.
 private var current_break: usize = 0

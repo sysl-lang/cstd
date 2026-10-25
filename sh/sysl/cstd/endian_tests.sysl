@@ -2,6 +2,8 @@ module sh.sysl.cstd
 
 @tests
 
+import sysl.raw.ptr_cast
+
 // `<endian.h>`. The C cases state the bytes memory holds, which is the same on any host; the
 // integer values they print are the little-endian host's, which is what this suite runs on. The
 // sysl cases drive the reversal rule under both host orders, since no big-endian machine is at hand.

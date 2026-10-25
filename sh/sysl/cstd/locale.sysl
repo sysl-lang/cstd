@@ -1,5 +1,8 @@
 module sh.sysl.cstd
+
 @include("<limits.h>")
+
+import sysl.raw.ptr_cast
 
 // `<locale.h>` for a library with one locale: the C locale, which POSIX also calls "POSIX".
 //

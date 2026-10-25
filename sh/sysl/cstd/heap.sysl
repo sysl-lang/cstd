@@ -1,5 +1,7 @@
 module sh.sysl.cstd
 
+import sysl.raw.ptr_cast
+
 // The allocator behind `malloc`, with the system call left out.
 //
 // A heap is one contiguous run of memory, `[start, top)`, that only ever grows at `top`. Where the

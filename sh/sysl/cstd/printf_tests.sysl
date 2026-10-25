@@ -2,6 +2,8 @@ module sh.sysl.cstd
 
 @tests
 
+import sysl.c.{va_end, va_start}
+
 // The printf family, called from C.
 //
 // Each `say_f` line is one `vsnprintf` into a roomy buffer: the count it answered, then what it

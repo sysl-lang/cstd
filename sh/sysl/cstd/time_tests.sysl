@@ -2,6 +2,8 @@ module sh.sysl.cstd
 
 @tests
 
+import sysl.c.{va_end, va_start}
+
 // `<time.h>` (`time.sysl`): the proleptic Gregorian calendar checked against dates written out by
 // hand and against a day-by-day walk of the calendar from the year -400 to 9999, `mktime`'s
 // normalising, and every `strftime` conversion with its exact text.
