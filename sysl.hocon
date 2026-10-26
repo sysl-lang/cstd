@@ -30,6 +30,10 @@ c {
   libc { export = ["include"], libc = true }
 }
 
+// `tests/linux` and `tests/qemu` hold C that the test files build themselves (`linux_tests.sysl`,
+// `setjmp_tests.sysl` and the other QEMU cases), so sysl leaves them out of module discovery.
+exclude = ["tests/linux", "tests/qemu"]
+
 // **There is deliberately no `requires` block.** Everything here is arithmetic over bytes a caller
 // handed in, or, on a bare-metal target, a weak default a board replaces: the operating-system calls
 // answering ENOSYS, an allocator growing through whatever `sbrk` the link holds, and exits that trap.
