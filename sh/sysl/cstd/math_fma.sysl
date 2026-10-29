@@ -58,8 +58,8 @@ private mul_wide(x: u64, y: u64) -> (u64, u64)
     val t1 = xlo * ylo
     val t2 = xlo * yhi + xhi * ylo
     val t3 = xhi * yhi
-    val lo = t1 + (t2 << 32)
-    val hi = t3 + (t2 >> 32) + (if t1 > lo then 1u64 else 0)
+    val lo = t1 +% (t2 << 32)
+    val hi = t3 +% (t2 >> 32) +% (if t1 > lo then 1u64 else 0)
     (hi, lo)
 
 #if fma_dp
@@ -140,15 +140,15 @@ private[cstd] soft_fma(x: real, y: real, z: real) -> real
     val samesign = sign == nz.sign
     var nonzero = true
     if samesign
-        rlo += zlo
-        rhi += zhi + (if rlo < zlo then 1u64 else 0)
+        rlo = rlo +% zlo
+        rhi = rhi +% zhi +% (if rlo < zlo then 1u64 else 0)
     else
         val t = rlo
-        rlo -= zlo
-        rhi = rhi - zhi - (if t < rlo then 1u64 else 0)
+        rlo = rlo -% zlo
+        rhi = rhi -% zhi -% (if t < rlo then 1u64 else 0)
         if rhi >> 63 != 0
-            rlo = 0 - rlo
-            rhi = 0 - rhi - sticky(rlo)
+            rlo = 0 -% rlo
+            rhi = 0 -% rhi -% sticky(rlo)
             sign = !sign
         nonzero = rhi != 0
 

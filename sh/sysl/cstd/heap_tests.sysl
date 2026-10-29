@@ -38,11 +38,11 @@ private take(h: *Heap, a: *Arena, n: usize) -> *u8
         a.grows += 1
 
 private fill(p: *u8, n: usize, seed: u8)
-    for i in 0..<n do p[i] = seed + u8(i % 251)
+    for i in 0..<n do p[i] = seed +% u8(i % 251)
 
 private holds(p: *u8, n: usize, seed: u8) -> bool
     for i in 0..<n
-        if p[i] != seed + u8(i % 251) then return false
+        if p[i] != seed +% u8(i % 251) then return false
     true
 
 @test("every payload is 16-byte aligned and holds what was asked, the empty request included")
@@ -154,7 +154,7 @@ heap_survives_churn()
     var sizes: [3000]usize
     var seed: u64 = 12345
     for i in 0..<3000
-        seed = seed * 6364136223846793005 + 1442695040888963407
+        seed = seed *% 6364136223846793005 +% 1442695040888963407
         val n = usize((seed >> 33) % 40)
         val p = take(&h, &a, n)
         assert(p != null)

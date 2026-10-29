@@ -405,15 +405,15 @@ private oracle() -> string
             "-L/opt/homebrew/opt/mpfr/lib", "-L/opt/homebrew/opt/gmp/lib", "-lmpfr", "-lgmp",
             "-o", bin], stderr = true).unwrap()
         // A .c file left under the project reads to sysl as a module's C.
-        remove_file(f"$scratch/mpfr-oracle.c")
+        _ = remove_file(f"$scratch/mpfr-oracle.c")
         if !built.status.ok()
-            remove_dir(lock)
+            _ = remove_dir(lock)
             panic(f"the MPFR oracle did not build:\n${built.err.unwrap_or("")}")
         // A fresh run starts a fresh report.
-        remove_file(f"$scratch/ulp-report.txt")
+        _ = remove_file(f"$scratch/ulp-report.txt")
         write_text(stamp, run).unwrap()
 
-    remove_dir(lock)
+    _ = remove_dir(lock)
     bin
 end oracle
 
@@ -432,6 +432,6 @@ private[cstd] judge(name: string, prec: int, bound: real, body: string, abs: rea
     for a in [name, f"$prec", f"$bound", lines, f"$scratch/ulp-report.txt"] do args.push(a)
     if abs > 0.0 then args.push(f"$abs")
     val verdict = capture(oracle(), args.view(), stderr = true).unwrap()
-    remove_file(lines)
+    _ = remove_file(lines)
     if !verdict.status.ok()
         panic(f"$name at $prec bits:\n${verdict.text}${verdict.err.unwrap_or("")}")

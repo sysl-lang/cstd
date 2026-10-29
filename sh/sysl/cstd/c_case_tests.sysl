@@ -67,13 +67,13 @@ private[cstd] archive() -> string
     if !stamp_says(stamp, run)
         val built = capture(compiler(), ["build-c", ".", "-o", lib], stderr = true).unwrap()
         if !built.status.ok()
-            remove_dir(lock)
+            _ = remove_dir(lock)
             fail_with("sysl build-c failed", built.err.unwrap_or(""))
         val res = capture("clang", ["-print-resource-dir"]).unwrap()
         write_text(f"$work/resource-dir", res.text.trim()).unwrap()
         write_text(stamp, run).unwrap()
 
-    remove_dir(lock)
+    _ = remove_dir(lock)
     lib
 end archive
 
@@ -111,8 +111,8 @@ private[cstd] c_run(snippet: string, prelude: string = "", asan: bool = false) -
     if !compiled.status.ok() then fail_with(f"clang refused the case:\n$source", compiled.err.unwrap_or(""))
 
     val ran = capture(name, timeout = 10000, stderr = true).unwrap()
-    remove_file(f"$name.c")
-    remove_file(name)
+    _ = remove_file(f"$name.c")
+    _ = remove_file(name)
     ran
 end c_run
 
@@ -170,8 +170,8 @@ asan_case_starts()
     val probe = f"$work/asan-probe-${c_pid()}"
     write_text(f"$probe.c", "int main(void) { return 0; }\n").unwrap()
     val tried = capture("clang", ["-fsanitize=address", f"$probe.c", "-o", probe], stderr = true).unwrap()
-    remove_file(f"$probe.c")
-    remove_file(probe)
+    _ = remove_file(f"$probe.c")
+    _ = remove_file(probe)
     if !tried.status.ok() then skip("clang has no AddressSanitizer runtime for this host")
     val ran = c_run(raw"""
         int r = puts("hello");

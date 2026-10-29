@@ -98,7 +98,7 @@ math_soft_sqrt()
         state = state ^ (state >> 12)
         state = state ^ (state << 25)
         state = state ^ (state >> 27)
-        val bits = (state * 0x2545f4914f6cdd1d) & 0x7fffffffffffffff
+        val bits = (state *% 0x2545f4914f6cdd1d) & 0x7fffffffffffffff
         x = real.from_bits(if i % 4 == 0 then bits >> 12 else bits)
         if x == x then assert_eq(soft_sqrt(x).bits(), sqrt(x).bits())
     for b in [0u64, 1, 2, 0x000fffffffffffff, 0x0010000000000000, 0x3ff0000000000000, 0x4010000000000000,
@@ -118,9 +118,9 @@ math_soft_fma()
             state = state ^ (state >> 12)
             state = state ^ (state << 25)
             state = state ^ (state >> 27)
-            operands[k] = state * 0x2545f4914f6cdd1d
+            operands[k] = state *% 0x2545f4914f6cdd1d
         val x = real.from_bits(operands[0])
-        val y = real.from_bits(if i % 3 == 0 then operands[1] else (operands[1] & 0x800fffffffffffff) | ((2046 - ((operands[0] >> 52) & 0x7ff)) << 52))
+        val y = real.from_bits(if i % 3 == 0 then operands[1] else (operands[1] & 0x800fffffffffffff) | ((2046 -% ((operands[0] >> 52) & 0x7ff)) << 52))
         var z = real.from_bits(operands[2])
         if i % 3 == 1 then z = -(x * y)
         if i % 5 == 2 then z = real.from_bits((x * y).bits() ^ 0x8000000000000001)
@@ -132,9 +132,9 @@ math_soft_fma()
         if i % 4 == 3
             // Products near 2^-140 and an addend in the subnormal range: the answer is subnormal, and
             // a sum rounded twice would be off by one there.
-            f = f32.from_bits((u32(operands[0]) & 0x807fffff) | ((47 + u32(operands[1] % 20)) << 23))
-            g = f32.from_bits((u32(operands[1]) & 0x807fffff) | ((47 + u32(operands[2] % 20)) << 23))
-            h = f32.from_bits((u32(operands[2]) & 0x807fffff) | (u32(operands[0] % 8) << 23))
+            f = f32.from_bits((u32.wrap(operands[0]) & 0x807fffff) | ((47 + u32(operands[1] % 20)) << 23))
+            g = f32.from_bits((u32.wrap(operands[1]) & 0x807fffff) | ((47 + u32(operands[2] % 20)) << 23))
+            h = f32.from_bits((u32.wrap(operands[2]) & 0x807fffff) | (u32(operands[0] % 8) << 23))
         if f == f && g == g && h == h then assert_eq(soft_fmaf(f, g, h).bits(), fmaf(f, g, h).bits())
     // The MPFR suite's two subnormal cases, and a product exactly halfway between two floats
     // (1 + 2^-11 + 2^-24) nudged up and down by 2^-80: rounded to nearest at 53 bits the nudge is

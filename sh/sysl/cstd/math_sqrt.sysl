@@ -173,20 +173,20 @@ private mul64(a: u64, b: u64) -> u64
 private[cstd] soft_sqrt(x: real) -> real
     var ix = x.bits()
     var top = ix >> 52
-    if top - 1 >= 0x7ff - 1
+    if top -% 1 >= 0x7ff - 1
         // Below 2^-1022, or infinite, or NaN.
-        if ix * 2 == 0 then return x
+        if ix *% 2 == 0 then return x
         if ix == 0x7ff0000000000000 then return x
         if ix > 0x7ff0000000000000 then return domain_error(x)
         // A subnormal, made normal by 2^52.
         ix = (x * 4503599627370496.0).bits()
-        top = (ix >> 52) - 52
+        top = (ix >> 52) -% 52
 
     // x = 4^e m, with m in [1, 4) as fixed point 2.62; 2^e is the result's exponent.
     val even = top & 1
     var m = (ix << 11) | 0x8000000000000000
     if even != 0 then m = m >> 1
-    top = (top + 0x3ff) >> 1
+    top = (top +% 0x3ff) >> 1
 
     // r ~ 1/sqrt(m) and s ~ sqrt(m): a table estimate, two Goldschmidt iterations in 32-bit fixed
     // point (m 2.30, r 0.32, s 2.30), and a last one in 64 (m 2.62, r 0.64, s 2.62).
@@ -195,24 +195,24 @@ private[cstd] soft_sqrt(x: real) -> real
     var r = u64(rsqrt_tab[i]) << 16
     var s = mul32(m >> 32, r)
     var d = mul32(s, r)
-    var u = three - d
+    var u = three -% d
     r = twice32(mul32(r, u))
     s = twice32(mul32(s, u))
     d = mul32(s, r)
-    u = three - d
+    u = three -% d
     r = twice32(mul32(r, u))
     r = r << 32
     s = mul64(m, r)
     d = mul64(s, r)
-    u = (three << 32) - d
+    u = (three << 32) -% d
     s = mul64(s, u)
     // -2^-52 × 1.03 < s - sqrt(m) < 0, as 12.52 fixed point.
-    s = (s - 2) >> 9
+    s = (s -% 2) >> 9
 
     // The nearest result is s or s + 2^-52: compare (2^52 s + 0.5)^2 with 2^104 m.
-    val d0 = (m << 42) - s * s
-    val d1 = s - d0
-    s += d1 >> 63
+    val d0 = (m << 42) -% s *% s
+    val d1 = s -% d0
+    s = s +% (d1 >> 63)
     s = s & 0x000fffffffffffff
     s = s | (top << 52)
     real.from_bits(s)

@@ -19,7 +19,7 @@
 package {
   name    = "cstd"
   version = "0.1.7"
-  sysl   = "0.6.0"
+  sysl   = "0.8.0"
 }
 
 // `include/` is the C standard library's headers. Where the target has no libc, every dependent's C
