@@ -201,60 +201,58 @@ strtok(s: *u8, delim: *u8) -> *u8 = strtok_r(s, delim, &strtok_save)
 // library would format it in, and nothing here may depend on a formatter. Every message is a
 // literal, so the pointer is to text that ends in a NUL and lives as long as the program.
 @export("strerror")
-strerror(code: i32) -> *u8 = as_ptr(message(code).bytes)
+strerror(code: i32) -> *u8 = message(code)
 
-private message(code: i32) -> string = code match
-    0 -> "Success"
-    EPERM -> "Operation not permitted"
-    ENOENT -> "No such file or directory"
-    ESRCH -> "No such process"
-    EINTR -> "Interrupted system call"
-    EIO -> "Input/output error"
-    ENXIO -> "No such device or address"
-    E2BIG -> "Argument list too long"
-    ENOEXEC -> "Exec format error"
-    EBADF -> "Bad file descriptor"
-    ECHILD -> "No child processes"
-    EAGAIN -> "Resource temporarily unavailable"
-    ENOMEM -> "Cannot allocate memory"
-    EACCES -> "Permission denied"
-    EFAULT -> "Bad address"
-    ENOTBLK -> "Block device required"
-    EBUSY -> "Device or resource busy"
-    EEXIST -> "File exists"
-    EXDEV -> "Invalid cross-device link"
-    ENODEV -> "No such device"
-    ENOTDIR -> "Not a directory"
-    EISDIR -> "Is a directory"
-    EINVAL -> "Invalid argument"
-    ENFILE -> "Too many open files in system"
-    EMFILE -> "Too many open files"
-    ENOTTY -> "Inappropriate ioctl for device"
-    ETXTBSY -> "Text file busy"
-    EFBIG -> "File too large"
-    ENOSPC -> "No space left on device"
-    ESPIPE -> "Illegal seek"
-    EROFS -> "Read-only file system"
-    EMLINK -> "Too many links"
-    EPIPE -> "Broken pipe"
-    EDOM -> "Numerical argument out of domain"
-    ERANGE -> "Numerical result out of range"
-    EDEADLK -> "Resource deadlock avoided"
-    ENAMETOOLONG -> "File name too long"
-    ENOLCK -> "No locks available"
-    ENOSYS -> "Function not implemented"
-    ENOTEMPTY -> "Directory not empty"
-    ELOOP -> "Too many levels of symbolic links"
-    EOVERFLOW -> "Value too large for defined data type"
-    EILSEQ -> "Invalid or incomplete multibyte or wide character"
-    ENOTSOCK -> "Socket operation on non-socket"
-    EDESTADDRREQ -> "Destination address required"
-    EOPNOTSUPP -> "Operation not supported"
-    EAFNOSUPPORT -> "Address family not supported by protocol"
-    ETIMEDOUT -> "Connection timed out"
-    _ -> UNKNOWN_ERROR
-
-private val UNKNOWN_ERROR: string = "Unknown error"
+private message(code: i32) -> *u8 = code match
+    0 -> c"Success"
+    EPERM -> c"Operation not permitted"
+    ENOENT -> c"No such file or directory"
+    ESRCH -> c"No such process"
+    EINTR -> c"Interrupted system call"
+    EIO -> c"Input/output error"
+    ENXIO -> c"No such device or address"
+    E2BIG -> c"Argument list too long"
+    ENOEXEC -> c"Exec format error"
+    EBADF -> c"Bad file descriptor"
+    ECHILD -> c"No child processes"
+    EAGAIN -> c"Resource temporarily unavailable"
+    ENOMEM -> c"Cannot allocate memory"
+    EACCES -> c"Permission denied"
+    EFAULT -> c"Bad address"
+    ENOTBLK -> c"Block device required"
+    EBUSY -> c"Device or resource busy"
+    EEXIST -> c"File exists"
+    EXDEV -> c"Invalid cross-device link"
+    ENODEV -> c"No such device"
+    ENOTDIR -> c"Not a directory"
+    EISDIR -> c"Is a directory"
+    EINVAL -> c"Invalid argument"
+    ENFILE -> c"Too many open files in system"
+    EMFILE -> c"Too many open files"
+    ENOTTY -> c"Inappropriate ioctl for device"
+    ETXTBSY -> c"Text file busy"
+    EFBIG -> c"File too large"
+    ENOSPC -> c"No space left on device"
+    ESPIPE -> c"Illegal seek"
+    EROFS -> c"Read-only file system"
+    EMLINK -> c"Too many links"
+    EPIPE -> c"Broken pipe"
+    EDOM -> c"Numerical argument out of domain"
+    ERANGE -> c"Numerical result out of range"
+    EDEADLK -> c"Resource deadlock avoided"
+    ENAMETOOLONG -> c"File name too long"
+    ENOLCK -> c"No locks available"
+    ENOSYS -> c"Function not implemented"
+    ENOTEMPTY -> c"Directory not empty"
+    ELOOP -> c"Too many levels of symbolic links"
+    EOVERFLOW -> c"Value too large for defined data type"
+    EILSEQ -> c"Invalid or incomplete multibyte or wide character"
+    ENOTSOCK -> c"Socket operation on non-socket"
+    EDESTADDRREQ -> c"Destination address required"
+    EOPNOTSUPP -> c"Operation not supported"
+    EAFNOSUPPORT -> c"Address family not supported by protocol"
+    ETIMEDOUT -> c"Connection timed out"
+    _ -> c"Unknown error"
 
 // The reentrant `strerror`: the same message, copied into the caller's buffer. A message that does
 // not fit is cut to what does, still terminated, and the answer is `ERANGE`; a code `errno.h` does not
@@ -263,8 +261,8 @@ private val UNKNOWN_ERROR: string = "Unknown error"
 @export("strerror_r")
 strerror_r(code: i32, buf: *u8, size: usize) -> i32
     val text = message(code)
-    if strlcpy(buf, as_ptr(text.bytes), size) >= size then return ERANGE
-    if text == UNKNOWN_ERROR then EINVAL else 0
+    if strlcpy(buf, text, size) >= size then return ERANGE
+    if strcmp(text, c"Unknown error") == 0 then EINVAL else 0
 
 // Only the C locale exists, so the locale changes nothing and the message is `strerror`'s.
 @export("strerror_l")
@@ -273,27 +271,27 @@ strerror_l(code: i32, locale: *u8) -> *u8 = strerror(code)
 // The text for a signal number: one for each signal `signal.h` defines, in glibc's words, and the
 // fixed text `Unknown signal` for any other number. POSIX leaves the words to the implementation.
 @export("strsignal")
-strsignal(sig: i32) -> *u8 = as_ptr(signal_text(sig).bytes)
+strsignal(sig: i32) -> *u8 = signal_text(sig)
 
 // The numbers are `signal.h`'s, which are Linux's.
-private signal_text(sig: i32) -> string = sig match
-    1 -> "Hangup"
-    2 -> "Interrupt"
-    3 -> "Quit"
-    4 -> "Illegal instruction"
-    5 -> "Trace/breakpoint trap"
-    6 -> "Aborted"
-    7 -> "Bus error"
-    8 -> "Floating point exception"
-    9 -> "Killed"
-    10 -> "User defined signal 1"
-    11 -> "Segmentation fault"
-    12 -> "User defined signal 2"
-    13 -> "Broken pipe"
-    14 -> "Alarm clock"
-    15 -> "Terminated"
-    17 -> "Child exited"
-    _ -> "Unknown signal"
+private signal_text(sig: i32) -> *u8 = sig match
+    1 -> c"Hangup"
+    2 -> c"Interrupt"
+    3 -> c"Quit"
+    4 -> c"Illegal instruction"
+    5 -> c"Trace/breakpoint trap"
+    6 -> c"Aborted"
+    7 -> c"Bus error"
+    8 -> c"Floating point exception"
+    9 -> c"Killed"
+    10 -> c"User defined signal 1"
+    11 -> c"Segmentation fault"
+    12 -> c"User defined signal 2"
+    13 -> c"Broken pipe"
+    14 -> c"Alarm clock"
+    15 -> c"Terminated"
+    17 -> c"Child exited"
+    _ -> c"Unknown signal"
 
 // `strcpy` that answers the address of the terminator it wrote, so a chain of copies never has to
 // find the end again.
