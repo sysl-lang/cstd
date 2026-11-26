@@ -82,10 +82,11 @@ end archive
  *
  * The program is built the way the README tells a consumer to build one — `-nostdinc`, clang's own
  * freestanding headers, then `include/` — so a case cannot reach a host header by accident, and a
- * declaration cstd's headers get wrong is a compile error here.
+ * declaration cstd's headers get wrong is a compile error here. `built` names another archive to
+ * link in place of the run's shared one, for a case that needs cstd built another way.
  */
-private[cstd] c_run(snippet: string, prelude: string = "", asan: bool = false) -> Output
-    val lib = archive()
+private[cstd] c_run(snippet: string, prelude: string = "", asan: bool = false, built: string = "") -> Output
+    val lib = if built != "" then built else archive()
     val res = read_text(f"$work/resource-dir").unwrap()
     cases += 1
     val name = f"$work/case-${c_pid()}-$cases"

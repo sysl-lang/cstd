@@ -2,6 +2,10 @@ module sh.sysl.cstd
 
 @tests
 
+import sysl.fs.{make_dir_all, remove_dir, remove_file}
+import sysl.process.{Var, capture, pid}
+import sysl.testing.compiler
+
 // `<string.h>`, called from C.
 //
 // **A function that writes memory is checked on the bytes it wrote, not on its return value alone.**
@@ -612,3 +616,39 @@ strerror_messages()
         0 0 22
         Invalid argument
         """)
+
+// The messages must outlive the call. Answered as `as_ptr(text.bytes)` of a `string` the call built,
+// a message short enough for the short string form (fifteen bytes or fewer, held in the string's own
+// words) pointed into the dead call's frame; a literal string's bytes only happened to be static
+// under the other form. So this case builds cstd with the short form on, keeps the pointers past a
+// call that overwrites the stack, and reads them after.
+@test("strerror and strsignal answer text that outlives the call, under the short string form too")
+messages_outlive_the_call()
+    _ = archive()
+    val dir = f".sysl/c-tests/short-strings-${pid()}"
+    make_dir_all(dir).unwrap()
+    val lib = f"$dir/libcstd.a"
+    val built = capture(compiler(), ["build-c", ".", "-o", lib], env = [Var("SYSL_SHORT_STRINGS", "1")],
+                        stderr = true).unwrap()
+    if !built.status.ok() then panic(f"sysl build-c with short strings failed:\n${built.err.unwrap_or("")}")
+    val ran = c_run(raw"""
+        const char *ok = strerror(0);
+        const char *io = strerror(EIO);
+        const char *killed = strsignal(9);
+        const char *unknown = strsignal(1000);
+        clobber();
+        say_str(ok);
+        say_str(io);
+        say_str(killed);
+        say_str(unknown);
+        say_ptr_eq(strerror(0), ok);
+        """, prelude = raw"""
+        static void clobber(void) {
+            volatile char junk[8192];
+            for (int i = 0; i < 8192; i++) junk[i] = 'X';
+        }
+        """, built = lib)
+    _ = remove_file(lib)
+    _ = remove_dir(dir)
+    assert(ran.status.ok())
+    assert_eq(ran.text, "Success\nInput/output error\nKilled\nUnknown signal\n1\n")
