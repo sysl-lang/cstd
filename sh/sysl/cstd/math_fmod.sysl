@@ -10,7 +10,7 @@ module sh.sysl.cstd
 // A significand as an integer with its leading one at bit 52, and the exponent that goes with it; a
 // subnormal is shifted up until it has one.
 private normalize(u: u64, biased: i32) -> (u64, i32)
-    if biased != 0 then return ((u & (0xffffffffffffffff >> 12)) | (1u64 << 52), biased)
+    if biased != 0 then return ((u & (0xffffffffffffffff >> 12)) | (1 << 52), biased)
     var e = biased
     var i = u << 12
     while i >> 63 == 0
@@ -21,7 +21,7 @@ private normalize(u: u64, biased: i32) -> (u64, i32)
 // `m` with its leading one at bit 52 and exponent `e`, put back together as a double's bits, a
 // subnormal when `e` is not above 0.
 private reassemble(m: u64, e: i32) -> u64
-    if e > 0 then return (m - (1u64 << 52)) | (u64(e) << 52)
+    if e > 0 then return (m - (1 << 52)) | (u64(e) << 52)
     m >> (-e + 1)
 
 @export("fmod")

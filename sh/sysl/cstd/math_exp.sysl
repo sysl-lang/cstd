@@ -186,15 +186,15 @@ private exp_special(tmp: real, sbits_in: u64, ki: u64, exp2_form: bool) -> real
     var sbits = sbits_in
     if ki & 0x80000000 == 0
         if exp2_form
-            sbits -= 1u64 << 52
+            sbits -= 1 << 52
             val scale = real.from_bits(sbits)
             return checked_overflow(2.0 * (scale + scale * tmp))
-        sbits -= 1009u64 << 52
+        sbits -= 1009 << 52
         val scale = real.from_bits(sbits)
         // 2^1009
         return checked_overflow(5.486124068793689e303 * (scale + scale * tmp))
     // k < 0: care in the subnormal range.
-    sbits += 1022u64 << 52
+    sbits += 1022 << 52
     val scale = real.from_bits(sbits)
     var y = scale + scale * tmp
     if y < 1.0

@@ -387,7 +387,7 @@ math_needs_no_libm()
     val root = current_dir().unwrap()
     val tmp = make_temp_dir("cstd-bare").unwrap()
     make_dir_all(f"$tmp/sh/sysl/bare").unwrap()
-    write_text(f"$tmp/package.hocon", "package {\n  name = \"bare\"\n  version = \"0.1.0\"\n}\n\n" +
+    write_text(f"$tmp/sysl.hocon","package {\n  name = \"bare\"\n  version = \"0.1.0\"\n}\n\n" +
         f"dependencies {\n  cstd { path = \"$root\" }\n}\n").unwrap()
     write_text(f"$tmp/sh/sysl/bare/bare.sysl", probe_source()).unwrap()
     val thumb = capture(compiler(), ["build-c", tmp, "--target", "thumb-freestanding-softfp",

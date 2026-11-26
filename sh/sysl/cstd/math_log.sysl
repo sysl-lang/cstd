@@ -341,7 +341,7 @@ log(x: real) -> real
         if top & 0x8000 != 0 || top & 0x7ff0 == 0x7ff0 then return domain_error(x)
         // A subnormal, made normal by 2^52.
         ix = (x * 4503599627370496.0).bits()
-        ix -= 52u64 << 52
+        ix -= 52 << 52
 
     // x = 2^k z, with z in [OFF, 2 OFF) exact, in the ith of N subintervals, whose centre is c.
     val tmp = ix - log_off
@@ -563,7 +563,7 @@ log2(x: real) -> real
         if ix == 0x7ff0000000000000 then return x
         if top & 0x8000 != 0 || top & 0x7ff0 == 0x7ff0 then return domain_error(x)
         ix = (x * 4503599627370496.0).bits()
-        ix -= 52u64 << 52
+        ix -= 52 << 52
 
     // x = 2^k z, z in [OFF, 2 OFF) in the ith subinterval around c; log2(x) = log2(z/c) + log2(c) + k.
     val tmp = ix - log_off

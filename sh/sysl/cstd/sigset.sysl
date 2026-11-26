@@ -11,7 +11,7 @@ struct SigSet
     bits: u64
 
 // The bit for `sig`, or 0 where `sig` is not a signal number.
-private bit(sig: i32) -> u64 = if sig >= 1 && sig <= 64 then u64(1) << u64(sig - 1) else 0
+private bit(sig: i32) -> u64 = if sig >= 1 && sig <= 64 then 1 << u64(sig - 1) else 0
 
 private invalid() -> i32
     errno = EINVAL
@@ -24,7 +24,7 @@ sigemptyset(set: *SigSet) -> i32
 
 @export("sigfillset")
 sigfillset(set: *SigSet) -> i32
-    set.bits = ~u64(0)
+    set.bits = ~0
     0
 
 @export("sigaddset")

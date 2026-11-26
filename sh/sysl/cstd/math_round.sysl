@@ -95,7 +95,7 @@ llround(x: real) -> LongLong = LongLong(round(x))
 modf(x: real, iptr: *real) -> real
     val u = x.bits()
     val e = i32((u >> 52) & 0x7ff) - 0x3ff
-    val sign = u & (1u64 << 63)
+    val sign = u & (1 << 63)
     // No fractional part.
     if e >= 52
         *iptr = x
@@ -171,14 +171,14 @@ ilogb(x: real) -> i32
     var e = i32((i >> 52) & 0x7ff)
     if e == 0
         i = i << 12
-        if i == 0 then return -2147483647 - 1
+        if i == 0 then return i32::Min
         // A subnormal: count down to its leading one.
         e = -0x3ff
         while i >> 63 == 0
             e -= 1
             i = i << 1
         return e
-    if e == 0x7ff then return if i << 12 != 0 then -2147483647 - 1 else 2147483647
+    if e == 0x7ff then return if i << 12 != 0 then i32::Min else i32::Max
     e - 0x3ff
 
 // The exponent as a double. Zero is a pole: -infinity and `ERANGE`.
@@ -198,8 +198,8 @@ nextafter(x: real, y: real) -> real
     val ay = uy & 0x7fffffffffffffff
     if ax == 0
         if ay == 0 then return y
-        ux = (uy & (1u64 << 63)) | 1
-    elif ax > ay || (ux ^ uy) & (1u64 << 63) != 0
+        ux = (uy & (1 << 63)) | 1
+    elif ax > ay || (ux ^ uy) & (1 << 63) != 0
         ux -= 1
     else
         ux += 1

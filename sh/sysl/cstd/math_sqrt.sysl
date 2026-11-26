@@ -59,7 +59,7 @@ cbrt(x: real) -> real
         hx = hx / 3 + cbrt_b2
     else
         hx = hx / 3 + cbrt_b1
-    var t = real.from_bits((x.bits() & (1u64 << 63)) | (u64(hx) << 32))
+    var t = real.from_bits((x.bits() & (1 << 63)) | (u64(hx) << 32))
 
     // To 23 bits: cbrt(x) = t cbrt(x/t³) ~= t P(t³/x), P approximating 1/cbrt(r) to 2^-23.5 for
     // |r - 1| < 1/10.

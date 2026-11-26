@@ -204,11 +204,11 @@ atan2(y: real, x: real) -> real
         if m == 2 then return atan2_pi
         return -atan2_pi
     // |y/x| > 2^64
-    if ix + (64u32 << 20) < iy || iy == 0x7ff00000
+    if ix + (64 << 20) < iy || iy == 0x7ff00000
         return if m & 1 != 0 then -atan2_pi / 2.0 else atan2_pi / 2.0
 
     // |y/x| < 2^-64 with x < 0: the answer is ±pi to the last bit.
-    if m & 2 != 0 && iy + (64u32 << 20) < ix then return if m == 2 then atan2_pi else -atan2_pi
+    if m & 2 != 0 && iy + (64 << 20) < ix then return if m == 2 then atan2_pi else -atan2_pi
 
     // atan(|y/x|), with the quotient and the arctangent carried in double-double so that the
     // quadrant's pi is added before anything is rounded. musl rounds y/x and atan's result first,

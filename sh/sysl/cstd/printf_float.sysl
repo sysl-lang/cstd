@@ -69,4 +69,3 @@ end emit_float_in
 private[cstd] emit_float(s: *Sink, sp: Spec, x: real)
     var scratch: [float_scratch_len]u8
     emit_float_in(s, sp, x, scratch[..])
-end emit_float

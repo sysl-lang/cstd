@@ -178,7 +178,7 @@ private[cstd] pow_log(ix: u64) -> (real, real)
     val logctail = real.from_bits(pow_tab[3 * i + 2])
 
     // z split so that rhi, rlo and rhi × rhi are exact and |rlo| <= |r|.
-    val zhi = real.from_bits((iz + (1u64 << 31)) & 0xffffffff00000000)
+    val zhi = real.from_bits((iz + (1 << 31)) & 0xffffffff00000000)
     val zlo = z - zhi
     val rhi = zhi * invc - 1.0
     val rlo = zlo * invc
@@ -212,11 +212,11 @@ private pow_special(tmp: real, sbits_in: u64, ki: u64) -> real
     var sbits = sbits_in
     if ki & 0x80000000 == 0
         // k > 0: the exponent of scale may have overflowed by up to 460.
-        sbits -= 1009u64 << 52
+        sbits -= 1009 << 52
         val scale = real.from_bits(sbits)
         return checked_overflow(5.486124068793689e303 * (scale + scale * tmp))
     // k < 0: care in the subnormal range.
-    sbits += 1022u64 << 52
+    sbits += 1022 << 52
     val scale = real.from_bits(sbits)
     var y = scale + scale * tmp
     if fabs(y) < 1.0
@@ -270,8 +270,8 @@ private checkint(iy: u64) -> i32
     val e = i32((iy >> 52) & 0x7ff)
     if e < 0x3ff then return 0
     if e > 0x3ff + 52 then return 2
-    if iy & ((1u64 << (0x3ff + 52 - e)) - 1) != 0 then return 0
-    if iy & (1u64 << (0x3ff + 52 - e)) != 0 then return 1
+    if iy & ((1 << (0x3ff + 52 - e)) - 1) != 0 then return 0
+    if iy & (1 << (0x3ff + 52 - e)) != 0 then return 1
     2
 
 // Whether these are the bits of a zero, an infinity or a NaN.
@@ -322,7 +322,7 @@ pow(x: real, y: real) -> real
             // A subnormal x, normalized so that its exponent goes negative.
             ix = (x * 4503599627370496.0).bits()
             ix = ix & 0x7fffffffffffffff
-            ix -= 52u64 << 52
+            ix -= 52 << 52
 
     val (hi, lo) = pow_log(ix)
     // y × log(x) in two parts, |elo| < |ehi| 2^-25.
