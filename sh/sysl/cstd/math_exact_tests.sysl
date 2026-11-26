@@ -143,6 +143,15 @@ math_soft_fma()
                              [0x1.001p0, 0x1.001p0, 0x1p-80], [0x1.001p0, 0x1.001p0, -0x1p-80],
                              [-0x1.001p0, 0x1.001p0, -0x1p-80]]
     for c in pinned do assert_eq(soft_fmaf(c[0], c[1], c[2]).bits(), fmaf(c[0], c[1], c[2]).bits())
+    // Two sums exactly half an ulp from a double plus a tail only the sticky bit carries, which random
+    // operands almost never reach: the product's tail lies in the bits it loses lining up under a far
+    // larger z, and then z lies wholly in the bits it loses lining up under the product. Dropping the
+    // sticky bit leaves a tie, which goes to the even neighbour.
+    val ties: [][4]real = [[0x1.0000002d413c0p0, 0x1.ffffffa57d881p0, -0x1p55, -0x1.fffffffffffffp54],
+                           [1.5, 0x1.5555555555556p-1, 0x1p-110, 0x1.0000000000001p0]]
+    for c in ties
+        assert_eq(soft_fma(c[0], c[1], c[2]), c[3])
+        assert_eq(fma(c[0], c[1], c[2]), c[3])
     errno = 0
     assert(soft_fma(0.0, real.infinity, 1.0) != soft_fma(0.0, real.infinity, 1.0))
     assert_eq(errno, EDOM)
