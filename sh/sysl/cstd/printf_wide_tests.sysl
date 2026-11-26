@@ -1,0 +1,260 @@
+module sh.sysl.cstd
+
+@tests
+
+// `%ls` and `%lc`: wide characters converted as `wctomb` converts them in the C locale, where a
+// character is one byte from 0x00 to 0x7F and any wide character past that fails with `EILSEQ`.
+// Each `say_f` line is one `vsnprintf`: the count, then the bytes between bars.
+
+@test("%ls writes every wide character of the string, padded to the width")
+printf_wide_string()
+    c_case(raw"""
+        wchar_t hi[] = L"hi";
+        wchar_t empty[] = L"";
+        wchar_t edges[] = {0x7f, 1, 'A', 0};
+        say_f("<%ls>", hi);
+        say_f("%ls", empty);
+        say_f("%5ls", hi);
+        say_f("%-5ls|", hi);
+        say_f("%1ls", hi);
+        say_f("%ls-%s-%ls", hi, "x", hi);
+        say_f("%ls", edges);
+        say_f("%ls%d", hi, 42);
+        """, raw"""
+        4|<hi>|
+        0||
+        5|   hi|
+        6|hi   ||
+        2|hi|
+        7|hi-x-hi|
+        3|[7f][01]A|
+        4|hi42|
+        """)
+
+// The precision counts bytes, and a character is converted only when the whole of it fits; in the C
+// locale every character is one byte, so that is a count of characters. No character past the
+// precision is read, so an array with no NUL is fine and one the locale cannot encode is no error.
+@test("%ls stops at the precision in bytes, reading no wide character past it")
+printf_wide_string_precision()
+    c_case(raw"""
+        wchar_t hi[] = L"hi";
+        wchar_t raw2[2] = {'x', 'y'};
+        wchar_t bad_late[] = {'a', 0xe9, 0};
+        say_f("%.1ls", hi);
+        say_f("%.0ls", hi);
+        say_f("%.2ls", hi);
+        say_f("%.5ls", hi);
+        say_f("%4.1ls", hi);
+        say_f("%-4.1ls|", hi);
+        say_f("%.*ls", 1, hi);
+        say_f("%.*ls", -1, hi);
+        say_f("%.2ls", raw2);
+        say_f("%.1ls", raw2);
+        errno = 0;
+        say_f("%.1ls", bad_late);
+        say_int(errno);
+        """, raw"""
+        1|h|
+        0||
+        2|hi|
+        2|hi|
+        4|   h|
+        5|h   ||
+        1|h|
+        2|hi|
+        2|xy|
+        1|x|
+        1|a|
+        0
+        """)
+
+@test("%ls of a null pointer prints (null), as %s does")
+printf_wide_string_null()
+    c_case(raw"""
+        say_f("%ls", (wchar_t *)NULL);
+        say_f("%.3ls", (wchar_t *)NULL);
+        say_f("%8ls", (wchar_t *)NULL);
+        say_f("%-8ls|", (wchar_t *)NULL);
+        """, raw"""
+        6|(null)|
+        3|(nu|
+        8|  (null)|
+        9|(null)  ||
+        """)
+
+// `%lc` is `wcrtomb` of the one character, so a null wide character is one NUL byte, as `%c` of 0
+// is, and a precision means nothing to it.
+@test("%lc writes the wide character as one converted character, NUL included")
+printf_wide_char()
+    c_case(raw"""
+        say_f("%lc", L'A');
+        say_f("%3lc", L'A');
+        say_f("%-3lc|", L'A');
+        say_f("%.0lc", L'A');
+        say_f("<%lc%lc>", L'h', L'i');
+        say_f("%lc", 0);
+        say_f("%3lc", 0);
+        say_f("%lc", 0x7f);
+        say_f("%lc%d", L'x', 7);
+        """, raw"""
+        1|A|
+        3|  A|
+        4|A  ||
+        1|A|
+        4|<hi>|
+        1|[00]|
+        3|  [00]|
+        1|[7f]|
+        2|x7|
+        """)
+
+// The whole call fails, whatever came before the conversion, and the field writes nothing: the bytes
+// before it are in the buffer, NUL-terminated, and no padding follows them.
+@test("a wide character past 0x7F fails the call with -1 and EILSEQ")
+printf_wide_eilseq()
+    c_case(raw"""
+        wchar_t late[] = {'o', 'k', 0xe9, 0};
+        wchar_t high[] = {0x80, 0};
+        wchar_t negative[] = {-5, 0};
+        errno = 0;
+        say_f("<%ls>", late);
+        say_int(errno == EILSEQ);
+        errno = 0;
+        say_f("%ls", high);
+        say_int(errno == EILSEQ);
+        errno = 0;
+        say_f("%ls", negative);
+        say_int(errno == EILSEQ);
+        errno = 0;
+        say_f("%lc", 0xe9);
+        say_int(errno == EILSEQ);
+        errno = 0;
+        say_f("%lc", 0x80);
+        say_int(errno == EILSEQ);
+        errno = 0;
+        say_f("%lc", -1);
+        say_int(errno == EILSEQ);
+        errno = 0;
+        say_f("%ls", L"ok");
+        say_int(errno);
+        char b[8];
+        memset(b, '#', sizeof b);
+        say_int(snprintf(b, sizeof b, "ab%5ls", late));
+        say_bytes(b, sizeof b);
+        memset(b, '#', sizeof b);
+        say_int(snprintf(b, sizeof b, "ab%5lcd", 0xe9));
+        say_bytes(b, sizeof b);
+        """, raw"""
+        -1||
+        1
+        -1||
+        1
+        -1||
+        1
+        -1||
+        1
+        -1||
+        1
+        -1||
+        1
+        2|ok|
+        0
+        -1
+        ab[00]#####
+        -1
+        ab[00]#####
+        """)
+
+@test("every entry point of the family converts %ls and %lc, and fails with EILSEQ")
+printf_wide_entry_points()
+    c_case(raw"""
+        wchar_t hi[] = L"hi";
+        wchar_t bad[] = {0xe9, 0};
+        char b[16];
+        say_int(snprintf(b, sizeof b, "<%ls|%lc>", hi, L'Z'));
+        say_str(b);
+        say_int(vsn(b, sizeof b, "<%ls|%lc>", hi, L'Z'));
+        say_str(b);
+        say_int(sprintf(b, "<%ls|%lc>", hi, L'Z'));
+        say_str(b);
+        say_int(vs(b, "<%ls|%lc>", hi, L'Z'));
+        say_str(b);
+        say_int(printf("<%ls|%lc>\n", hi, L'Z'));
+        say_int(vp("<%ls|%lc>\n", hi, L'Z'));
+        say_int(dprintf(1, "<%ls|%lc>\n", hi, L'Z'));
+        say_int(vdp(1, "<%ls|%lc>\n", hi, L'Z'));
+
+        errno = 0; say_int(snprintf(b, sizeof b, "%ls", bad)); say_int(errno == EILSEQ);
+        errno = 0; say_int(vsn(b, sizeof b, "%lc", 0xe9)); say_int(errno == EILSEQ);
+        errno = 0; say_int(sprintf(b, "%ls", bad)); say_int(errno == EILSEQ);
+        errno = 0; say_int(vs(b, "%lc", 0xe9)); say_int(errno == EILSEQ);
+        errno = 0; say_int(printf("%ls", bad)); say_int(errno == EILSEQ);
+        errno = 0; say_int(vp("%lc", 0xe9)); say_int(errno == EILSEQ);
+        errno = 0; say_int(dprintf(1, "%ls", bad)); say_int(errno == EILSEQ);
+        errno = 0; say_int(vdp(1, "%lc", 0xe9)); say_int(errno == EILSEQ);
+        """, raw"""
+        6
+        <hi|Z>
+        6
+        <hi|Z>
+        6
+        <hi|Z>
+        6
+        <hi|Z>
+        <hi|Z>
+        7
+        <hi|Z>
+        7
+        <hi|Z>
+        7
+        <hi|Z>
+        7
+        -1
+        1
+        -1
+        1
+        -1
+        1
+        -1
+        1
+        -1
+        1
+        -1
+        1
+        -1
+        1
+        -1
+        1
+        """, prelude = wide_entry_wrappers)
+
+// The `v` twins, each called through a function of its own so the `va_list` is a real one.
+private val wide_entry_wrappers = raw"""
+    static int vsn(char *b, size_t n, const char *fmt, ...) {
+        va_list ap;
+        va_start(ap, fmt);
+        int r = vsnprintf(b, n, fmt, ap);
+        va_end(ap);
+        return r;
+    }
+    static int vs(char *b, const char *fmt, ...) {
+        va_list ap;
+        va_start(ap, fmt);
+        int r = vsprintf(b, fmt, ap);
+        va_end(ap);
+        return r;
+    }
+    static int vp(const char *fmt, ...) {
+        va_list ap;
+        va_start(ap, fmt);
+        int r = vprintf(fmt, ap);
+        va_end(ap);
+        return r;
+    }
+    static int vdp(int fd, const char *fmt, ...) {
+        va_list ap;
+        va_start(ap, fmt);
+        int r = vdprintf(fd, fmt, ap);
+        va_end(ap);
+        return r;
+    }
+    """

@@ -16,8 +16,13 @@ import sysl.c.{va_arg, va_end, va_start}
 // musl:
 //
 // - `%p` is `%#zx`: `0x` and the address in lowercase hex, and a null pointer is `0`.
-// - `%s` of a null pointer is `(null)`.
+// - `%s` of a null pointer is `(null)`, and so is `%ls` of one.
 // - A conversion C does not define is copied out as it was written, `%` and all.
+//
+// `%ls` and `%lc` convert wide characters as `wctomb` does in the C locale (`multibyte.sysl`), and
+// a precision on `%ls` counts bytes and never ends inside a character. A wide character the locale
+// cannot encode fails the call: -1 with `errno` `EILSEQ`. So does a count past `INT_MAX`, with
+// `EOVERFLOW`, which C's `int` answer cannot hold; nothing past that point is written.
 //
 // The float conversions `%f %F %e %E %g %G %a %A` are in `printf_float.sysl`.
 
@@ -42,6 +47,15 @@ private[cstd] struct Sink
     stage: [STAGE]u8
     staged: usize
     broken: bool
+    // The format failed (`EILSEQ`, `EOVERFLOW`) and `errno` says why: no more bytes are taken.
+    refused: bool
+
+// C's `INT_MAX`: the largest count the family can answer.
+private const COUNT_MAX: usize = 2147483647
+
+private refuse(s: *Sink, code: i32)
+    errno = code
+    s.refused = true
 
 private memory_sink(dst: *u8, room: usize) -> Sink
     var s: Sink
@@ -67,6 +81,10 @@ private flush(s: *Sink)
 end flush
 
 private[cstd] put(s: *Sink, b: u8)
+    if s.refused then return
+    if s.total == COUNT_MAX
+        refuse(s, EOVERFLOW)
+        return
     if s.to_fd
         s.stage[s.staged] = b
         s.staged += 1
@@ -76,8 +94,20 @@ private[cstd] put(s: *Sink, b: u8)
     s.total += 1
 end put
 
+// `n` copies of `b`, refused whole when they would take the count past `COUNT_MAX`. To memory, the
+// copies past the caller's buffer are only counted, so a field as wide as `INT_MAX` costs no time.
 private[cstd] put_run(s: *Sink, b: u8, n: usize)
-    for i in 0..<n do put(s, b)
+    if s.refused then return
+    if n > COUNT_MAX - s.total
+        refuse(s, EOVERFLOW)
+        return
+    if s.to_fd
+        for _ in 0..<n do put(s, b)
+        return
+    val left = if s.total + 1 < s.room then s.room - 1 - s.total else 0
+    for i in 0..<(if n < left then n else left) do s.dst[s.total + i] = b
+    s.total += n
+end put_run
 
 // What the length modifier said the argument is.
 private[cstd] enum Length
@@ -234,6 +264,44 @@ private emit_char(s: *Sink, sp: Spec, c: u8)
     put(s, c)
     pad_after(s, sp, 1)
 
+// The most bytes `wctomb` writes for one wide character in any locale cstd could have.
+private const MB_BYTES: usize = 4
+
+// `%ls`: the wide characters up to the NUL, each converted by `wctomb`, as many whole ones as fit in
+// `precision` bytes; none past them is read. The field is measured before a byte goes out, so a
+// character the locale cannot encode refuses the call with nothing of this field written.
+private emit_wide_text(s: *Sink, sp: Spec, text: *u32)
+    var mb: [MB_BYTES]u8
+    var bytes: usize = 0
+    var chars: usize = 0
+    while !sp.has_precision || bytes < sp.precision
+        val wc = text[chars]
+        if wc == 0 then break
+        val len = wctomb(&mb[0], wc)
+        if len < 0
+            refuse(s, EILSEQ)
+            return
+        if sp.has_precision && bytes + usize(len) > sp.precision then break
+        bytes += usize(len)
+        chars += 1
+    pad_before(s, sp, bytes)
+    for k in 0..<chars
+        val len = wctomb(&mb[0], text[k])
+        for j in 0..<usize(len) do put(s, mb[j])
+    pad_after(s, sp, bytes)
+end emit_wide_text
+
+// `%lc`: the one wide character converted by `wctomb`, a NUL included, padded to the width.
+private emit_wide_char(s: *Sink, sp: Spec, wc: u32)
+    var mb: [MB_BYTES]u8
+    val len = wctomb(&mb[0], wc)
+    if len < 0
+        refuse(s, EILSEQ)
+        return
+    pad_before(s, sp, usize(len))
+    for j in 0..<usize(len) do put(s, mb[j])
+    pad_after(s, sp, usize(len))
+
 // A width or precision given as `*`: the next `int` argument.
 private star(ap: *va_list) -> i64
     val v: i32 = va_arg(ap)
@@ -327,7 +395,7 @@ private format(s: *Sink, fmt: *u8, ap: *va_list)
     var i: usize = 0
     loop
         val b = fmt[i]
-        if b == 0 then break
+        if b == 0 || s.refused then break
         if b != u8('%')
             put(s, b)
             i += 1
@@ -345,9 +413,19 @@ private format(s: *Sink, fmt: *u8, ap: *va_list)
             as_hex.conv = u8('x')
             as_hex.alt = true
             emit_int(s, as_hex, u64(usize(p)), false)
+        elif c == u8('c') && sp.length == Lng
+            val wc: u32 = va_arg(ap)
+            emit_wide_char(s, sp, wc)
         elif c == u8('c')
             val v: i32 = va_arg(ap)
             emit_char(s, sp, u8(v))
+        elif c == u8('s') && sp.length == Lng
+            val text: *u32 = va_arg(ap)
+            if text == null
+                val shown = "(null)"
+                emit_text(s, sp, &shown.bytes[0])
+            else
+                emit_wide_text(s, sp, text)
         elif c == u8('s')
             val text: *u8 = va_arg(ap)
             if text == null
@@ -371,8 +449,8 @@ private format(s: *Sink, fmt: *u8, ap: *va_list)
         i += 1 + used
 end format
 
-// The count a function of this family answers, which C says is an `int`.
-private answer(s: *Sink) -> i32 = if s.broken then -1 else i32(s.total)
+// The count a function of this family answers, which C says is an `int`; `put` keeps it in range.
+private answer(s: *Sink) -> i32 = if s.broken || s.refused then -1 else i32(s.total)
 
 private to_memory(dst: *u8, room: usize, fmt: *u8, ap: *va_list) -> i32
     var s = memory_sink(dst, room)

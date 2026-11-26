@@ -1,0 +1,182 @@
+module sh.sysl.cstd
+
+@tests
+
+// The family answers an `int`, so a count past `INT_MAX` cannot be answered: POSIX makes it -1 with
+// `errno` `EOVERFLOW`. The edge is exactly `INT_MAX` bytes, which is still answered. Into memory the
+// bytes past the buffer are only counted, so these fields cost no time.
+
+@test("a count of exactly INT_MAX is answered, and one byte more is -1 with EOVERFLOW")
+printf_count_edge()
+    c_case(raw"""
+        errno = 0;
+        say_int(snprintf(NULL, 0, "%2147483647d", 1));
+        say_int(errno);
+        say_int(snprintf(NULL, 0, "%2147483647d%d", 1, 1));
+        say_int(errno == EOVERFLOW);
+        errno = 0;
+        say_int(snprintf(NULL, 0, "%2147483646d%c", 1, 'x'));
+        say_int(snprintf(NULL, 0, "%2147483646d%c%c", 1, 'x', 'y'));
+        say_int(errno == EOVERFLOW);
+        errno = 0;
+        say_int(snprintf(NULL, 0, "%-2147483647d", 1));
+        say_int(snprintf(NULL, 0, "%-2147483647d.", 1));
+        say_int(errno == EOVERFLOW);
+        errno = 0;
+        say_int(snprintf(NULL, 0, "%.2147483647d", 1));
+        say_int(snprintf(NULL, 0, "%.2147483648d", 1));
+        say_int(errno == EOVERFLOW);
+        errno = 0;
+        say_int(snprintf(NULL, 0, "%2147483647s", "abc"));
+        say_int(snprintf(NULL, 0, "x%2147483647s", "abc"));
+        say_int(errno == EOVERFLOW);
+        errno = 0;
+        say_int(snprintf(NULL, 0, "%2147483648d", 1));
+        say_int(errno == EOVERFLOW);
+        errno = 0;
+        say_int(snprintf(NULL, 0, "%2147483647d%f", 1, 1.5));
+        say_int(errno == EOVERFLOW);
+        errno = 0;
+        say_int(snprintf(NULL, 0, "%2147483647d%%", 1));
+        say_int(errno == EOVERFLOW);
+        errno = 0;
+        say_int(snprintf(NULL, 0, "%*d%*d", 2147483647, 1, 1, 2));
+        say_int(errno == EOVERFLOW);
+        """, raw"""
+        2147483647
+        0
+        -1
+        1
+        2147483647
+        -1
+        1
+        2147483647
+        -1
+        1
+        2147483647
+        -1
+        1
+        2147483647
+        -1
+        1
+        -1
+        1
+        -1
+        1
+        -1
+        1
+        -1
+        1
+        """)
+
+// The bytes that fit still land, the NUL after them, when the count runs out past the buffer.
+@test("a field as wide as INT_MAX fills a short buffer and answers INT_MAX")
+printf_count_edge_buffer()
+    c_case(raw"""
+        char b[8];
+        memset(b, '#', sizeof b);
+        say_int(snprintf(b, sizeof b, "%2147483647d", 7));
+        say_bytes(b, sizeof b);
+        memset(b, '#', sizeof b);
+        say_int(snprintf(b, sizeof b, "%-2147483647d", 7));
+        say_bytes(b, sizeof b);
+        memset(b, '#', sizeof b);
+        say_int(snprintf(b, sizeof b, "%.2147483647d", 7));
+        say_bytes(b, sizeof b);
+        memset(b, '#', sizeof b);
+        say_int(snprintf(b, sizeof b, "ab%2147483647d", 7));
+        say_bytes(b, sizeof b);
+        """, raw"""
+        2147483647
+               [00]
+        2147483647
+        7      [00]
+        2147483647
+        0000000[00]
+        -1
+        ab[00]#####
+        """)
+
+// Every entry point refuses the same way. `ab` goes out before the field that would pass `INT_MAX`,
+// which is refused whole, so nothing past it is written; a descriptor still gets the `ab`.
+// `sprintf` and `vsprintf` are not shown the answered edge: that would take a 2 GiB buffer.
+@test("every entry point of the family answers -1 with EOVERFLOW past INT_MAX")
+printf_count_entry_points()
+    c_case(raw"""
+        char b[8];
+        errno = 0; memset(b, '#', sizeof b);
+        say_int(snprintf(b, sizeof b, "ab%2147483647d", 1)); say_int(errno == EOVERFLOW); say_bytes(b, sizeof b);
+        errno = 0; memset(b, '#', sizeof b);
+        say_int(vsn(b, sizeof b, "ab%2147483647d", 1)); say_int(errno == EOVERFLOW); say_bytes(b, sizeof b);
+        errno = 0; memset(b, '#', sizeof b);
+        say_int(sprintf(b, "ab%2147483647d", 1)); say_int(errno == EOVERFLOW); say_bytes(b, sizeof b);
+        errno = 0; memset(b, '#', sizeof b);
+        say_int(vs(b, "ab%2147483647d", 1)); say_int(errno == EOVERFLOW); say_bytes(b, sizeof b);
+        errno = 0; say_int(printf("ab%2147483647d", 1)); say_int(errno == EOVERFLOW);
+        errno = 0; say_int(vp("ab%2147483647d", 1)); say_int(errno == EOVERFLOW);
+        errno = 0; say_int(dprintf(1, "ab%2147483647d", 1)); say_int(errno == EOVERFLOW);
+        errno = 0; say_int(vdp(1, "ab%2147483647d", 1)); say_int(errno == EOVERFLOW);
+        errno = 0; say_int(dprintf(1, "%2147483649d", 1)); say_int(errno == EOVERFLOW);
+        errno = 0;
+        say_int(vsn(NULL, 0, "%2147483647d", 1));
+        say_int(vsn(NULL, 0, "%2147483647d%d", 1, 1));
+        say_int(errno == EOVERFLOW);
+        """, raw"""
+        -1
+        1
+        ab[00]#####
+        -1
+        1
+        ab[00]#####
+        -1
+        1
+        ab[00]#####
+        -1
+        1
+        ab[00]#####
+        ab-1
+        1
+        ab-1
+        1
+        ab-1
+        1
+        ab-1
+        1
+        -1
+        1
+        2147483647
+        -1
+        1
+        """, prelude = count_entry_wrappers)
+
+// The `v` twins, each called through a function of its own so the `va_list` is a real one.
+private val count_entry_wrappers = raw"""
+    static int vsn(char *b, size_t n, const char *fmt, ...) {
+        va_list ap;
+        va_start(ap, fmt);
+        int r = vsnprintf(b, n, fmt, ap);
+        va_end(ap);
+        return r;
+    }
+    static int vs(char *b, const char *fmt, ...) {
+        va_list ap;
+        va_start(ap, fmt);
+        int r = vsprintf(b, fmt, ap);
+        va_end(ap);
+        return r;
+    }
+    static int vp(const char *fmt, ...) {
+        va_list ap;
+        va_start(ap, fmt);
+        int r = vprintf(fmt, ap);
+        va_end(ap);
+        return r;
+    }
+    static int vdp(int fd, const char *fmt, ...) {
+        va_list ap;
+        va_start(ap, fmt);
+        int r = vdprintf(fd, fmt, ap);
+        va_end(ap);
+        return r;
+    }
+    """

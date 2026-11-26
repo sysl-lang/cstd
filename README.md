@@ -66,7 +66,8 @@ require, exported under its C name with `@export`.
 - The printf family takes C99's `%d %i %u %o %x %X %c %s %p %n %%` and `%f %F %e %E %g %G %a %A`,
   the flags `- + space # 0`, a width and a precision as a number or `*`, and the lengths
   `hh h l ll j z t`. There is no `long double`, so `L` is not taken and `%Lf` is copied out as
-  written. There is no `FILE`:
+  written. `%ls` and `%lc` convert wide characters as `wctomb` does, so one past 0x7F fails the
+  call with `EILSEQ`; a count past `INT_MAX` fails it with `EOVERFLOW`. There is no `FILE`:
   `printf`, `puts` and `putchar` write to descriptor 1 and `dprintf` to the one it is given, all
   through `write`, which the platform supplies; `puts` and `putchar` answer `EOF` when it fails. Output gathers in a 256-byte buffer on the stack and nothing allocates.
 - Where C leaves a choice, musl's answer is taken, since keel targets musl compatibility: `%p` is
@@ -95,8 +96,8 @@ require, exported under its C name with `@export`.
 - `strerror` knows `0` and every code `errno.h` defines, in glibc's words; any other code answers
   the fixed text `Unknown error`, because formatting the number in would need a formatter.
 - `strtok` keeps one save pointer for the whole program, as C does; `strtok_r` keeps it in the caller's hands.
-- `strdup` and `strndup` call an external `malloc` that the program supplies (the Linux half's, a
-  board's, or the host's), and set `ENOMEM` themselves when it answers null. `strndup` reads at most
+- `strdup` and `strndup` call whatever `malloc` the program links (the core's on Linux and on a
+  board, a board's own, or the host's), and set `ENOMEM` themselves when it answers null. `strndup` reads at most
   `n` bytes and allocates only what it copies.
 - Only the C locale exists: `locale_t` is an opaque pointer the `_l` functions ignore, `strcoll` is
   `strcmp`, and `strxfrm` copies its source when it fits (and touches nothing when it does not).
@@ -469,8 +470,10 @@ whole image with no `malloc`, `free` or `abort` of its own and gets the right su
 
 ## What is deliberately absent, and why
 
-- **Allocation and `exit` in the portable half.** Where memory comes from and how a process ends are
-  the platform's: `linux/` answers both for Linux's ABI; a board's arena is still to come.
+- **Where memory comes from and how a run ends.** The core's `malloc` family and `exit` are written
+  over `sbrk` and `_Exit`, and those two are the platform's: `linux/` answers both for Linux's ABI,
+  and a board defines them over its heap region and whatever ends a run there. Until it does, cstd's
+  weak defaults answer `ENOMEM` and trap (*On a board*).
 - **`FILE` and the rest of stdio.** Buffered streams are not written yet.
 - **`long double` beyond binary64: `strtold`, `%Lf`, and the `l` functions of `<math.h>` where
   `long double` is binary128.** cstd's floats are `double` and `float`; where `long double` is a

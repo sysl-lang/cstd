@@ -1,0 +1,54 @@
+module sh.sysl.cstd
+
+@tests
+
+// Every header in `include/` parses on its own as C17 and as C++17, for a 64-bit and a 32-bit
+// target, the way a consumer reads it: `-nostdinc`, clang's freestanding headers, then `include/`.
+// C++ is what clangd reads a `.h` as, and what a C++ program including cstd sees; there `restrict`
+// is no keyword, which is why the headers write `__restrict`, and each opens an `extern "C"` block.
+
+import sysl.buf.{Buf, buf}
+import sysl.fs.{make_dir_all, remove_file, walk, write_text}
+import sysl.path.relative_to
+import sysl.process.capture
+
+// Each header's name as a program includes it, found by walking `include/`, so a header added
+// later is checked without this file changing.
+private headers() -> Buf[string]
+    var found: Buf[string] = buf()
+    for item in walk("include")
+        val entry = item.unwrap()
+        if !entry.is_dir() && entry.path.ends_with(".h") then found.push(relative_to(entry.path, "include").unwrap())
+    found
+
+@test("every header in include/ parses alone as C17 and C++17 on aarch64 and thumbv7em")
+headers_parse_as_c_and_cpp()
+    val names = headers()
+    // The walk must have found the headers, or the check below passes over nothing.
+    var top = false
+    var nested = false
+    for name in names
+        if name == "time.h" then top = true
+        if name == "sys/stat.h" then nested = true
+    assert(top && nested)
+
+    val res = capture("clang", ["-print-resource-dir"]).unwrap().text.trim()
+    make_dir_all(".sysl/c-tests").unwrap()
+    var failures = ""
+    for name in names
+        val source = f".sysl/c-tests/header-${c_pid_for_headers()}.c"
+        write_text(source, f"#include <$name>\n").unwrap()
+        for target in ["aarch64-linux-gnu", "thumbv7em-none-eabi"]
+            for lang in [["-x", "c", "-std=c17"], ["-x", "c++", "-std=c++17"]]
+                var args: Buf[string] = buf()
+                for a in lang do args.push(a)
+                for a in [f"--target=$target", "-ffreestanding", "-nostdinc", "-isystem", f"$res/include",
+                          "-I", "include", "-fsyntax-only", source]
+                    args.push(a)
+                val ran = capture("clang", args.view(), stderr = true).unwrap()
+                if !ran.status.ok() then failures = failures + f"$name, $target, ${lang[1]}:\n${ran.err.unwrap_or("")}\n"
+        _ = remove_file(source)
+    assert_eq(failures, "")
+end headers_parse_as_c_and_cpp
+
+private extern "getpid" c_pid_for_headers() -> i32

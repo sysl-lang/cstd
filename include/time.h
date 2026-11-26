@@ -64,13 +64,13 @@ struct sigevent;
 clock_t clock(void);
 double difftime(time_t a, time_t b);
 struct tm *gmtime(const time_t *t);
-struct tm *gmtime_r(const time_t *restrict t, struct tm *restrict tm);
+struct tm *gmtime_r(const time_t *__restrict t, struct tm *__restrict tm);
 struct tm *localtime(const time_t *t);
-struct tm *localtime_r(const time_t *restrict t, struct tm *restrict tm);
+struct tm *localtime_r(const time_t *__restrict t, struct tm *__restrict tm);
 time_t mktime(struct tm *tm);
 time_t timegm(struct tm *tm);
-size_t strftime(char *restrict s, size_t max, const char *restrict fmt, const struct tm *restrict tm);
-size_t strftime_l(char *restrict s, size_t max, const char *restrict fmt, const struct tm *restrict tm,
+size_t strftime(char *__restrict s, size_t max, const char *__restrict fmt, const struct tm *__restrict tm);
+size_t strftime_l(char *__restrict s, size_t max, const char *__restrict fmt, const struct tm *__restrict tm,
                   locale_t locale);
 time_t time(time_t *t);
 int timespec_get(struct timespec *ts, int base);
@@ -83,12 +83,12 @@ int clock_settime(clockid_t clock, const struct timespec *ts);
 int clock_nanosleep(clockid_t clock, int flags, const struct timespec *req, struct timespec *rem);
 int nanosleep(const struct timespec *req, struct timespec *rem);
 
-int timer_create(clockid_t clock, struct sigevent *restrict event, timer_t *restrict timer);
+int timer_create(clockid_t clock, struct sigevent *__restrict event, timer_t *__restrict timer);
 int timer_delete(timer_t timer);
 int timer_getoverrun(timer_t timer);
 int timer_gettime(timer_t timer, struct itimerspec *value);
-int timer_settime(timer_t timer, int flags, const struct itimerspec *restrict value,
-                  struct itimerspec *restrict old);
+int timer_settime(timer_t timer, int flags, const struct itimerspec *__restrict value,
+                  struct itimerspec *__restrict old);
 
 #ifdef __cplusplus
 }

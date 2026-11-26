@@ -444,7 +444,7 @@ clang's, **the compiler's**. cstd's `<unistd.h>` does not make `intptr_t` visibl
 
 ## `<stdio.h>`
 
-Shipped, a sixth of it. **There is no `FILE`**, and the README does not rule it out (*`FILE` and the rest of stdio. Buffered streams are not written yet.*), so the stream functions are counted missing, not absent by design. Present: the eight printf functions, `puts` and `putchar`, all writing through an external `write` that the Linux half or a board supplies. The eight printf functions disagree with the standard in four ways (*Declarations that disagree*). **Missing with `FILE`**: `FILE`, `fpos_t`, and this header's `off_t` and `ssize_t`; `BUFSIZ`, `FILENAME_MAX`, `FOPEN_MAX`, `TMP_MAX`, `L_tmpnam`, `L_ctermid`, `_IOFBF`, `_IOLBF` and `_IONBF`; `SEEK_SET`, `SEEK_CUR` and `SEEK_END` (they are in `<unistd.h>` only); and `stdin`, `stdout` and `stderr`. The `FILE` layer is sysl over the `read`, `write`, `lseek`, `open` and `close` hooks cstd already has, so it is (a): `stdin`, `stdout` and `stderr` are exported storage holding the addresses of three static `FILE` objects, which the FFI reference names as constant data, so they link on a board. `sscanf`, `vsscanf`, `fmemopen` and `open_memstream` need no descriptor, and `perror` needs only `write`. `rename` and `renameat` need a new hook (`renameat2`); `popen` and `pclose` need processes.
+Shipped, a sixth of it. **There is no `FILE`**, and the README does not rule it out (*`FILE` and the rest of stdio. Buffered streams are not written yet.*), so the stream functions are counted missing, not absent by design. Present: the eight printf functions, `puts` and `putchar`, all writing through an external `write` that the Linux half or a board supplies. The eight printf functions disagree with the standard in two ways (*Declarations that disagree*). **Missing with `FILE`**: `FILE`, `fpos_t`, and this header's `off_t` and `ssize_t`; `BUFSIZ`, `FILENAME_MAX`, `FOPEN_MAX`, `TMP_MAX`, `L_tmpnam`, `L_ctermid`, `_IOFBF`, `_IOLBF` and `_IONBF`; `SEEK_SET`, `SEEK_CUR` and `SEEK_END` (they are in `<unistd.h>` only); and `stdin`, `stdout` and `stderr`. The `FILE` layer is sysl over the `read`, `write`, `lseek`, `open` and `close` hooks cstd already has, so it is (a): `stdin`, `stdout` and `stderr` are exported storage holding the addresses of three static `FILE` objects, which the FFI reference names as constant data, so they link on a board. `sscanf`, `vsscanf`, `fmemopen` and `open_memstream` need no descriptor, and `perror` needs only `write`. `rename` and `renameat` need a new hook (`renameat2`); `popen` and `pclose` need processes.
 
 | status | functions |
 |---|---|
@@ -567,7 +567,7 @@ Sockets. **Needs a network stack.** On keel the Linux half's socket system calls
 
 ## `<sys/stat.h>`
 
-Shipped, partly. Present: `stat`, `fstat` and `mkdir` (the Linux half's, weak `ENOSYS` defaults on a board), with the 128-byte asm-generic `struct stat`. **Missing**: eleven functions, each one Linux system call through the hook (`fchmodat`, `fstatat`, `utimensat`, `mkdirat`, `mknodat`, `umask`), (b), small. **Missing macros**: the permission bits `S_IRWXU` `S_IRUSR` `S_IWUSR` `S_IXUSR` `S_IRWXG` `S_IRGRP` `S_IWGRP` `S_IXGRP` `S_IRWXO` `S_IROTH` `S_IWOTH` `S_IXOTH` `S_ISUID` `S_ISGID` `S_ISVTX`, `UTIME_NOW` and `UTIME_OMIT`, the tests `S_ISBLK` and `S_ISSOCK`, the four `S_TYPEIS*`, and [XSI]'s `S_IFBLK`: (a), small. The header reads `restrict` through `<time.h>` and so does not parse as C++ (*Bugs*).
+Shipped, partly. Present: `stat`, `fstat` and `mkdir` (the Linux half's, weak `ENOSYS` defaults on a board), with the 128-byte asm-generic `struct stat`. **Missing**: eleven functions, each one Linux system call through the hook (`fchmodat`, `fstatat`, `utimensat`, `mkdirat`, `mknodat`, `umask`), (b), small. **Missing macros**: the permission bits `S_IRWXU` `S_IRUSR` `S_IWUSR` `S_IXUSR` `S_IRWXG` `S_IRGRP` `S_IWGRP` `S_IXGRP` `S_IRWXO` `S_IROTH` `S_IWOTH` `S_IXOTH` `S_ISUID` `S_ISGID` `S_ISVTX`, `UTIME_NOW` and `UTIME_OMIT`, the tests `S_ISBLK` and `S_ISSOCK`, the four `S_TYPEIS*`, and [XSI]'s `S_IFBLK`: (a), small.
 
 | status | functions |
 |---|---|
@@ -847,16 +847,10 @@ deliberately wrong lines in the same run (`strlen` answering `int`, `strtol` tak
 reported. The disagreements are in behaviour and in types:
 
 - **The printf family** (`printf`, `dprintf`, `sprintf`, `snprintf`, `vprintf`, `vdprintf`, `vsprintf`,
-  `vsnprintf`), in four ways; every other conversion C defines is taken:
-  1. `%ls` reads its argument as bytes, not as a `wchar_t` string, so `snprintf(b, 64, "<%ls>", L"hi")`
-     writes `<h>` and answers 3, where C writes `<hi>` and answers 4. `%lc` writes the low byte of the
-     wide character, where C converts it and fails with `EILSEQ` for one the locale cannot encode
-     (*Bugs*).
-  2. **A count past `INT_MAX` wraps**: `snprintf(NULL, 0, "%2147483647d%d", 1, 1)` answers
-     -2147483648 and leaves `errno` alone, where POSIX requires -1 and `EOVERFLOW` (*Bugs*).
-  3. **POSIX's numbered conversions (`%2$d`) are not taken** [CX]: `"<%2$d %1$d>"` is copied out as
+  `vsnprintf`), in two ways; every other conversion C defines is taken:
+  1. **POSIX's numbered conversions (`%2$d`) are not taken** [CX]: `"<%2$d %1$d>"` is copied out as
      written and its arguments are not read.
-  4. **`L` is not taken even where `long double` is a `double`** (arm64 macOS, 32-bit Arm), so
+  2. **`L` is not taken even where `long double` is a `double`** (arm64 macOS, 32-bit Arm), so
      `%Lf` of `1.5L` writes `%Lf`; C requires it there. Where `long double` is binary128 it is absent by
      design with `strtold`.
 - **`time_t` is 32 bits on a Cortex-M and on riscv32** (`typedef long time_t`), and POSIX.1-2024 requires
@@ -871,30 +865,8 @@ reported. The disagreements are in behaviour and in types:
   ROADMAP moves them to a header of cstd's own.
 - **`<unistd.h>` does not make `intptr_t` visible**, and **`<stdio.h>` does not make `off_t`, `ssize_t`
   or the `SEEK_` macros visible**, though both pages require them.
-- `__restrict` is written for `restrict` in every header but `time.h`, so the rest also read as C++;
-  the two are equivalent in C.
-
-## Bugs
-
-Found by the audit and not fixed here; each has a reproduction against the v0.1.9 archive, built as
-`c_case` builds a case (`clang -std=c11 -O0 -fno-builtin -nostdinc -isystem <resource>/include -I
-include prog.c libcstd.a`, `libcstd.a` from `sysl build-c .` on the host):
-
-1. **`%ls` prints a wide string as bytes** (`printf.sysl`, the `s` conversion reads `*u8` whatever the
-   length). `wchar_t w[] = L"hi"; snprintf(b, 64, "<%ls>", w)` writes `<h>`, answers 3; C writes `<hi>`,
-   answers 4. `%lc` of a wide character above 0x7F writes its low byte instead of failing with `EILSEQ`.
-2. **A printf count past `INT_MAX` wraps to a negative number** (`answer` in `printf.sysl` narrows
-   `s.total` with `i32(...)`). `snprintf(NULL, 0, "%2147483647d%d", 1, 1)` answers -2147483648 with
-   `errno` 0; POSIX: -1 and `EOVERFLOW`.
-3. **`<time.h>`, and so `<sys/stat.h>`, do not parse as C++**: they write `restrict`, where every other
-   header writes `__restrict` for exactly that reason (`stdio.h`'s comment says so) and each opens an
-   `extern "C"` block. `echo '#include <time.h>' | clang -x c++ -std=c++17 --target=aarch64-linux-gnu
-   -ffreestanding -nostdinc -isystem $(clang -print-resource-dir)/include -I include -fsyntax-only -`
-   fails with `time.h:67:44: error: expected ')'` (seven errors); every other header is clean.
-4. **The README contradicts itself on allocation**: its *What is deliberately absent* list says
-   *Allocation and `exit` in the portable half ... a board's arena is still to come*, while its *On a
-   board* section and `board_defaults_tests.sysl` describe and test the core's weak `malloc` family and
-   `exit` over `sbrk`.
+- Every header writes `__restrict` for `restrict`, so each also reads as C++; the two are equivalent
+  in C (`headers_tests.sysl`).
 
 ## Design questions
 
@@ -930,8 +902,7 @@ include prog.c libcstd.a`, `libcstd.a` from `sysl build-c .` on the host):
 C-required first, small before large; then what the Linux half needs for keel. The board packages
 need nothing further (*What the board packages call*), so they set no order.
 
-1. **The printf disagreements** — `%ls`/`%lc`, `EOVERFLOW`, `L` where `long double` is a `double`
-   (small each); `%n$` (medium: a first pass that reads the types, then a walk with `va_copy`).
+1. **The printf disagreements** — `L` where `long double` is a `double` (small); `%n$` (medium: a first pass that reads the types, then a walk with `va_copy`).
 2. **`<signal.h>`'s C half** — `signal`, `raise`, `sig_atomic_t`, `SIG_DFL`/`SIG_IGN`/`SIG_ERR` in the
    core, then strong Linux definitions (small); `psignal`, `psiginfo`, `sig2str`, `str2sig` (small).
 3. **Small C gaps** — `asctime`, `ctime`; `aligned_alloc`, `quick_exit`, `at_quick_exit`; `perror`;
