@@ -20,52 +20,32 @@ impl Fallible for Sink
 
 impl Writer for Sink
     write(*self, bytes: []const u8)
-        for b in bytes do put(self, b)
+        for b in bytes do self.put(b)
 
-// The specifier `write_real` is handed for `sp`: `%`, the flags, a `*` for the width,
-// `.*` where there is a precision, and the conversion letter.
+// The specifier `write_real` is handed for `sp`, spelled into `into`: `%`, the flags, a `*` for the
+// width, `.*` where there is a precision, and the conversion letter.
 private specifier(sp: Spec, into: *[12]u8) -> usize
+    val parts: [10](bool, u8) = [
+        (true, '%'), (sp.minus, '-'), (sp.plus, '+'), (sp.space, ' '), (sp.alt, '#'), (sp.zero, '0'),
+        (true, '*'), (sp.has_precision, '.'), (sp.has_precision, '*'), (true, sp.conv)]
     var n: usize = 0
-    into[n] = u8('%')
-    n += 1
-    if sp.minus
-        into[n] = u8('-')
-        n += 1
-    if sp.plus
-        into[n] = u8('+')
-        n += 1
-    if sp.space
-        into[n] = u8(' ')
-        n += 1
-    if sp.alt
-        into[n] = u8('#')
-        n += 1
-    if sp.zero
-        into[n] = u8('0')
-        n += 1
-    into[n] = u8('*')
-    n += 1
-    if sp.has_precision
-        into[n] = u8('.')
-        into[n + 1] = u8('*')
-        n += 2
-    into[n] = sp.conv
-    n + 1
-end specifier
+    for (present, byte) in parts
+        if present
+            into[n] = byte
+            n += 1
+    n
 
 // One float conversion of `x` under `sp`, with `scratch` to work in. A refusal -- a scratch too short
 // for the digits -- is a failed conversion, which the family answers as `-1`.
 private[cstd] emit_float_in(s: *Sink, sp: Spec, x: real, scratch: []u8)
     var text: [12]u8
     val n = specifier(sp, &text)
-    val precision: int = if sp.has_precision then int(sp.precision) else -1
+    val precision = if sp.has_precision then int(sp.precision) else -1
 
-    write_real(x, s, from_utf8_unchecked(text[0..<n]), int(sp.width), precision, scratch) match
-        Ok(_) -> ()
-        Err(_) -> s.broken = true
-end emit_float_in
+    if write_real(x, s, from_utf8_unchecked(text[0..<n]), int(sp.width), precision, scratch).is_err()
+        s.broken = true
 
 // One float conversion of `x` under `sp`. `float_scratch_len` bytes are enough for any double.
 private[cstd] emit_float(s: *Sink, sp: Spec, x: real)
     var scratch: [float_scratch_len]u8
-    emit_float_in(s, sp, x, scratch[..])
+    emit_float_in(s, sp, x, scratch)

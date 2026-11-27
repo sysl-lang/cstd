@@ -20,6 +20,8 @@ module sh.sysl.cstd
 // As elsewhere, `time_t`, `clock_t` and `tv_nsec` are C's `long` (`Long`, measured), so 32 bits on a
 // Cortex-M and 64 on an LP64 machine, and a C `char *` is a `*u8`.
 
+import sysl.math.{div_floor, mod_floor}
+
 // `struct tm`, POSIX.1-2024's members in musl's and glibc's order.
 struct Tm
     tm_sec: i32
@@ -46,15 +48,10 @@ const CLOCK_REALTIME: i32 = 0
 const CLOCK_PROCESS_CPUTIME_ID: i32 = 2
 const CLOCKS_PER_SEC: i64 = 1000000
 
-// Division and remainder rounding toward minus infinity, for a positive divisor.
-private floor_div(a: i64, b: i64) -> i64 = if a % b < 0 then a / b - 1 else a / b
-
-private floor_mod(a: i64, b: i64) -> i64 = a - floor_div(a, b) * b
-
 // Days from 1970-01-01 to the date `y`-`m`-`d`, `m` from 1 to 12.
 private days_from_civil(y: i64, m: i64, d: i64) -> i64
     val yy = if m <= 2 then y - 1 else y
-    val era = floor_div(yy, 400)
+    val era = div_floor(yy, 400)
     val yoe = yy - era * 400
     val mp = if m > 2 then m - 3 else m + 9
     val doy = (153 * mp + 2) / 5 + d - 1
@@ -64,7 +61,7 @@ private days_from_civil(y: i64, m: i64, d: i64) -> i64
 // The date `z` days after 1970-01-01, as year, month (1 to 12) and day.
 private civil_from_days(z: i64) -> (i64, i64, i64)
     val zz = z + 719468
-    val era = floor_div(zz, 146097)
+    val era = div_floor(zz, 146097)
     val doe = zz - era * 146097
     val yoe = (doe - doe / 1460 + doe / 36524 - doe / 146096) / 365
     val doy = doe - (365 * yoe + yoe / 4 - yoe / 100)
@@ -73,12 +70,12 @@ private civil_from_days(z: i64) -> (i64, i64, i64)
     val m = if mp < 10 then mp + 3 else mp - 9
     (yoe + era * 400 + (if m <= 2 then 1 else 0), m, d)
 
-private utc() -> *u8 = c"UTC"
+private val UTC: *u8 = c"UTC"
 
 // Fills `tm` with the UTC time `t` seconds after the Epoch, or answers false, touching nothing,
 // where the year does not fit `tm_year`.
 private fill(t: i64, tm: *Tm) -> bool
-    val days = floor_div(t, SECONDS_PER_DAY)
+    val days = div_floor(t, SECONDS_PER_DAY)
     val secs = t - days * SECONDS_PER_DAY
     val (y, m, d) = civil_from_days(days)
     val year = y - 1900
@@ -89,11 +86,11 @@ private fill(t: i64, tm: *Tm) -> bool
     tm.tm_mday = i32(d)
     tm.tm_mon = i32(m - 1)
     tm.tm_year = i32(year)
-    tm.tm_wday = i32(floor_mod(days + 4, 7))
+    tm.tm_wday = i32(mod_floor(days + 4, 7))
     tm.tm_yday = i32(days - days_from_civil(y, 1, 1))
     tm.tm_isdst = 0
     tm.tm_gmtoff = 0
-    tm.tm_zone = utc()
+    tm.tm_zone = UTC
     true
 end fill
 
@@ -102,8 +99,8 @@ end fill
 // second of -1 the last second of the minute before. Every `int` field fits without overflow.
 private seconds_of(tm: *Tm) -> i64
     val mon = i64(tm.tm_mon)
-    val y = i64(tm.tm_year) + 1900 + floor_div(mon, 12)
-    val days = days_from_civil(y, floor_mod(mon, 12) + 1, 1) + i64(tm.tm_mday) - 1
+    val y = i64(tm.tm_year) + 1900 + div_floor(mon, 12)
+    val days = days_from_civil(y, mod_floor(mon, 12) + 1, 1) + i64(tm.tm_mday) - 1
     days * SECONDS_PER_DAY + i64(tm.tm_hour) * 3600 + i64(tm.tm_min) * 60 + i64(tm.tm_sec)
 
 // The one structure `gmtime` and `localtime` answer, which C lets them share.
@@ -143,8 +140,7 @@ mktime(tm: *Tm) -> Long = timegm(tm)
 
 // There is no `TZ` to read: the zone is UTC whatever the environment says.
 @export("tzset")
-tzset()
-    return
+tzset() = ()
 
 // The names of standard time and of summer time, which are both UTC.
 @export("tzname")
@@ -202,35 +198,27 @@ timespec_get(ts: *Timespec, base: i32) -> i32
 // known to fit, NUL included, before `strftime` answers its length; otherwise it answers 0 with
 // `ERANGE`.
 
-private day_name(d: i32, full: bool) -> *u8 = d match
-    0 -> if full then c"Sunday" else c"Sun"
-    1 -> if full then c"Monday" else c"Mon"
-    2 -> if full then c"Tuesday" else c"Tue"
-    3 -> if full then c"Wednesday" else c"Wed"
-    4 -> if full then c"Thursday" else c"Thu"
-    5 -> if full then c"Friday" else c"Fri"
-    6 -> if full then c"Saturday" else c"Sat"
-    _ -> c"?"
+private val DAY_NAMES: [7]*u8 = [
+    c"Sunday", c"Monday", c"Tuesday", c"Wednesday", c"Thursday", c"Friday", c"Saturday"]
 
-private month_name(m: i32, full: bool) -> *u8 = m match
-    0 -> if full then c"January" else c"Jan"
-    1 -> if full then c"February" else c"Feb"
-    2 -> if full then c"March" else c"Mar"
-    3 -> if full then c"April" else c"Apr"
-    4 -> if full then c"May" else c"May"
-    5 -> if full then c"June" else c"Jun"
-    6 -> if full then c"July" else c"Jul"
-    7 -> if full then c"August" else c"Aug"
-    8 -> if full then c"September" else c"Sep"
-    9 -> if full then c"October" else c"Oct"
-    10 -> if full then c"November" else c"Nov"
-    11 -> if full then c"December" else c"Dec"
-    _ -> c"?"
+private val MONTH_NAMES: [12]*u8 = [
+    c"January", c"February", c"March", c"April", c"May", c"June",
+    c"July", c"August", c"September", c"October", c"November", c"December"]
 
 private put_text(s: *Sink, text: *u8)
     var i: usize = 0
     while text[i] != 0
-        put(s, text[i])
+        s.put(text[i])
+        i += 1
+
+// The name at `at` in full, or its first three letters, which is every abbreviation the C locale
+// has; `?` where `at` names none.
+private put_name(s: *Sink, names: []const *u8, at: i32, full: bool)
+    if at < 0 || usize(at) >= names.len then return s.put('?')
+    val name = names[usize(at)]
+    var i: usize = 0
+    while name[i] != 0 && (full || i < 3)
+        s.put(name[i])
         i += 1
 
 // `v` in decimal, filled on the left to `width` characters with `fill`: zeros go after a minus
@@ -245,27 +233,27 @@ private put_number(s: *Sink, v: i64, width: i64, fill: u8)
         mag /= 10
         if mag == 0 then break
     val len = i64(n) + (if v < 0 then 1 else 0)
-    if fill == ' ' then for _ in len..<width do put(s, ' ')
-    if v < 0 then put(s, '-')
-    if fill == '0' then for _ in len..<width do put(s, '0')
+    if fill == ' ' then for _ in len..<width do s.put(' ')
+    if v < 0 then s.put('-')
+    if fill == '0' then for _ in len..<width do s.put('0')
     while n > 0
         n -= 1
-        put(s, digits[n])
+        s.put(digits[n])
 end put_number
 
-private is_leap(y: i64) -> bool = floor_mod(y, 4) == 0 && (floor_mod(y, 100) != 0 || floor_mod(y, 400) == 0)
+private is_leap(y: i64) -> bool = mod_floor(y, 4) == 0 && (mod_floor(y, 100) != 0 || mod_floor(y, 400) == 0)
 
 // ISO 8601's week-numbering: weeks begin on Monday and week 1 holds 4 January, so a year has 53
 // weeks where it begins on a Thursday, or on a Wednesday and is leap.
 private iso_weeks(y: i64) -> i64
-    val jan1 = floor_mod(days_from_civil(y, 1, 1) + 4, 7)
+    val jan1 = mod_floor(days_from_civil(y, 1, 1) + 4, 7)
     if jan1 == 4 || (jan1 == 3 && is_leap(y)) then 53 else 52
 
 // The week-based year and week number of `tm`'s date, from its year, day of the year and weekday.
 private iso_week(tm: *Tm) -> (i64, i64)
     val y = i64(tm.tm_year) + 1900
-    val monday_based = floor_mod(i64(tm.tm_wday) + 6, 7)
-    val week = floor_div(i64(tm.tm_yday) - monday_based + 10, 7)
+    val monday_based = mod_floor(i64(tm.tm_wday) + 6, 7)
+    val week = div_floor(i64(tm.tm_yday) - monday_based + 10, 7)
     if week < 1 then return (y - 1, iso_weeks(y - 1))
     if week > iso_weeks(y) then return (y + 1, 1)
     (y, week)
@@ -277,16 +265,16 @@ private last_two(y: i64) -> i64 = if y < 0 then -(y % 100) else y % 100
 
 // `%Y` with no width: four digits at least, and a `+` before a year past 9999.
 private put_year(s: *Sink, y: i64)
-    if y > 9999 then put(s, '+')
+    if y > 9999 then s.put('+')
     put_number(s, y, 4, '0')
 
 // One conversion, written to `s`; false for a conversion the standard does not define.
 private convert(s: *Sink, conv: u8, tm: *Tm) -> bool
     conv match
-        'a' -> put_text(s, day_name(tm.tm_wday, false))
-        'A' -> put_text(s, day_name(tm.tm_wday, true))
-        'b' | 'h' -> put_text(s, month_name(tm.tm_mon, false))
-        'B' -> put_text(s, month_name(tm.tm_mon, true))
+        'a' -> put_name(s, DAY_NAMES, tm.tm_wday, false)
+        'A' -> put_name(s, DAY_NAMES, tm.tm_wday, true)
+        'b' | 'h' -> put_name(s, MONTH_NAMES, tm.tm_mon, false)
+        'B' -> put_name(s, MONTH_NAMES, tm.tm_mon, true)
         'c' -> return format(s, c"%a %b %e %T %Y", tm)
         'C' -> put_number(s, year_of(tm) / 100, 2, '0')
         'd' -> put_number(s, i64(tm.tm_mday), 2, '0')
@@ -301,78 +289,74 @@ private convert(s: *Sink, conv: u8, tm: *Tm) -> bool
             put_number(s, y, 4, '0')
         'H' -> put_number(s, i64(tm.tm_hour), 2, '0')
         'I' ->
-            val h = floor_mod(i64(tm.tm_hour), 12)
+            val h = mod_floor(i64(tm.tm_hour), 12)
             put_number(s, if h == 0 then 12 else h, 2, '0')
         'j' -> put_number(s, i64(tm.tm_yday) + 1, 3, '0')
         'm' -> put_number(s, i64(tm.tm_mon) + 1, 2, '0')
         'M' -> put_number(s, i64(tm.tm_min), 2, '0')
-        'n' -> put(s, '\n')
+        'n' -> s.put('\n')
         'p' -> put_text(s, if tm.tm_hour >= 12 then c"PM" else c"AM")
         'r' -> return format(s, c"%I:%M:%S %p", tm)
         'R' -> return format(s, c"%H:%M", tm)
         's' -> put_number(s, seconds_of(tm), 1, '0')
         'S' -> put_number(s, i64(tm.tm_sec), 2, '0')
-        't' -> put(s, '\t')
+        't' -> s.put('\t')
         'T' | 'X' -> return format(s, c"%H:%M:%S", tm)
         'u' -> put_number(s, if tm.tm_wday == 0 then 7 else i64(tm.tm_wday), 1, '0')
-        'U' -> put_number(s, floor_div(i64(tm.tm_yday) + 7 - i64(tm.tm_wday), 7), 2, '0')
+        'U' -> put_number(s, div_floor(i64(tm.tm_yday) + 7 - i64(tm.tm_wday), 7), 2, '0')
         'V' ->
             val (_, w) = iso_week(tm)
             put_number(s, w, 2, '0')
         'w' -> put_number(s, i64(tm.tm_wday), 1, '0')
-        'W' -> put_number(s, floor_div(i64(tm.tm_yday) + 7 - floor_mod(i64(tm.tm_wday) + 6, 7), 7), 2, '0')
+        'W' -> put_number(s, div_floor(i64(tm.tm_yday) + 7 - mod_floor(i64(tm.tm_wday) + 6, 7), 7), 2, '0')
         'y' -> put_number(s, last_two(year_of(tm)), 2, '0')
         'Y' -> put_year(s, year_of(tm))
         'z' ->
             if tm.tm_isdst >= 0
                 val off = i64(tm.tm_gmtoff)
-                put(s, if off < 0 then '-' else '+')
-                val a = if off < 0 then -off else off
+                s.put(if off < 0 then '-' else '+')
+                val a = off.abs()
                 put_number(s, a / 3600 * 100 + a % 3600 / 60, 4, '0')
         'Z' ->
             if tm.tm_isdst >= 0
-                put_text(s, if tm.tm_zone != null then tm.tm_zone else utc())
-        '%' -> put(s, '%')
+                put_text(s, if tm.tm_zone != null then tm.tm_zone else UTC)
+        '%' -> s.put('%')
         _ -> return false
     true
 end convert
-
-private is_digit_byte(b: u8) -> bool = b >= '0' && b <= '9'
 
 // `%C`, `%F`, `%G` or `%Y` with a minimum field width, as POSIX lays it out: the conversion's own
 // text with its sign and leading zeros taken off, then a sign, then zeros to `width`. The sign is
 // `-` for a year before 0, and `+` under the `+` flag where the year's field would otherwise take
 // more than four bytes (two for `%C`).
 private put_padded(s: *Sink, conv: u8, tm: *Tm, width: i64, plus: bool) -> bool
-    var text: Sink
     var bytes: [48]u8
-    text.dst = &bytes[0]
-    text.room = 48
+    var text = Sink.memory(&bytes[0], bytes.len)
     if !convert(&text, conv, tm) then return false
     var start: usize = 0
     var k = i64(text.total)
     if bytes[0] == '+' || bytes[0] == '-'
         start = 1
         k -= 1
-    while bytes[start] == '0' && is_digit_byte(bytes[start + 1])
+    while bytes[start] == '0' && bytes[start + 1] is '0'..'9'
         start += 1
         k -= 1
-    var room = if width < k then k else width
+    var room = width.max(k)
     var digits: i64 = 0
-    while start + usize(digits) < usize(text.total) && is_digit_byte(bytes[start + usize(digits)])
+    while start + usize(digits) < usize(text.total) && bytes[start + usize(digits)] is '0'..'9'
         digits += 1
     if tm.tm_year < -1900
-        put(s, '-')
+        s.put('-')
         room -= 1
     elif plus && digits + (room - k) >= (if conv == 'C' then 3 else 5)
-        put(s, '+')
+        s.put('+')
         room -= 1
-    for _ in k..<room do put(s, '0')
-    for i in start..<usize(text.total) do put(s, bytes[i])
+    for _ in k..<room do s.put('0')
+    for i in start..<usize(text.total) do s.put(bytes[i])
     true
 end put_padded
 
-private is_year_conv(c: u8) -> bool = c == 'C' || c == 'F' || c == 'G' || c == 'Y'
+private is_year_conv(c: u8) -> bool = c is 'C' | 'F' | 'G' | 'Y'
 
 private format(s: *Sink, fmt: *u8, tm: *Tm) -> bool
     var i: usize = 0
@@ -381,7 +365,7 @@ private format(s: *Sink, fmt: *u8, tm: *Tm) -> bool
         if c == 0 then return true
         i += 1
         if c != '%'
-            put(s, c)
+            s.put(c)
             continue
         var plus = false
         if fmt[i] == '0' || fmt[i] == '+'
@@ -389,7 +373,7 @@ private format(s: *Sink, fmt: *u8, tm: *Tm) -> bool
             i += 1
         var width: i64 = 0
         var has_width = false
-        while is_digit_byte(fmt[i])
+        while fmt[i] is '0'..'9'
             if width < 1000000 then width = width * 10 + i64(fmt[i] - '0')
             has_width = true
             i += 1
@@ -403,12 +387,10 @@ end format
 
 @export("strftime")
 strftime(dst: *u8, max: usize, fmt: *u8, tm: *Tm) -> usize
-    var s: Sink
-    s.dst = dst
-    s.room = max
+    var s = Sink.memory(dst, max)
     val ok = format(&s, fmt, tm)
     val fits = ok && s.total < max
-    if max > 0 then dst[if s.total < max then s.total else max - 1] = 0
+    if max > 0 then dst[s.total.min(max - 1)] = 0
     if !fits
         if ok then errno = ERANGE
         return 0

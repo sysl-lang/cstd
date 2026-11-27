@@ -70,7 +70,7 @@ linux_half_replaces_board_defaults()
 board_heap_and_exit()
     m4f_run("tests/board_probe", "heap", "heap: ok\natexit 3\natexit 2\natexit 1 after 29\n")
 
-@test("on QEMU's MPS2 AN386 with no sbrk from the board, malloc, calloc and realloc answer null with ENOMEM")
+@test("on QEMU's MPS2 AN386 with no sbrk from the board, malloc, calloc and realloc answer null with ENOMEM, and a float conversion through vsnprintf -1")
 board_without_sbrk()
     m4f_run("tests/board_probe", "nosbrk", "nosbrk: ok\n")
 

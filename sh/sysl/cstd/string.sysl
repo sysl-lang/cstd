@@ -179,9 +179,10 @@ strtok(s: *u8, delim: *u8) -> *u8 = strtok_r(s, delim, &strtok_save)
 // library would format it in, and nothing here may depend on a formatter. Every message is a
 // literal, so the pointer is to text that ends in a NUL and lives as long as the program.
 @export("strerror")
-strerror(code: i32) -> *u8 = message(code).unwrap_or(UNKNOWN_ERROR)
+strerror(code: i32) -> *u8 = message(code).unwrap_or(unknown_error())
 
-private val UNKNOWN_ERROR: *nonnull u8 = c"Unknown error"
+// What an undefined code is called.
+private unknown_error() -> *nonnull u8 = c"Unknown error"
 
 // The message for a code `errno.sysl` defines, and for 0.
 private message(code: i32) -> Option[*nonnull u8] = code match
@@ -242,7 +243,7 @@ private message(code: i32) -> Option[*nonnull u8] = code match
 @export("strerror_r")
 strerror_r(code: i32, buf: *u8, size: usize) -> i32
     val known = message(code)
-    if strlcpy(buf, known.unwrap_or(UNKNOWN_ERROR), size) >= size then return ERANGE
+    if strlcpy(buf, known.unwrap_or(unknown_error()), size) >= size then return ERANGE
     if known.is_some() then 0 else EINVAL
 
 // Only the C locale exists, so the locale changes nothing and the message is `strerror`'s.

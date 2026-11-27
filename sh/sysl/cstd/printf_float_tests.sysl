@@ -591,4 +591,71 @@ float_scratch_refusal()
     emit_float_in(&short, sp, DBL_MAX_VALUE, tiny[..])
     assert(short.broken)
 
+// A heap of the case's own that can be told to refuse. A float conversion's specifier is the one
+// allocation the family makes, so a refusal there must fail a `v` function the way POSIX says a
+// printf function fails for want of memory, and a conversion that allocates nothing must not notice.
+// `into` and `onto` reach `vsnprintf` and `vdprintf` as a C program does, with a `va_list` of its own.
+private val refusing_malloc: string = raw"""
+    #include <stdarg.h>
+    static int refuse;
+    static _Alignas(16) char arena[64];
+    void *malloc(size_t n) { (void)n; return refuse ? NULL : arena; }
+    void free(void *p) { (void)p; }
+    static int into(char *t, size_t n, const char *fmt, ...) {
+        va_list ap;
+        va_start(ap, fmt);
+        int r = vsnprintf(t, n, fmt, ap);
+        va_end(ap);
+        return r;
+    }
+    static int onto(int fd, const char *fmt, ...) {
+        va_list ap;
+        va_start(ap, fmt);
+        int r = vdprintf(fd, fmt, ap);
+        va_end(ap);
+        return r;
+    }
+    """
+
+@test("a float conversion the heap refuses fails vsnprintf and vdprintf with -1 and ENOMEM; an integer one is untouched")
+float_conversion_out_of_memory()
+    c_case(raw"""
+        char t[32];
+        errno = 0;
+        say_int(into(t, sizeof t, "<%.1f>", 2.5));
+        say_str(t);
+        say_int(errno);
+        refuse = 1;
+        say_int(into(t, sizeof t, "<%.1f>", 2.5));
+        say_int(errno);
+        errno = 0;
+        say_int(into(t, sizeof t, "%e", 1.0));
+        say_int(errno);
+        errno = 0;
+        say_int(onto(1, "%g\n", 1.0));
+        say_int(errno);
+        errno = 0;
+        say_int(into(t, sizeof t, "<%d %s>", 7, "x"));
+        say_str(t);
+        say_int(errno);
+        refuse = 0;
+        say_int(into(t, sizeof t, "<%.1f>", 2.5));
+        say_str(t);
+        """, raw"""
+        5
+        <2.5>
+        0
+        -1
+        12
+        -1
+        12
+        -1
+        12
+        5
+        <7 x>
+        0
+        5
+        <2.5>
+        """, refusing_malloc)
+
 private val DBL_MAX_VALUE: real = 1.7976931348623157e308

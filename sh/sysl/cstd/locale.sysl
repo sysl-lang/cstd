@@ -53,7 +53,7 @@ private is_category(category: i32) -> bool = LC_CTYPE <= category <= LC_ALL
 private is_c_name(name: *u8) -> bool =
     name[0] == 0 || strcmp(name, c"C") == 0 || strcmp(name, c"POSIX") == 0
 
-private val C_NAME: *nonnull u8 = c"C"
+private val C_NAME: *u8 = c"C"
 
 @export("setlocale")
 setlocale(category: i32, name: *u8) -> *u8

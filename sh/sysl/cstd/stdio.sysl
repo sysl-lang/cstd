@@ -21,8 +21,8 @@ private write_all(bytes: *u8, n: usize) -> bool
 @export("puts")
 puts(s: *u8) -> i32
     if !write_all(s, strlen(s)) then return EOF
-    var nl: u8 = 10
-    if !write_all(&nl, 1) then return EOF
+    var newline: u8 = '\n'
+    if !write_all(&newline, 1) then return EOF
     1
 
 @export("putchar")
