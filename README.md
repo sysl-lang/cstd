@@ -69,7 +69,7 @@ require, exported under its C name with `@export`.
   written. `%ls` and `%lc` convert wide characters as `wctomb` does, so one past 0x7F fails the
   call with `EILSEQ`; a count past `INT_MAX` fails it with `EOVERFLOW`. There is no `FILE`:
   `printf`, `puts` and `putchar` write to descriptor 1 and `dprintf` to the one it is given, all
-  through `write`, which the platform supplies; `puts` and `putchar` answer `EOF` when it fails. Output gathers in a 256-byte buffer on the stack and nothing allocates.
+  through `write`, which the platform supplies; `puts` and `putchar` answer `EOF` when it fails. Output gathers in a 256-byte buffer on the stack. The one allocation is a float conversion's specifier, a few bytes freed before the call returns: where `malloc` refuses it, `vsnprintf`, `vsprintf`, `vdprintf` and `vprintf` answer -1 with `errno` `ENOMEM`, and the four that take `...` trap.
 - Where C leaves a choice, musl's answer is taken, since keel targets musl compatibility: `%p` is
   `%#zx`, so a null pointer prints `0` (glibc prints `(nil)`); `%s` of a null pointer prints
   `(null)`; a conversion C does not define is copied out as written.
