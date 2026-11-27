@@ -290,8 +290,10 @@ private const SIG_SETMASK: i32 = 2
 
 // The end of `sigsetjmp`, on both of its returns. `ret` is what `setjmp` answered: 0 the first time,
 // when the mask is read into the buffer; anything else after `siglongjmp`, when it is put back.
+// `mask` is the address of the buffer's mask words, which the assembly above works out and is never
+// null.
 @export("cstd_sigsetjmp_tail")
-sigsetjmp_tail(mask: *u8, ret: i32) -> i32
+sigsetjmp_tail(mask: *nonnull u8, ret: i32) -> i32
     if ret == 0
         c_sigprocmask(SIG_SETMASK, null, mask)
     else

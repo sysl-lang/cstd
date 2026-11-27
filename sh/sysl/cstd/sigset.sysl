@@ -11,7 +11,7 @@ struct SigSet
     bits: u64
 
 // The bit for `sig`, or 0 where `sig` is not a signal number.
-private bit(sig: i32) -> u64 = if sig >= 1 && sig <= 64 then 1 << u64(sig - 1) else 0
+private bit(sig: i32) -> u64 = if 1 <= sig <= 64 then 1 << u64(sig - 1) else 0
 
 private invalid() -> i32
     errno = EINVAL
@@ -31,14 +31,14 @@ sigfillset(set: *SigSet) -> i32
 sigaddset(set: *SigSet, sig: i32) -> i32
     val b = bit(sig)
     if b == 0 then return invalid()
-    set.bits = set.bits | b
+    set.bits |= b
     0
 
 @export("sigdelset")
 sigdelset(set: *SigSet, sig: i32) -> i32
     val b = bit(sig)
     if b == 0 then return invalid()
-    set.bits = set.bits & ~b
+    set.bits &= ~b
     0
 
 @export("sigismember")
