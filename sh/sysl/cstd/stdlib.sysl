@@ -7,7 +7,9 @@ module sh.sysl.cstd
 // built. `long long` is 64 bits everywhere C runs, and is measured anyway so that the four types
 // are spelled one way.
 //
-// As in `string.sysl`, every function is exported under its C name.
+// As in `string.sysl`, every function is exported under its C name. Where C's arithmetic wraps and
+// the wrap is the answer -- a negated unsigned number, `rand`'s multiply -- the operator says so
+// (`-%`, `*%`), and a conversion that keeps only the low bits is a `wrap`.
 
 c type
     Long = "long"
@@ -26,11 +28,11 @@ private[cstd] struct Scan
 
 // A character's value as a digit in any base up to 36, or 36 when it is no digit at all. A wide
 // character past ASCII is no digit.
-private digit_value(b: u32) -> u64
-    if b >= u32('0') && b <= u32('9') then return u64(b - u32('0'))
-    val lower = b | 0x20
-    if lower >= u32('a') && lower <= u32('z') then return u64(lower - u32('a')) + 10
-    36
+private digit_value(c: u32) -> u64 = c match
+    u32('0')..u32('9') -> c - u32('0')
+    u32('a')..u32('z') -> c - u32('a') + 10
+    u32('A')..u32('Z') -> c - u32('A') + 10
+    _ -> 36
 
 // The reading every `strto*` shares: leading white space, one sign, a base of 0 settled by the
 // prefix, an optional `0x` in base 16, then digits. `limit` is the largest magnitude the type can
@@ -47,10 +49,8 @@ private[cstd] scan[T](text: *T, base_asked: i32, positive_limit: u64, negative_l
         return Scan(0, false, false, 0, false, true)
     var i: usize = 0
     while u32(text[i]) < 128 && isspace(i32(text[i])) != 0 do i += 1
-    var negative = false
-    if u32(text[i]) == u32('-') || u32(text[i]) == u32('+')
-        negative = u32(text[i]) == u32('-')
-        i += 1
+    val negative = u32(text[i]) == u32('-')
+    if negative || u32(text[i]) == u32('+') then i += 1
     var base = u64(base_asked)
     val hex_prefix = u32(text[i]) == u32('0') && (u32(text[i + 1]) | 0x20) == u32('x') && digit_value(u32(text[i + 2])) < 16
     if (base == 0 || base == 16) && hex_prefix
@@ -89,14 +89,14 @@ strtol(text: *u8, endptr: **u8, base: i32) -> Long
     val s = scan(text, base, u64(Long::Max), u64(Long::Max) + 1)
     settle(text, s, endptr)
     if s.overflowed then return if s.negative then Long::Min else Long::Max
-    if s.negative then -Long(s.magnitude) else Long(s.magnitude)
+    if s.negative then Long.wrap(0 -% s.magnitude) else Long(s.magnitude)
 
 @export("strtoll")
 strtoll(text: *u8, endptr: **u8, base: i32) -> LongLong
     val s = scan(text, base, u64(LongLong::Max), u64(LongLong::Max) + 1)
     settle(text, s, endptr)
     if s.overflowed then return if s.negative then LongLong::Min else LongLong::Max
-    if s.negative then -LongLong(s.magnitude) else LongLong(s.magnitude)
+    if s.negative then LongLong.wrap(0 -% s.magnitude) else LongLong(s.magnitude)
 
 // A minus sign is accepted and negates in the unsigned type, so `"-1"` is the largest value — C's
 // rule, which surprises everyone once.
@@ -105,19 +105,19 @@ strtoul(text: *u8, endptr: **u8, base: i32) -> ULong
     val s = scan(text, base, u64(ULong::Max), u64(ULong::Max))
     settle(text, s, endptr)
     if s.overflowed then return ULong::Max
-    if s.negative then 0 - ULong(s.magnitude) else ULong(s.magnitude)
+    if s.negative then ULong.wrap(0 -% s.magnitude) else ULong(s.magnitude)
 
 @export("strtoull")
 strtoull(text: *u8, endptr: **u8, base: i32) -> ULongLong
     val s = scan(text, base, u64(ULongLong::Max), u64(ULongLong::Max))
     settle(text, s, endptr)
     if s.overflowed then return ULongLong::Max
-    if s.negative then 0 - ULongLong(s.magnitude) else ULongLong(s.magnitude)
+    if s.negative then 0 -% ULongLong(s.magnitude) else ULongLong(s.magnitude)
 
 // `atoi` is `strtol` in base 10 narrowed to `int`, as C defines it; a number past `int` is
 // undefined there and is whatever the narrowing leaves here.
 @export("atoi")
-atoi(text: *u8) -> i32 = i32(strtol(text, null, 10))
+atoi(text: *u8) -> i32 = i32.wrap(strtol(text, null, 10))
 
 @export("atol")
 atol(text: *u8) -> Long = strtol(text, null, 10)
@@ -140,22 +140,22 @@ private var rand_state: u64 = 0
 
 @export("srand")
 srand(seed: u32)
-    rand_state = seed - 1
+    rand_state = seed -% 1
 
 @export("rand")
 rand() -> i32
-    rand_state = 6364136223846793005 * rand_state + 1
+    rand_state = 6364136223846793005 *% rand_state +% 1
     i32(rand_state >> 33)
 
 // `abs(INT_MIN)` is undefined in C; here it is `INT_MIN`, the two's-complement wrap.
 @export("abs")
-abs(n: i32) -> i32 = if n < 0 then -n else n
+abs(n: i32) -> i32 = n.abs()
 
 @export("labs")
-labs(n: Long) -> Long = if n < 0 then -n else n
+labs(n: Long) -> Long = n.abs()
 
 @export("llabs")
-llabs(n: LongLong) -> LongLong = if n < 0 then -n else n
+llabs(n: LongLong) -> LongLong = n.abs()
 
 // What `div`, `ldiv` and `lldiv` answer. The fields are in C's order, so the structs cross to a C
 // caller in the registers its convention names for `div_t` and its kin.
@@ -184,10 +184,7 @@ lldiv(n: LongLong, d: LongLong) -> LLDivT = LLDivT(n / d, n % d)
 
 // Swaps two elements of `size` bytes, a byte at a time so that no size needs a case of its own.
 private swap(a: *u8, b: *u8, size: usize)
-    for i in 0..<size
-        val t = a[i]
-        a[i] = b[i]
-        b[i] = t
+    for i in 0..<size do a[i], b[i] = b[i], a[i]
 
 // Restores the heap property for the element at `root` within the first `end` elements, moving it
 // down past any larger child.

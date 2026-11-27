@@ -18,7 +18,7 @@ struct ImaxDivT
 
 // `imaxabs(INT64_MIN)` is undefined in C; here it is `INT64_MIN`, the two's-complement wrap.
 @export("imaxabs")
-imaxabs(n: i64) -> i64 = if n < 0 then -n else n
+imaxabs(n: i64) -> i64 = n.abs()
 
 // Division truncates toward zero, so the remainder takes the dividend's sign. A zero divisor is
 // undefined in C and traps here.
@@ -36,11 +36,11 @@ wcstoimax(text: *u32, endptr: **u32, base: i32) -> i64
     val s = scan(text, base, u64(i64::Max), u64(i64::Max) + 1)
     settle(text, s, endptr)
     if s.overflowed then return if s.negative then i64::Min else i64::Max
-    if s.negative then -i64(s.magnitude) else i64(s.magnitude)
+    if s.negative then i64.wrap(0 -% s.magnitude) else i64(s.magnitude)
 
 @export("wcstoumax")
 wcstoumax(text: *u32, endptr: **u32, base: i32) -> u64
     val s = scan(text, base, u64::Max, u64::Max)
     settle(text, s, endptr)
     if s.overflowed then return u64::Max
-    if s.negative then 0 - s.magnitude else s.magnitude
+    if s.negative then 0 -% s.magnitude else s.magnitude

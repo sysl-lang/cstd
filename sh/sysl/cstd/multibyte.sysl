@@ -15,7 +15,7 @@ module sh.sysl.cstd
 // A `wchar_t` is 32 bits on every target cstd builds for and is read as `u32`, so a negative one
 // where `wchar_t` is signed is past 0x7F.
 
-private const ascii_end: u32 = 0x80
+private const ASCII_END: u32 = 0x80
 
 // The number of bytes in the character at `s`: 0 for the NUL, 1 for any other ASCII byte.
 @export("mblen")
@@ -26,7 +26,7 @@ mblen(s: *u8, n: usize) -> i32 = mbtowc(null, s, n)
 @export("mbtowc")
 mbtowc(pwc: *u32, s: *u8, n: usize) -> i32
     if s == null then return 0
-    if n == 0 || s[0] >= ascii_end
+    if n == 0 || s[0] >= ASCII_END
         errno = EILSEQ
         return -1
     if pwc != null then *pwc = s[0]
@@ -36,7 +36,7 @@ mbtowc(pwc: *u32, s: *u8, n: usize) -> i32
 @export("wctomb")
 wctomb(s: *u8, wc: u32) -> i32
     if s == null then return 0
-    if wc >= ascii_end
+    if wc >= ASCII_END
         errno = EILSEQ
         return -1
     s[0] = u8(wc)
@@ -50,7 +50,7 @@ mbstowcs(pwcs: *u32, s: *u8, n: usize) -> usize
     var i: usize = 0
     while pwcs == null || i < n
         val b = s[i]
-        if b >= ascii_end
+        if b >= ASCII_END
             errno = EILSEQ
             return usize::Max
         if pwcs != null then pwcs[i] = b
@@ -66,7 +66,7 @@ wcstombs(s: *u8, pwcs: *u32, n: usize) -> usize
     var i: usize = 0
     while s == null || i < n
         val wc = pwcs[i]
-        if wc >= ascii_end
+        if wc >= ASCII_END
             errno = EILSEQ
             return usize::Max
         if s != null then s[i] = u8(wc)

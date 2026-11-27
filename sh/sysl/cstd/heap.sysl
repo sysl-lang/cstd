@@ -43,13 +43,13 @@ private set_next(b: usize, next: usize)
 private mark(b: usize, size: usize, in_use: bool)
     *word(b) = if in_use then size | IN_USE else size
 
-private round_up(n: usize, to: usize) -> usize = (n + to - 1) & ~(to - 1)
+// `n` rounded up to a multiple of `to`, a power of two.
+private[cstd] round_up(n: usize, to: usize) -> usize = (n + to - 1) & ~(to - 1)
 
 // The block a request of `n` bytes needs, header included, or 0 when the arithmetic would overflow.
 private block_for(n: usize) -> usize
     if n > usize::Max - 2 * HEAP_ALIGN then return 0
-    val b = round_up(n + HEAP_ALIGN, HEAP_ALIGN)
-    if b < MIN_BLOCK then MIN_BLOCK else b
+    round_up(n + HEAP_ALIGN, HEAP_ALIGN).max(MIN_BLOCK)
 
 // One heap: the memory it has, `[start, top)`, and the first free block, 0 when there is none.
 struct Heap
@@ -106,9 +106,7 @@ struct Heap
     // first call sets where the heap starts: `top` 0 means it has no memory yet, and `from` is where
     // the new memory begins.
     grow(*self, from: usize, to: usize)
-        if self.top == 0
-            self.start = from
-            self.top = from
+        if self.top == 0 then self.start, self.top = from, from
         val at = self.top
         self.top = to
         mark(at, to - at, false)

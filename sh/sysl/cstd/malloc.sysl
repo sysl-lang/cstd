@@ -17,8 +17,6 @@ private extern "sbrk" c_sbrk(by: isize) -> *u8
 // `sbrk`'s failure answer, `(void *)-1`.
 private const NO_BREAK: usize = usize::Max
 
-private round_to(n: usize, to: usize) -> usize = (n + to - 1) & ~(to - 1)
-
 // A `Heap` that grows by moving the break, at least `step` bytes at a time where `sbrk` allows it and
 // by exactly what it needs where it does not.
 struct BreakHeap
@@ -34,10 +32,10 @@ impl BreakHeap
         val now = usize(c_sbrk(0))
         if now == NO_BREAK then return false
         if self.heap.top != 0 && self.heap.top != now then return false
-        val from = if self.heap.top == 0 then round_to(now, HEAP_ALIGN) else now
+        val from = if self.heap.top == 0 then round_up(now, HEAP_ALIGN) else now
         if more > usize::Max - from - self.step then return false
         for step in [self.step, HEAP_ALIGN]
-            val to = round_to(from + more, step)
+            val to = round_up(from + more, step)
             if usize(c_sbrk(isize(to - now))) == now
                 self.heap.grow(from, to)
                 return true
@@ -73,7 +71,7 @@ impl BreakHeap
         val q = self.malloc(n)
         if q == null then return null
         val keep = self.heap.usable(p)
-        memcpy(q, p, if keep < n then keep else n)
+        memcpy(q, p, keep.min(n))
         self.heap.release(p)
         q
 
