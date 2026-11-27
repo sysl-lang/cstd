@@ -23,8 +23,8 @@ private put(text: *nonnull u8)
 private put_number(n: i32)
     var digits: [11]u8
     var at = digits.len
-    var rest = u32(n)
-    if n < 0 then rest = 0 - rest
+    var rest = u32.wrap(n)
+    if n < 0 then rest = 0 -% rest
     loop
         at -= 1
         digits[at] = '0' + u8(rest % 10)

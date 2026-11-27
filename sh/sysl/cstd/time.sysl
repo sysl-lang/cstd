@@ -129,7 +129,7 @@ localtime(t: *Long) -> *Tm = gmtime_r(t, &shared_tm)
 @export("timegm")
 timegm(tm: *Tm) -> Long
     val t = seconds_of(tm)
-    val narrow = Long(t)
+    val narrow = Long.wrap(t)
     if i64(narrow) != t || !fill(t, tm)
         errno = EOVERFLOW
         return -1
@@ -174,7 +174,7 @@ clock() -> Long
     var ts: Timespec
     if read_clock(CLOCK_PROCESS_CPUTIME_ID, &ts) != 0 then return -1
     val us = i64(ts.tv_sec) * CLOCKS_PER_SEC + i64(ts.tv_nsec) / 1000
-    val narrow = Long(us)
+    val narrow = Long.wrap(us)
     if i64(narrow) != us then -1 else narrow
 
 @export("timespec_get")

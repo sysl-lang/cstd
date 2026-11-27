@@ -10,7 +10,8 @@ module sh.sysl.cstd
 //
 // A C `char *` is a `*u8` and a `void *` is a `*u8` too: the ABI is one pointer either way, and the
 // header in `include/` carries the `const` and the `void` C wants to see. Bytes are compared as
-// `unsigned char`, as C requires of `strcmp` and `memcmp`.
+// `unsigned char`, as C requires of `strcmp` and `memcmp`, and an `int` that names a byte is
+// converted to one as C converts it, by its low eight bits (`u8.wrap`).
 
 @export("strlen")
 strlen(s: *u8) -> usize
@@ -60,7 +61,7 @@ strncat(dst: *u8, src: *u8, n: usize) -> *u8
 // The terminator is part of the string here: `strchr(s, 0)` answers the address of the zero.
 @export("strchr")
 strchr(s: *u8, c: i32) -> *u8
-    val want = u8(c)
+    val want = u8.wrap(c)
     var i: usize = 0
     loop
         if s[i] == want then return &s[i]
@@ -69,7 +70,7 @@ strchr(s: *u8, c: i32) -> *u8
 
 @export("strrchr")
 strrchr(s: *u8, c: i32) -> *u8
-    val want = u8(c)
+    val want = u8.wrap(c)
     var last: *u8 = null
     var i: usize = 0
     loop
@@ -143,7 +144,7 @@ memmove(dst: *u8, src: *u8, n: usize) -> *u8
 
 @export("memset")
 memset(dst: *u8, c: i32, n: usize) -> *u8
-    val b = u8(c)
+    val b = u8.wrap(c)
     for i in 0..<n do dst[i] = b
     dst
 
@@ -155,7 +156,7 @@ memcmp(a: *u8, b: *u8, n: usize) -> i32
 
 @export("memchr")
 memchr(s: *u8, c: i32, n: usize) -> *u8
-    val want = u8(c)
+    val want = u8.wrap(c)
     for i in 0..<n
         if s[i] == want then return &s[i]
     null

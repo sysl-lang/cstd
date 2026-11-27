@@ -148,8 +148,8 @@ private signed_arg(ap: *va_list, length: Length) -> i64 = length match
     LngLng -> va_arg[LongLong](*ap)
     Max -> va_arg[i64](*ap)
     Size | Diff -> va_arg[isize](*ap)
-    Char -> i8(va_arg[i32](*ap))
-    Short -> i16(va_arg[i32](*ap))
+    Char -> i8.wrap(va_arg[i32](*ap))
+    Short -> i16.wrap(va_arg[i32](*ap))
     Plain -> va_arg[i32](*ap)
 
 private unsigned_arg(ap: *va_list, length: Length) -> u64 = length match
@@ -157,15 +157,15 @@ private unsigned_arg(ap: *va_list, length: Length) -> u64 = length match
     LngLng -> va_arg[ULongLong](*ap)
     Max -> va_arg[u64](*ap)
     Size -> va_arg[usize](*ap)
-    Diff -> u64(va_arg[isize](*ap))
-    Char -> u8(va_arg[u32](*ap))
-    Short -> u16(va_arg[u32](*ap))
+    Diff -> u64.wrap(va_arg[isize](*ap))
+    Char -> u8.wrap(va_arg[u32](*ap))
+    Short -> u16.wrap(va_arg[u32](*ap))
     Plain -> va_arg[u32](*ap)
 
 // `%n`: the count so far, stored at the width the length names.
 private store_count(ap: *va_list, length: Length, count: usize) = length match
-    Char -> *va_arg[*i8](*ap) = i8(count)
-    Short -> *va_arg[*i16](*ap) = i16(count)
+    Char -> *va_arg[*i8](*ap) = i8.wrap(count)
+    Short -> *va_arg[*i16](*ap) = i16.wrap(count)
     Lng -> *va_arg[*Long](*ap) = Long(count)
     LngLng | Max -> *va_arg[*i64](*ap) = i64(count)
     Size | Diff -> *va_arg[*isize](*ap) = isize(count)
@@ -344,13 +344,13 @@ private format(s: *Sink, fmt: *u8, ap: *va_list)
         sp.conv match
             'd' | 'i' ->
                 val v = signed_arg(ap, sp.length)
-                emit_int(s, sp, if v < 0 then 0 - u64(v) else u64(v), v < 0)
+                emit_int(s, sp, if v < 0 then 0 -% u64.wrap(v) else u64(v), v < 0)
             'u' | 'o' | 'x' | 'X' -> emit_int(s, sp, unsigned_arg(ap, sp.length), false)
             'p' ->
                 val p: *u8 = va_arg(*ap)
                 emit_int(s, sp with { conv = 'x', alt = true }, usize(p), false)
             'c' if sp.length == Lng -> emit_wide_char(s, sp, va_arg[u32](*ap))
-            'c' -> emit_char(s, sp, u8(va_arg[i32](*ap)))
+            'c' -> emit_char(s, sp, u8.wrap(va_arg[i32](*ap)))
             's' if sp.length == Lng ->
                 val text: *u32 = va_arg(*ap)
                 if text == null then emit_text(s, sp, c"(null)") else emit_wide_text(s, sp, text)
