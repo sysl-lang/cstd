@@ -51,7 +51,7 @@ var environ: **u8 = null
 // The first thread's storage laid, the argument block read, the module storage filled, the program run, and what it answered handed to
 // `exit`, which runs the `atexit` handlers before the process ends.
 @export("cstd_start")
-cstd_start(block: *u64) -> never
+cstd_start(block: *nonnull u64) -> never
     lay_first_thread()
     init_modules()
     val argc = int(block[0])

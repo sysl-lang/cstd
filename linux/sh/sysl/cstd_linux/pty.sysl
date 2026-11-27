@@ -10,7 +10,7 @@ module sh.sysl.cstd_linux
 // and `EINVAL` for one that is not a master; `ptsname` and `ptsname_r` name the second case `ENOTTY`.
 // The kernel says `ENOTTY` for both, and `grantpt` and `unlockpt` turn it into `EINVAL`.
 
-import sh.sysl.cstd.{EINVAL, ENOTTY, ERANGE, errno}
+import sh.sysl.cstd.{EINVAL, ENOTTY, ERANGE, errno, memcpy}
 
 const SYS_IOCTL: u64 = 29
 
@@ -20,12 +20,12 @@ const TIOCGPTN: u64 = 0x80045430
 const TIOCSPTLCK: u64 = 0x40045431
 
 @export("posix_openpt")
-posix_openpt(flags: i32) -> i32 = i32(checked(call(SYS_OPENAT, u64(AT_FDCWD), addr(c"/dev/ptmx"), u64(flags))))
+posix_openpt(flags: i32) -> i32 = i32(checked(call(SYS_OPENAT, arg(AT_FDCWD), addr(c"/dev/ptmx"), arg(flags))))
 
 // The slave's number, or the errno the kernel refused with.
 private pty_number(fd: i32, n: *u32) -> i32
-    val r = call(SYS_IOCTL, u64(fd), TIOCGPTN, u64(usize(n)))
-    if r < 0 && r > -4096 then return i32(-r)
+    val r = call(SYS_IOCTL, arg(fd), TIOCGPTN, addr(n))
+    if -4096 < r < 0 then return i32(-r)
     0
 
 private invalid(e: i32) -> i32 = if e == ENOTTY then EINVAL else e
@@ -42,8 +42,8 @@ grantpt(fd: i32) -> i32
 @export("unlockpt")
 unlockpt(fd: i32) -> i32
     var unlocked: i32 = 0
-    val r = call(SYS_IOCTL, u64(fd), TIOCSPTLCK, u64(usize(&unlocked)))
-    if r < 0 && r > -4096
+    val r = call(SYS_IOCTL, arg(fd), TIOCSPTLCK, addr(&unlocked))
+    if -4096 < r < 0
         errno = invalid(i32(-r))
         return -1
     0
@@ -61,15 +61,14 @@ ptsname_r(fd: i32, buf: *u8, size: usize) -> i32
     var count = 0
     var rest = n
     loop
-        digits[count] = u8('0') + u8(rest % 10)
+        digits[count] = '0' + u8(rest % 10)
         count += 1
         rest /= 10
         if rest == 0 then break
 
-    val prefix = c"/dev/pts/"
     val total = 9 + count
     if size < usize(total + 1) then return ERANGE
-    for i in 0..<9 do buf[i] = prefix[i]
+    memcpy(buf, c"/dev/pts/", 9)
     for i in 0..<count do buf[9 + i] = digits[count - 1 - i]
     buf[total] = 0
     0
@@ -80,7 +79,7 @@ private var ptsname_buf: [24]u8
 // set where `ptsname_r` would have answered an error.
 @export("ptsname")
 ptsname(fd: i32) -> *u8
-    val e = ptsname_r(fd, &ptsname_buf[0], 24)
+    val e = ptsname_r(fd, &ptsname_buf[0], ptsname_buf.len)
     if e != 0
         errno = e
         return null

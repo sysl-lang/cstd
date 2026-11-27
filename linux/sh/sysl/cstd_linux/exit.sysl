@@ -17,7 +17,7 @@ exit(status: i32) -> never
 @export("_exit")
 _exit(status: i32) -> never
     loop
-        svc(SYS_EXIT_GROUP, u64(status), 0, 0, 0, 0, 0)
+        svc(SYS_EXIT_GROUP, arg(status), 0, 0, 0, 0, 0)
 
 @export("_Exit")
 c_Exit(status: i32) -> never = _exit(status)
@@ -32,11 +32,11 @@ const SIG_UNBLOCK: u64 = 1
 @export("abort")
 abort() -> never
     var abrt: u64 = 1 << (SIGABRT - 1)
-    call(SYS_RT_SIGPROCMASK, SIG_UNBLOCK, u64(usize(&abrt)), 0, 8)
-    val me = u64(call(SYS_GETPID))
+    call(SYS_RT_SIGPROCMASK, SIG_UNBLOCK, addr(&abrt), 0, 8)
+    val me = arg(call(SYS_GETPID))
     call(SYS_KILL, me, SIGABRT)
     // The kernel's `struct sigaction` on arm64 — handler, flags, restorer, mask — all zero: SIG_DFL.
     var default_action: [4]u64 = [0, 0, 0, 0]
-    call(SYS_RT_SIGACTION, SIGABRT, u64(usize(&default_action[0])), 0, 8)
+    call(SYS_RT_SIGACTION, SIGABRT, addr(&default_action[0]), 0, 8)
     call(SYS_KILL, me, SIGABRT)
     _exit(128 + 6)

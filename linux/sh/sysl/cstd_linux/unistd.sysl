@@ -8,16 +8,16 @@ import sh.sysl.cstd.{EINVAL, Timespec}
 import sysl.c.{va_arg, va_end, va_start}
 
 @export("read")
-read(fd: i32, buf: *u8, n: usize) -> isize = isize(checked(call(SYS_READ, u64(fd), addr(buf), u64(n))))
+read(fd: i32, buf: *u8, n: usize) -> isize = isize(checked(call(SYS_READ, arg(fd), addr(buf), arg(n))))
 
 @export("write")
-write(fd: i32, buf: *u8, n: usize) -> isize = isize(checked(call(SYS_WRITE, u64(fd), addr(buf), u64(n))))
+write(fd: i32, buf: *u8, n: usize) -> isize = isize(checked(call(SYS_WRITE, arg(fd), addr(buf), arg(n))))
 
 @export("close")
-close(fd: i32) -> i32 = i32(checked(call(SYS_CLOSE, u64(fd))))
+close(fd: i32) -> i32 = i32(checked(call(SYS_CLOSE, arg(fd))))
 
 @export("lseek")
-lseek(fd: i32, offset: i64, whence: i32) -> i64 = checked(call(SYS_LSEEK, u64(fd), u64(offset), u64(whence)))
+lseek(fd: i32, offset: i64, whence: i32) -> i64 = checked(call(SYS_LSEEK, arg(fd), arg(offset), arg(whence)))
 
 // The flags that create a file, and so the only ones under which `open` reads a mode: a caller
 // creating nothing passes no third argument, and C does not let `open` read one it was not given.
@@ -28,23 +28,21 @@ const O_TMPFILE: i32 = 0x404000
 
 private open_mode(flags: i32, ap: *va_list) -> u64
     if (flags & O_CREAT) == 0 && (flags & O_TMPFILE) != O_TMPFILE then return 0
-    u64(va_arg[u32](*ap))
+    va_arg[u32](*ap)
 
 @export("openat")
 openat(dirfd: i32, path: *u8, flags: i32, ...) -> i32
     var ap: va_list
     va_start(ap)
-    val mode = open_mode(flags, &ap)
-    va_end(ap)
-    i32(checked(call(SYS_OPENAT, u64(dirfd), addr(path), u64(flags), mode)))
+    defer va_end(ap)
+    i32(checked(call(SYS_OPENAT, arg(dirfd), addr(path), arg(flags), open_mode(flags, &ap))))
 
 @export("open")
 open(path: *u8, flags: i32, ...) -> i32
     var ap: va_list
     va_start(ap)
-    val mode = open_mode(flags, &ap)
-    va_end(ap)
-    i32(checked(call(SYS_OPENAT, u64(AT_FDCWD), addr(path), u64(flags), mode)))
+    defer va_end(ap)
+    i32(checked(call(SYS_OPENAT, arg(AT_FDCWD), addr(path), arg(flags), open_mode(flags, &ap))))
 
 @export("getpid")
 getpid() -> i32 = i32(call(SYS_GETPID))
@@ -53,7 +51,7 @@ getpid() -> i32 = i32(call(SYS_GETPID))
 getppid() -> i32 = i32(call(SYS_GETPPID))
 
 @export("dup")
-dup(fd: i32) -> i32 = i32(checked(call(SYS_DUP, u64(fd))))
+dup(fd: i32) -> i32 = i32(checked(call(SYS_DUP, arg(fd))))
 
 // aarch64 has `dup3` and no `dup2`, and `dup3` refuses the two descriptors being one, where `dup2`
 // answers the descriptor if it is open. Whether it is open is what `fstat` says.
@@ -61,21 +59,21 @@ dup(fd: i32) -> i32 = i32(checked(call(SYS_DUP, u64(fd))))
 dup2(fd: i32, to: i32) -> i32
     if fd == to
         var st: [16]u64
-        if checked(call(SYS_FSTAT, u64(fd), u64(usize(&st[0])))) < 0 then return -1
+        if checked(call(SYS_FSTAT, arg(fd), addr(&st[0]))) < 0 then return -1
         return to
-    i32(checked(call(SYS_DUP3, u64(fd), u64(to), 0)))
+    i32(checked(call(SYS_DUP3, arg(fd), arg(to), 0)))
 
 @export("pipe")
-pipe(fds: *i32) -> i32 = i32(checked(call(SYS_PIPE2, u64(usize(fds)), 0)))
+pipe(fds: *i32) -> i32 = i32(checked(call(SYS_PIPE2, addr(fds), 0)))
 
 @export("unlink")
-unlink(path: *u8) -> i32 = i32(checked(call(SYS_UNLINKAT, u64(AT_FDCWD), addr(path), 0)))
+unlink(path: *u8) -> i32 = i32(checked(call(SYS_UNLINKAT, arg(AT_FDCWD), addr(path), 0)))
 
 @export("rmdir")
-rmdir(path: *u8) -> i32 = i32(checked(call(SYS_UNLINKAT, u64(AT_FDCWD), addr(path), AT_REMOVEDIR)))
+rmdir(path: *u8) -> i32 = i32(checked(call(SYS_UNLINKAT, arg(AT_FDCWD), addr(path), AT_REMOVEDIR)))
 
 @export("mkdir")
-mkdir(path: *u8, mode: u32) -> i32 = i32(checked(call(SYS_MKDIRAT, u64(AT_FDCWD), addr(path), u64(mode))))
+mkdir(path: *u8, mode: u32) -> i32 = i32(checked(call(SYS_MKDIRAT, arg(AT_FDCWD), addr(path), arg(mode))))
 
 @export("chdir")
 chdir(path: *u8) -> i32 = i32(checked(call(SYS_CHDIR, addr(path))))
@@ -83,25 +81,25 @@ chdir(path: *u8) -> i32 = i32(checked(call(SYS_CHDIR, addr(path))))
 // The kernel answers the length it wrote; C answers the buffer.
 @export("getcwd")
 getcwd(buf: *u8, size: usize) -> *u8
-    if checked(call(SYS_GETCWD, addr(buf), u64(size))) < 0 then return null
+    if checked(call(SYS_GETCWD, addr(buf), arg(size))) < 0 then return null
     buf
 
 // `struct stat` is the 128-byte asm-generic one, laid out in `<sys/stat.h>`; the kernel fills it.
 @export("fstat")
-fstat(fd: i32, st: *u8) -> i32 = i32(checked(call(SYS_FSTAT, u64(fd), addr(st))))
+fstat(fd: i32, st: *u8) -> i32 = i32(checked(call(SYS_FSTAT, arg(fd), addr(st))))
 
 @export("stat")
-stat(path: *u8, st: *u8) -> i32 = i32(checked(call(SYS_NEWFSTATAT, u64(AT_FDCWD), addr(path), addr(st))))
+stat(path: *u8, st: *u8) -> i32 = i32(checked(call(SYS_NEWFSTATAT, arg(AT_FDCWD), addr(path), addr(st))))
 
 @export("kill")
-kill(pid: i32, sig: i32) -> i32 = i32(checked(call(SYS_KILL, u64(pid), u64(sig))))
+kill(pid: i32, sig: i32) -> i32 = i32(checked(call(SYS_KILL, arg(pid), arg(sig))))
 
 // The kernel's signal set is one 64-bit word on aarch64 (the last argument is its size, 8), and
 // `SIG_BLOCK`, `SIG_UNBLOCK`, `SIG_SETMASK` are 0, 1, 2, as the call takes them. Either set may be
 // null: no change, or no answer wanted. `sigsetjmp` reaches the mask through this.
 @export("sigprocmask")
 sigprocmask(how: i32, set: *u8, old: *u8) -> i32 =
-    i32(checked(call(SYS_RT_SIGPROCMASK, u64(how), addr(set), addr(old), 8)))
+    i32(checked(call(SYS_RT_SIGPROCMASK, arg(how), addr(set), addr(old), 8)))
 
 // `struct timespec` is two 64-bit words, seconds and nanoseconds.
 @export("nanosleep")
@@ -110,13 +108,13 @@ nanosleep(req: *u8, rem: *u8) -> i32 = i32(checked(call(SYS_NANOSLEEP, addr(req)
 // `time`, `clock` and `timespec_get` in the core read the clock through this, as a `Timespec`.
 @export("clock_gettime")
 clock_gettime(clock: i32, ts: *Timespec) -> i32 =
-    i32(checked(call(SYS_CLOCK_GETTIME, u64(clock), u64(usize(ts)))))
+    i32(checked(call(SYS_CLOCK_GETTIME, arg(clock), addr(ts))))
 
 @export("clock_getres")
-clock_getres(clock: i32, res: *u8) -> i32 = i32(checked(call(SYS_CLOCK_GETRES, u64(clock), addr(res))))
+clock_getres(clock: i32, res: *u8) -> i32 = i32(checked(call(SYS_CLOCK_GETRES, arg(clock), addr(res))))
 
 @export("clock_settime")
-clock_settime(clock: i32, ts: *u8) -> i32 = i32(checked(call(SYS_CLOCK_SETTIME, u64(clock), addr(ts))))
+clock_settime(clock: i32, ts: *u8) -> i32 = i32(checked(call(SYS_CLOCK_SETTIME, arg(clock), addr(ts))))
 
 // The one call of these that answers its error number itself, as the kernel's negated answer, and
 // leaves `errno` alone. POSIX makes the calling thread's own CPU-time clock EINVAL, where Linux
@@ -126,46 +124,44 @@ const CLOCK_THREAD_CPUTIME_ID: i32 = 3
 @export("clock_nanosleep")
 clock_nanosleep(clock: i32, flags: i32, req: *u8, rem: *u8) -> i32
     if clock == CLOCK_THREAD_CPUTIME_ID then return EINVAL
-    i32(-call(SYS_CLOCK_NANOSLEEP, u64(clock), u64(flags), addr(req), addr(rem)))
+    i32(-call(SYS_CLOCK_NANOSLEEP, arg(clock), arg(flags), addr(req), addr(rem)))
 
 // `timer_t` is the kernel's own timer id, an `int`, so the kernel writes it where the caller asked.
 // A `struct sigevent` reaches the kernel unread: `SIGEV_SIGNAL`, `SIGEV_NONE` and `SIGEV_THREAD_ID`
 // are its to act on, and `SIGEV_THREAD`, which needs a thread library, it refuses with `EINVAL`.
 @export("timer_create")
 timer_create(clock: i32, event: *u8, timer: *i32) -> i32 =
-    i32(checked(call(SYS_TIMER_CREATE, u64(clock), addr(event), u64(usize(timer)))))
+    i32(checked(call(SYS_TIMER_CREATE, arg(clock), addr(event), addr(timer))))
 
 @export("timer_delete")
-timer_delete(timer: i32) -> i32 = i32(checked(call(SYS_TIMER_DELETE, u64(timer))))
+timer_delete(timer: i32) -> i32 = i32(checked(call(SYS_TIMER_DELETE, arg(timer))))
 
 @export("timer_getoverrun")
-timer_getoverrun(timer: i32) -> i32 = i32(checked(call(SYS_TIMER_GETOVERRUN, u64(timer))))
+timer_getoverrun(timer: i32) -> i32 = i32(checked(call(SYS_TIMER_GETOVERRUN, arg(timer))))
 
 @export("timer_gettime")
-timer_gettime(timer: i32, value: *u8) -> i32 = i32(checked(call(SYS_TIMER_GETTIME, u64(timer), addr(value))))
+timer_gettime(timer: i32, value: *u8) -> i32 = i32(checked(call(SYS_TIMER_GETTIME, arg(timer), addr(value))))
 
 @export("timer_settime")
 timer_settime(timer: i32, flags: i32, value: *u8, old: *u8) -> i32 =
-    i32(checked(call(SYS_TIMER_SETTIME, u64(timer), u64(flags), addr(value), addr(old))))
+    i32(checked(call(SYS_TIMER_SETTIME, arg(timer), arg(flags), addr(value), addr(old))))
 
 // `open(path, O_CREAT | O_WRONLY | O_TRUNC, mode)`.
 @export("creat")
-creat(path: *u8, mode: u32) -> i32 = i32(checked(call(SYS_OPENAT, u64(AT_FDCWD), addr(path), u64(0x241), u64(mode))))
+creat(path: *u8, mode: u32) -> i32 = i32(checked(call(SYS_OPENAT, arg(AT_FDCWD), addr(path), 0x241, arg(mode))))
 
 // The commands that take a third argument: `F_DUPFD`, `F_SETFD`, `F_SETFL` and `F_DUPFD_CLOEXEC` an
 // `int`, the lock commands a pointer to a `struct flock`. A caller of any other passes none, and C
 // does not let `fcntl` read one it was not given. An `int` is read as the 32 bits it is, so a
 // negative one reaches the kernel as the huge number it refuses.
-private fcntl_takes_int(cmd: i32) -> bool = cmd == 0 || cmd == 2 || cmd == 4 || cmd == 1030
+private fcntl_takes_int(cmd: i32) -> bool = cmd is 0 | 2 | 4 | 1030
 
-private fcntl_takes_pointer(cmd: i32) -> bool = cmd == 5 || cmd == 6 || cmd == 7
+private fcntl_takes_pointer(cmd: i32) -> bool = cmd is 5..7
 
 @export("fcntl")
 fcntl(fd: i32, cmd: i32, ...) -> i32
     var ap: va_list
     va_start(ap)
-    var arg: u64 = 0
-    if fcntl_takes_int(cmd) then arg = u64(va_arg[u32](ap))
-    else if fcntl_takes_pointer(cmd) then arg = u64(va_arg[u64](ap))
-    va_end(ap)
-    i32(checked(call(SYS_FCNTL, u64(fd), u64(cmd), arg)))
+    defer va_end(ap)
+    val third: u64 = if fcntl_takes_int(cmd) then va_arg[u32](ap) elif fcntl_takes_pointer(cmd) then va_arg[u64](ap) else 0
+    i32(checked(call(SYS_FCNTL, arg(fd), arg(cmd), third)))
