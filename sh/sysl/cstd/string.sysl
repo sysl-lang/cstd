@@ -12,8 +12,6 @@ module sh.sysl.cstd
 // header in `include/` carries the `const` and the `void` C wants to see. Bytes are compared as
 // `unsigned char`, as C requires of `strcmp` and `memcmp`.
 
-import sysl.slices.as_ptr
-
 @export("strlen")
 strlen(s: *u8) -> usize
     var n: usize = 0
@@ -35,24 +33,14 @@ strncmp(a: *u8, b: *u8, n: usize) -> i32
 
 @export("strcpy")
 strcpy(dst: *u8, src: *u8) -> *u8
-    var i: usize = 0
-    loop
-        dst[i] = src[i]
-        if src[i] == 0 then break
-        i += 1
+    stpcpy(dst, src)
     dst
 
 // Copies at most `n` bytes and fills the rest of the `n` with zeros — and, as C specifies, leaves
 // `dst` unterminated when `src` is `n` bytes or longer.
 @export("strncpy")
 strncpy(dst: *u8, src: *u8, n: usize) -> *u8
-    var i: usize = 0
-    while i < n && src[i] != 0
-        dst[i] = src[i]
-        i += 1
-    while i < n
-        dst[i] = 0
-        i += 1
+    stpncpy(dst, src, n)
     dst
 
 @export("strcat")
@@ -64,11 +52,9 @@ strcat(dst: *u8, src: *u8) -> *u8
 @export("strncat")
 strncat(dst: *u8, src: *u8, n: usize) -> *u8
     val end = &dst[strlen(dst)]
-    var i: usize = 0
-    while i < n && src[i] != 0
-        end[i] = src[i]
-        i += 1
-    end[i] = 0
+    val len = strnlen(src, n)
+    memcpy(end, src, len)
+    end[len] = 0
     dst
 
 // The terminator is part of the string here: `strchr(s, 0)` answers the address of the zero.
@@ -102,12 +88,7 @@ strstr(haystack: *u8, needle: *u8) -> *u8
         i += 1
 
 // Whether byte `b` is one of the bytes of the C string `set`. The terminator never is.
-private in_set(b: u8, set: *u8) -> bool
-    var i: usize = 0
-    while set[i] != 0
-        if set[i] == b then return true
-        i += 1
-    false
+private in_set(b: u8, set: *u8) -> bool = b != 0 && strchr(set, b) != null
 
 @export("strspn")
 strspn(s: *u8, accept: *u8) -> usize
@@ -130,19 +111,16 @@ strpbrk(s: *u8, accept: *u8) -> *u8
 // `s` on every call after the first; a token is terminated in place by overwriting its delimiter.
 @export("strtok_r")
 strtok_r(s: *u8, delim: *u8, save: **u8) -> *u8
-    var from = if s != null then s else *save
-    if from == null then return null
-    from = &from[strspn(from, delim)]
-    if from[0] == 0
+    val start = if s != null then s else *save
+    if start == null then return null
+    val token = &start[strspn(start, delim)]
+    val len = strcspn(token, delim)
+    if token[len] == 0
         *save = null
-        return null
-    val len = strcspn(from, delim)
-    if from[len] == 0
-        *save = null
-    else
-        from[len] = 0
-        *save = &from[len + 1]
-    from
+        return if len == 0 then null else token
+    token[len] = 0
+    *save = &token[len + 1]
+    token
 
 @export("memcpy")
 memcpy(dst: *u8, src: *u8, n: usize) -> *u8
@@ -201,58 +179,61 @@ strtok(s: *u8, delim: *u8) -> *u8 = strtok_r(s, delim, &strtok_save)
 // library would format it in, and nothing here may depend on a formatter. Every message is a
 // literal, so the pointer is to text that ends in a NUL and lives as long as the program.
 @export("strerror")
-strerror(code: i32) -> *u8 = message(code)
+strerror(code: i32) -> *u8 = message(code).unwrap_or(UNKNOWN_ERROR)
 
-private message(code: i32) -> *u8 = code match
-    0 -> c"Success"
-    EPERM -> c"Operation not permitted"
-    ENOENT -> c"No such file or directory"
-    ESRCH -> c"No such process"
-    EINTR -> c"Interrupted system call"
-    EIO -> c"Input/output error"
-    ENXIO -> c"No such device or address"
-    E2BIG -> c"Argument list too long"
-    ENOEXEC -> c"Exec format error"
-    EBADF -> c"Bad file descriptor"
-    ECHILD -> c"No child processes"
-    EAGAIN -> c"Resource temporarily unavailable"
-    ENOMEM -> c"Cannot allocate memory"
-    EACCES -> c"Permission denied"
-    EFAULT -> c"Bad address"
-    ENOTBLK -> c"Block device required"
-    EBUSY -> c"Device or resource busy"
-    EEXIST -> c"File exists"
-    EXDEV -> c"Invalid cross-device link"
-    ENODEV -> c"No such device"
-    ENOTDIR -> c"Not a directory"
-    EISDIR -> c"Is a directory"
-    EINVAL -> c"Invalid argument"
-    ENFILE -> c"Too many open files in system"
-    EMFILE -> c"Too many open files"
-    ENOTTY -> c"Inappropriate ioctl for device"
-    ETXTBSY -> c"Text file busy"
-    EFBIG -> c"File too large"
-    ENOSPC -> c"No space left on device"
-    ESPIPE -> c"Illegal seek"
-    EROFS -> c"Read-only file system"
-    EMLINK -> c"Too many links"
-    EPIPE -> c"Broken pipe"
-    EDOM -> c"Numerical argument out of domain"
-    ERANGE -> c"Numerical result out of range"
-    EDEADLK -> c"Resource deadlock avoided"
-    ENAMETOOLONG -> c"File name too long"
-    ENOLCK -> c"No locks available"
-    ENOSYS -> c"Function not implemented"
-    ENOTEMPTY -> c"Directory not empty"
-    ELOOP -> c"Too many levels of symbolic links"
-    EOVERFLOW -> c"Value too large for defined data type"
-    EILSEQ -> c"Invalid or incomplete multibyte or wide character"
-    ENOTSOCK -> c"Socket operation on non-socket"
-    EDESTADDRREQ -> c"Destination address required"
-    EOPNOTSUPP -> c"Operation not supported"
-    EAFNOSUPPORT -> c"Address family not supported by protocol"
-    ETIMEDOUT -> c"Connection timed out"
-    _ -> c"Unknown error"
+private val UNKNOWN_ERROR: *nonnull u8 = c"Unknown error"
+
+// The message for a code `errno.sysl` defines, and for 0.
+private message(code: i32) -> Option[*nonnull u8] = code match
+    0 -> Some(c"Success")
+    EPERM -> Some(c"Operation not permitted")
+    ENOENT -> Some(c"No such file or directory")
+    ESRCH -> Some(c"No such process")
+    EINTR -> Some(c"Interrupted system call")
+    EIO -> Some(c"Input/output error")
+    ENXIO -> Some(c"No such device or address")
+    E2BIG -> Some(c"Argument list too long")
+    ENOEXEC -> Some(c"Exec format error")
+    EBADF -> Some(c"Bad file descriptor")
+    ECHILD -> Some(c"No child processes")
+    EAGAIN -> Some(c"Resource temporarily unavailable")
+    ENOMEM -> Some(c"Cannot allocate memory")
+    EACCES -> Some(c"Permission denied")
+    EFAULT -> Some(c"Bad address")
+    ENOTBLK -> Some(c"Block device required")
+    EBUSY -> Some(c"Device or resource busy")
+    EEXIST -> Some(c"File exists")
+    EXDEV -> Some(c"Invalid cross-device link")
+    ENODEV -> Some(c"No such device")
+    ENOTDIR -> Some(c"Not a directory")
+    EISDIR -> Some(c"Is a directory")
+    EINVAL -> Some(c"Invalid argument")
+    ENFILE -> Some(c"Too many open files in system")
+    EMFILE -> Some(c"Too many open files")
+    ENOTTY -> Some(c"Inappropriate ioctl for device")
+    ETXTBSY -> Some(c"Text file busy")
+    EFBIG -> Some(c"File too large")
+    ENOSPC -> Some(c"No space left on device")
+    ESPIPE -> Some(c"Illegal seek")
+    EROFS -> Some(c"Read-only file system")
+    EMLINK -> Some(c"Too many links")
+    EPIPE -> Some(c"Broken pipe")
+    EDOM -> Some(c"Numerical argument out of domain")
+    ERANGE -> Some(c"Numerical result out of range")
+    EDEADLK -> Some(c"Resource deadlock avoided")
+    ENAMETOOLONG -> Some(c"File name too long")
+    ENOLCK -> Some(c"No locks available")
+    ENOSYS -> Some(c"Function not implemented")
+    ENOTEMPTY -> Some(c"Directory not empty")
+    ELOOP -> Some(c"Too many levels of symbolic links")
+    EOVERFLOW -> Some(c"Value too large for defined data type")
+    EILSEQ -> Some(c"Invalid or incomplete multibyte or wide character")
+    ENOTSOCK -> Some(c"Socket operation on non-socket")
+    EDESTADDRREQ -> Some(c"Destination address required")
+    EOPNOTSUPP -> Some(c"Operation not supported")
+    EAFNOSUPPORT -> Some(c"Address family not supported by protocol")
+    ETIMEDOUT -> Some(c"Connection timed out")
+    _ -> None
 
 // The reentrant `strerror`: the same message, copied into the caller's buffer. A message that does
 // not fit is cut to what does, still terminated, and the answer is `ERANGE`; a code `errno.h` does not
@@ -260,9 +241,9 @@ private message(code: i32) -> *u8 = code match
 // is left alone, since the answer carries the error.
 @export("strerror_r")
 strerror_r(code: i32, buf: *u8, size: usize) -> i32
-    val text = message(code)
-    if strlcpy(buf, text, size) >= size then return ERANGE
-    if strcmp(text, c"Unknown error") == 0 then EINVAL else 0
+    val known = message(code)
+    if strlcpy(buf, known.unwrap_or(UNKNOWN_ERROR), size) >= size then return ERANGE
+    if known.is_some() then 0 else EINVAL
 
 // Only the C locale exists, so the locale changes nothing and the message is `strerror`'s.
 @export("strerror_l")
@@ -270,11 +251,9 @@ strerror_l(code: i32, locale: *u8) -> *u8 = strerror(code)
 
 // The text for a signal number: one for each signal `signal.h` defines, in glibc's words, and the
 // fixed text `Unknown signal` for any other number. POSIX leaves the words to the implementation.
-@export("strsignal")
-strsignal(sig: i32) -> *u8 = signal_text(sig)
-
 // The numbers are `signal.h`'s, which are Linux's.
-private signal_text(sig: i32) -> *u8 = sig match
+@export("strsignal")
+strsignal(sig: i32) -> *u8 = sig match
     1 -> c"Hangup"
     2 -> c"Interrupt"
     3 -> c"Quit"
@@ -307,15 +286,10 @@ stpcpy(dst: *u8, src: *u8) -> *u8
 // filled all `n` bytes and left `dst` unterminated.
 @export("stpncpy")
 stpncpy(dst: *u8, src: *u8, n: usize) -> *u8
-    var i: usize = 0
-    while i < n && src[i] != 0
-        dst[i] = src[i]
-        i += 1
-    val end = &dst[i]
-    while i < n
-        dst[i] = 0
-        i += 1
-    end
+    val len = strnlen(src, n)
+    memcpy(dst, src, len)
+    memset(&dst[len], 0, n - len)
+    &dst[len]
 
 // Copies as much of `src` as fits in `size` bytes and terminates it, unless `size` is 0, when nothing
 // is written. The answer is the whole length of `src`, so an answer of `size` or more says the copy
@@ -324,7 +298,7 @@ stpncpy(dst: *u8, src: *u8, n: usize) -> *u8
 strlcpy(dst: *u8, src: *u8, size: usize) -> usize
     val len = strlen(src)
     if size > 0
-        val n = if len < size then len else size - 1
+        val n = len.min(size - 1)
         memcpy(dst, src, n)
         dst[n] = 0
     len
@@ -344,8 +318,7 @@ strlcat(dst: *u8, src: *u8, size: usize) -> usize
 memmem(haystack: *u8, hlen: usize, needle: *u8, nlen: usize) -> *u8
     if nlen == 0 then return haystack
     if hlen < nlen then return null
-    val starts = hlen - nlen + 1
-    for i in 0..<starts
+    for i in 0..hlen - nlen
         if memcmp(&haystack[i], needle, nlen) == 0 then return &haystack[i]
     null
 

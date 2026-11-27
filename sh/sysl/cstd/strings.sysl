@@ -7,7 +7,9 @@ module sh.sysl.cstd
 // Bytes are compared as `unsigned char`, as `strcmp` does. A comparison answers the difference of
 // the two folded bytes at the first place they differ.
 
-private fold(b: u8) -> i32 = if b >= u8('A') && b <= u8('Z') then i32(b) + 32 else i32(b)
+import sysl.math.Bits
+
+private fold(b: u8) -> i32 = if b is 'A'..'Z' then b + 32 else b
 
 @export("strcasecmp")
 strcasecmp(a: *u8, b: *u8) -> i32
@@ -31,23 +33,18 @@ strcasecmp_l(a: *u8, b: *u8, locale: *u8) -> i32 = strcasecmp(a, b)
 @export("strncasecmp_l")
 strncasecmp_l(a: *u8, b: *u8, n: usize, locale: *u8) -> i32 = strncasecmp(a, b, n)
 
-// The index of the least significant set bit, counting the least significant as 1; 0 for 0.
-private first_set(bits: u64) -> i32
-    if bits == 0 then return 0
-    var n: i32 = 1
-    var rest = bits
-    while rest & 1 == 0
-        rest = rest >> 1
-        n += 1
-    n
+// The index of the least significant set bit, counting the least significant as 1; 0 for 0, whose
+// trailing zeros run the whole width.
+private first_set[T: Bits](bits: T) -> i32
+    val below = bits.trailing_zeros()
+    if below == T.width() then 0 else i32(below) + 1
 
-// `long` is measured, as in `stdlib.sysl`: 32 bits on a Cortex-M, 64 on an LP64 machine. A negative
-// number is widened by its bit pattern, so the answer does not depend on the sign.
+// `long` is measured, as in `stdlib.sysl`: 32 bits on a Cortex-M, 64 on an LP64 machine.
 @export("ffs")
-ffs(i: i32) -> i32 = first_set(u64(u32(i)))
+ffs(i: i32) -> i32 = first_set(i)
 
 @export("ffsl")
-ffsl(i: Long) -> i32 = first_set(u64(ULong(i)))
+ffsl(i: Long) -> i32 = first_set(i)
 
 @export("ffsll")
-ffsll(i: LongLong) -> i32 = first_set(u64(ULongLong(i)))
+ffsll(i: LongLong) -> i32 = first_set(i)

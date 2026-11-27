@@ -34,13 +34,13 @@ isxdigit(c: i32) -> i32 =
 
 // Space, `\t`, `\n`, `\v`, `\f` and `\r`: the space and the run 9 to 13.
 @export("isspace")
-isspace(c: i32) -> i32 = answer(c == i32(' ') || (c >= 9 && c <= 13))
+isspace(c: i32) -> i32 = answer(c == i32(' ') || c is 9..13)
 
 @export("isblank")
 isblank(c: i32) -> i32 = answer(c == i32(' ') || c == i32('\t'))
 
 @export("iscntrl")
-iscntrl(c: i32) -> i32 = answer((c >= 0 && c < 32) || c == 127)
+iscntrl(c: i32) -> i32 = answer(c is 0..31 | 127)
 
 // Every visible character: the printable ones less the space.
 @export("isgraph")

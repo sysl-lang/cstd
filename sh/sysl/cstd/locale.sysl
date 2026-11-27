@@ -48,17 +48,17 @@ private var installed: *u8 = null
 
 private global_locale() -> *u8 = ptr_cast(~usize(0))
 
-private is_category(category: i32) -> bool = category >= LC_CTYPE && category <= LC_ALL
+private is_category(category: i32) -> bool = LC_CTYPE <= category <= LC_ALL
 
 private is_c_name(name: *u8) -> bool =
     name[0] == 0 || strcmp(name, c"C") == 0 || strcmp(name, c"POSIX") == 0
 
-private c_name() -> *u8 = c"C"
+private val C_NAME: *nonnull u8 = c"C"
 
 @export("setlocale")
 setlocale(category: i32, name: *u8) -> *u8
     if !is_category(category) then return null
-    if name == null || is_c_name(name) then c_name() else null
+    if name == null || is_c_name(name) then C_NAME else null
 
 // The C locale's conventions: a `.` for the decimal point, and every other text empty and every
 // other number `CHAR_MAX`, which is C's way of saying the locale does not say.
@@ -123,17 +123,14 @@ newlocale(mask: i32, name: *u8, base: *u8) -> *u8
 duplocale(loc: *u8) -> *u8 = &c_locale_object
 
 @export("freelocale")
-freelocale(loc: *u8)
-    return
+freelocale(loc: *u8) = ()
 
 @export("uselocale")
 uselocale(loc: *u8) -> *u8
     val previous = if installed == null then global_locale() else installed
-    if loc == global_locale()
-        installed = null
-    else if loc != null
-        installed = loc
+    if loc == global_locale() then installed = null
+    elif loc != null then installed = loc
     previous
 
 @export("getlocalename_l")
-getlocalename_l(category: i32, loc: *u8) -> *u8 = if is_category(category) then c_name() else null
+getlocalename_l(category: i32, loc: *u8) -> *u8 = if is_category(category) then C_NAME else null
